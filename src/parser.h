@@ -1,0 +1,43 @@
+#ifndef KLEPCOMPILER_PARSER_H
+#define KLEPCOMPILER_PARSER_H
+#include "string_view.h"
+#include <stdint.h>
+
+#include "ir.h"
+#include "khash.h"
+#include "sv_u64_map.h"
+#include "list.h"
+
+SV SV_from_identifiermap_lookup(khash_t(sv_u64_map)* restrict identifier_map, uint64_t identifier);
+
+typedef enum {
+    P_OP__ADD,
+    P_OP__SUB,
+    P_OP__DIV,
+    P_OP__MUL,
+    P_OP__POW,
+
+    P_OP__CMP_EQ,
+    P_OP__CMP_LESS,
+    P_OP__CMP_LESS_EQ,
+    P_OP__CMP_GREATER,
+    P_OP__CMP_GREATER_EQ,
+
+    P_OP__OR,
+    P_OP__AND,
+} P_OP;
+
+init_list_type(P_OP, P_OP_LIST)
+
+
+
+
+
+/// bool
+#define Token_cmp(t,val) SV_pv_cmp_eq((t), val, sizeof(val)-1)
+
+typedef const SV* Token;
+
+void parse(SVList* restrict tokens, const SV* restrict source, const SV* restrict source_filename);
+
+#endif //KLEPCOMPILER_PARSER_H
