@@ -23,7 +23,7 @@ int main(const int argc, char* argv[]) {
 
     SVList_free(&list);
 
-    const char* raw_source_filename = "/home/frantisek/Projects/KlepCompiler/a.klep";
+    const char* raw_source_filename = "/home/frantisek/Projects/KlepCompiler/b.klep";
     const SV source_filename = SV_from_str(raw_source_filename);
 
     FILE* source_file = fopen(raw_source_filename, "rb");

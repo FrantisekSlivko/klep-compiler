@@ -2,11 +2,26 @@
 
 #include "utils/color.h"
 
+bool IR_TY_is(const SV* t) {
+    if (
+        Token_cmp(t, "Int64") ||
+        Token_cmp(t, "Int32") ||
+        Token_cmp(t, "Int16") ||
+        Token_cmp(t, "Int8")  ||
+        Token_cmp(t, "Char")
+    ) {
+        return true;
+    }
+    return false;
+}
+
 void print_IR_typeuse(const IR_typeuse* restrict ty, khash_t(sv_u64_map)* restrict identifier_map) {
     const SV type_name = SV_from_identifiermap_lookup(identifier_map, ty->name);
     printf(SV_format, SV_v_args(type_name));
     switch (ty->tt_ty) {
-        case IR_TY_general:
+        case IR_TY_Primitive:
+            break;
+        case IR_TY_Named:
             break;
         case IR_TY_Ref:
         case IR_TY_Array:
@@ -164,13 +179,41 @@ void print_IR_instr(const IR_instr* restrict instr, khash_t(sv_u64_map)* restric
             printf("RETURN %%%lu", instr->p1.src1.val);
             break;
         }
-        case IR_INST_TY__GET_FIELD: {
+        case IR_INST_TY__GET_FIELD_PTR: {
             const SV field_name = SV_from_identifiermap_lookup(identifier_map, instr->p1.name);
-            printf("%%%lu = GET_FIELD %%%lu, '."SV_format"'", instr->dest.val, instr->p2.src2.val, SV_v_args(field_name));
+            printf("%%%lu = GET_FIELD_PTR %%%lu, '."SV_format"'", instr->dest.val, instr->p2.src2.val, SV_v_args(field_name));
             break;
         }
-        case IR_INST_TY__INDEX: {
-            printf("%%%lu = INDEX %%%lu BY %%%lu", instr->dest.val, instr->p1.src1.val, instr->p2.src2.val);
+        case IR_INST_TY__INDEX_PTR: {
+            printf("%%%lu = INDEX_PTR %%%lu [ %%%lu ]", instr->dest.val, instr->p1.src1.val, instr->p2.src2.val);
+            break;
+        }
+        case IR_INST_TY__READ_PTR: {
+            printf("%%%lu = READ_PTR %%%lu", instr->dest.val, instr->p1.src1.val);
+            break;
+        }
+        case IR_INST_TY__FN_CALL_VOID: {
+            const SV fn_name = SV_from_identifiermap_lookup(identifier_map, instr->p1.name);
+            printf("CALL <"SV_format"> (", SV_v_args(fn_name));
+            for (size_t i = 0; i < instr->p2.array->len; i++) {
+                printf("%%%lu", instr->p2.array->array[i].val);
+                if (i+1 != instr->p2.array->len) {
+                    printf(", ");
+                }
+            }
+            putc(')' ,stdout);
+            break;
+        }
+        case IR_INST_TY__FN_CALL_RET: {
+            const SV fn_name = SV_from_identifiermap_lookup(identifier_map, instr->p1.name);
+            printf("%%%lu = CALL <"SV_format"> (", instr->dest.val, SV_v_args(fn_name));
+            for (size_t i = 0; i < instr->p2.array->len; i++) {
+                printf("%%%lu", instr->p2.array->array[i].val);
+                if (i+1 != instr->p2.array->len) {
+                    printf(", ");
+                }
+            }
+            putc(')' ,stdout);
             break;
         }
     }

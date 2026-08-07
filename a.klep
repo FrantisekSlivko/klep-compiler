@@ -65,18 +65,6 @@ int main() {
     return a + 5;
 }
 
-void index_field_test() {
-    List<int> l = [1+2, 2, 3];
-    int len = l.len;
-    int second = l[1];
-
-    List<List<int>> l2 = [l];
-    int double_len = l2[0].len;
-
-    l[2] = 5;
-    l[0] += 1;
-}
-
 void float() {
     float pi = 3.14;
 }

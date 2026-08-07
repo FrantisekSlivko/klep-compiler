@@ -1,0 +1,36 @@
+
+
+struct Point {
+    Int x;
+    Int y;
+}
+
+
+void index_field_test() {
+    List<int> l = [1+2, 2, 3];
+    int len = l.len;
+    int second = l[1];
+
+    List<List<int>> l2 = [l];
+    int double_len = l2[0].len;
+
+    l[2] = 5;
+    l[0] += 1;
+
+    int i = 0;
+    while i < 10 {
+        i += 1;
+    }
+    int ii = i * i;
+}
+
+void calls() {
+
+    print(10);
+    int i = 0;
+    while i < 10 {
+        i += 1;
+        println(i);
+    }
+    int i2 = add(i, 2);
+}

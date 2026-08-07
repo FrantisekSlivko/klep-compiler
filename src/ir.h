@@ -10,8 +10,11 @@ typedef uint64_t Identifier;
 
 // init_list_type(Identifier, Identifier_LIST)
 
+bool IR_TY_is(const SV* t);
+
 typedef enum {
-    IR_TY_general,
+    IR_TY_Primitive,
+    IR_TY_Named,
     IR_TY_Ref,
     IR_TY_Array,
     IR_TY_List,
@@ -22,6 +25,8 @@ typedef struct IR_typeuse {
     IR_typeuse_type tt_ty;
     struct IR_typeuse* contained;
 } IR_typeuse;
+
+void print_IR_typeuse(const IR_typeuse* restrict ty, khash_t(sv_u64_map)* restrict identifier_map);
 
 typedef struct {
     IR_typeuse type;
@@ -84,11 +89,22 @@ typedef enum {
     IR_INST_TY__RETURN_VOID,
     IR_INST_TY__RETURN,
 
-    /// dest = GET_FIELD p1.name={field_name}, p2.src2={source}
-    IR_INST_TY__GET_FIELD,
+    /// dest = GET_FIELD_PTR p1.name={field_name}, p2.src2={source}
+    IR_INST_TY__GET_FIELD_PTR,
 
-    /// dest = INDEX p1.src1={array}, p2.src2={index}
-    IR_INST_TY__INDEX,
+    /// dest = INDEX_PTR p1.src1={array} [ p2.src2={index} ]
+    IR_INST_TY__INDEX_PTR,
+
+    /// dest = READ_PTR p1.src1={ptr}
+    IR_INST_TY__READ_PTR,
+
+    /// not expected to return value
+    /// CALL p1.name={name} (p2.array={args})
+    IR_INST_TY__FN_CALL_VOID,
+
+    /// expected to return value
+    /// dest = CALL p1.name={name} (p2.array={args})
+    IR_INST_TY__FN_CALL_RET,
 } IR_instr_TY;
 
 typedef struct {

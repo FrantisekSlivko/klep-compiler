@@ -22,6 +22,42 @@ typedef struct {
 
 init_list_type(P_compilation_scope, P_compilation_scope_LIST)
 
+// typedef struct {
+//     Identifier field_name;
+//
+// } TYPEDEF_StructField;
+//
+// init_list_type(TYPEDEF_StructField, TYPEDEF_StructField_LIST)
+//
+// typedef struct {
+//     Identifier name;
+//     // fields: Vec<FieldDef>,
+//     TYPEDEF_StructField_LIST fields;
+//     size_t size;       // computed after resolution
+//     size_t align;
+// } TYPEDEF_StructDef;
+//
+// // KHASH_MAP_INIT_INT64(structs_map, TYPEDEF_StructDef)
+// init_list_type(TYPEDEF_StructDef, TYPEDEF_StructDef_LIST)
+
+typedef struct {
+    Identifier name;
+    IR_typeuse type; // IR_TY_Named for structs, IR_TY_Primitive for builtins, etc.
+} IR_field;
+
+init_list_type(IR_field, IR_field_LIST)
+
+typedef struct {
+    Identifier name;
+    IR_field_LIST fields;
+} IR_structdef;
+
+init_list_type(IR_structdef, IR_structdef_LIST)
+
+typedef struct {
+    IR_structdef_LIST structs;
+} TypeTable;
+
 typedef struct {
     // --- compilation process --
     SVListView positioner;
@@ -39,8 +75,7 @@ typedef struct {
     uint64_t temporal_fn_cnt;
     P_compilation_scope_LIST compilation_scope;
 
-    // special for while header compilation and PHI SSA
-    bool on_demand_var_temp_alloc;
+    TypeTable type_table;
 } Parser;
 
 bool P_has_next(Parser* p) {
@@ -140,7 +175,7 @@ void P_require_having_next_token(Parser* p, const TokenType t) {
 
     const char* expected = TT_to_expected(t);
 
-    const Token last_token = &p->positioner.ref->array[p->positioner.pos-1];
+    const Token last_token = &p->positioner.ref->array[p->positioner.pos - 1];
     expected_token_error(p->source, p->source_filename, last_token, expected);
     exit(1);
 }
@@ -198,7 +233,6 @@ SV SV_from_identifiermap_lookup(khash_t(sv_u64_map)* identifier_map, const uint6
 }
 
 
-
 IR_typeuse P_get_typeuse(Parser* p);
 
 IR_typeuse P_get_typeuse_intern_generic(Parser* p, const Token name, IR_typeuse_type ty) {
@@ -211,7 +245,7 @@ IR_typeuse P_get_typeuse_intern_generic(Parser* p, const Token name, IR_typeuse_
 
     const Identifier id_name = P_to_identifier(p, name);
 
-    return (IR_typeuse) {
+    return (IR_typeuse){
         .name = id_name,
         .tt_ty = ty,
         .contained = irt,
@@ -220,7 +254,12 @@ IR_typeuse P_get_typeuse_intern_generic(Parser* p, const Token name, IR_typeuse_
 
 IR_typeuse P_get_typeuse(Parser* p) {
     const Token name = P_next_token(p);
-    const Identifier id_name = P_to_identifier(p, name);
+    const SV int_repl = SV_from_str_len("Int32", 5);
+    const Identifier id_name = P_to_identifier(p, Token_cmp(name, "Int") ? &int_repl : name);
+
+    if (IR_TY_is(name)) {
+        return (IR_typeuse){.name = id_name, .tt_ty = IR_TY_Primitive};
+    }
 
     if (Token_cmp(name, "Ref")) {
         return P_get_typeuse_intern_generic(p, name, IR_TY_Ref);
@@ -234,18 +273,18 @@ IR_typeuse P_get_typeuse(Parser* p) {
         return P_get_typeuse_intern_generic(p, name, IR_TY_List);
     }
 
-    return (IR_typeuse) { .name = id_name, .tt_ty = IR_TY_general };
+    return (IR_typeuse){.name = id_name, .tt_ty = IR_TY_Named};
 }
 
 // -------------------------------------------
 
 /// returns current block's index
 size_t P_get_current_block_index(const Parser* p) {
-    return p->func_scope_blocks->len-1;
+    return p->func_scope_blocks->len - 1;
 }
 
 bool P_emit_block_is_empty(const Parser* p) {
-    return p->func_scope_blocks->array[p->func_scope_blocks->len-1].instructions.len == 0;
+    return p->func_scope_blocks->array[p->func_scope_blocks->len - 1].instructions.len == 0;
 }
 
 void P_emit_to_block(const Parser* p, const size_t block_nth, const IR_instr instr) {
@@ -265,26 +304,27 @@ void P_emit_to_block_start(const Parser* p, const size_t block_nth, const IR_ins
     IR_block* block = &p->func_scope_blocks->array[block_nth];
     IR_instr_LIST_push(&block->instructions, instr); // used to make space
 
-    memmove(&block->instructions.array[1], &block->instructions.array[0], (block->instructions.len - 1) * sizeof(IR_instr));
+    memmove(&block->instructions.array[1], &block->instructions.array[0],
+            (block->instructions.len - 1) * sizeof(IR_instr));
     block->instructions.array[0] = instr;
 }
 
 IR_SSA_binding_LIST IR_SSA_bindings_deep_clone(const IR_SSA_binding_LIST* original) {
-    const IR_SSA_binding_LIST new = (IR_SSA_binding_LIST) {
+    const IR_SSA_binding_LIST new = (IR_SSA_binding_LIST){
         .len = original->len,
         .cap = original->cap,
-        .array = malloc(sizeof(IR_SSA_binding)*original->cap)
+        .array = malloc(sizeof(IR_SSA_binding) * original->cap)
     };
-    memcpy(new.array, original->array, sizeof(IR_SSA_binding)*original->len);
+    memcpy(new.array, original->array, sizeof(IR_SSA_binding) * original->len);
     return new;
 }
 
 /// provide new independent copy of bindings on copy
 void P_append_block_with_bindings(const Parser* p, const IR_SSA_binding_LIST bindings) {
-    IR_block_LIST_push(p->func_scope_blocks, (IR_block) {
-        .instructions = IR_instr_LIST_new(),
-        .bindings = bindings,
-    });
+    IR_block_LIST_push(p->func_scope_blocks, (IR_block){
+                           .instructions = IR_instr_LIST_new(),
+                           .bindings = bindings,
+                       });
 }
 
 void P_append_block(const Parser* p) {
@@ -295,7 +335,7 @@ void P_emit(const Parser* p, const IR_instr instr) {
     if (p->func_scope_blocks->len == 0) {
         P_append_block(p);
     }
-    IR_block* last = &p->func_scope_blocks->array[p->func_scope_blocks->len-1];
+    IR_block* last = &p->func_scope_blocks->array[p->func_scope_blocks->len - 1];
     IR_instr_LIST_push(&last->instructions, instr);
 }
 
@@ -303,12 +343,12 @@ IR_SSA_binding_LIST* P_get_current_block_bindings(const Parser* p) {
     if (p->func_scope_blocks->len == 0) {
         return NULL;
     }
-    return &p->func_scope_blocks->array[p->func_scope_blocks->len-1].bindings;
+    return &p->func_scope_blocks->array[p->func_scope_blocks->len - 1].bindings;
 }
 
 
 IR_temporal P_new_temporal(Parser* p) {
-    return (IR_temporal){ .val = ++p->temporal_fn_cnt };
+    return (IR_temporal){.val = ++p->temporal_fn_cnt};
 }
 
 bool EX_is_OP(const Token op) {
@@ -333,14 +373,13 @@ bool EX_is_OP(const Token op) {
     }
 
     // if (op->len == 2) {
-        const char c1 = op->start[0];
-        const char c2 = op->start[1];
-        return
+    const char c1 = op->start[0];
+    const char c2 = op->start[1];
+    return
             (c1 == '=' && c2 == '=') ||
             (c1 == '<' && c2 == '=') ||
             (c1 == '>' && c2 == '=') ||
-            (c1 == 'o' && c2 == 'r')
-    ;
+            (c1 == 'o' && c2 == 'r');
     // }
     // return false;
 }
@@ -414,7 +453,6 @@ uint8_t EX_precedence(const P_OP op) {
 
         case P_OP__POW:
             return 40;
-
     }
     fprintf(stderr, "[intern] invalid EX_precedence control flow ('%u')\n", op);
     exit(3);
@@ -459,12 +497,12 @@ IR_temporal P_expr_accesors_wrapper(Parser* p, const IR_temporal origin) {
 
         const IR_temporal result = P_new_temporal(p);
 
-        P_emit(p, (IR_instr) {
-            .ty = IR_INST_TY__GET_FIELD,
-            .dest = result,
-            .p1.name = i,
-            .p2.src2 = origin,
-        });
+        P_emit(p, (IR_instr){
+                   .ty = IR_INST_TY__GET_FIELD_PTR,
+                   .dest = result,
+                   .p1.name = i,
+                   .p2.src2 = origin,
+               });
 
         return P_expr_accesors_wrapper(p, result);
     }
@@ -476,12 +514,12 @@ IR_temporal P_expr_accesors_wrapper(Parser* p, const IR_temporal origin) {
 
         const IR_temporal result = P_new_temporal(p);
 
-        P_emit(p, (IR_instr) {
-            .ty = IR_INST_TY__INDEX,
-            .dest = result,
-            .p1.src1 = origin,
-            .p2.src2 = index,
-        });
+        P_emit(p, (IR_instr){
+                   .ty = IR_INST_TY__INDEX_PTR,
+                   .dest = result,
+                   .p1.src1 = origin,
+                   .p2.src2 = index,
+               });
 
         return P_expr_accesors_wrapper(p, result);
     }
@@ -491,7 +529,7 @@ IR_temporal P_expr_accesors_wrapper(Parser* p, const IR_temporal origin) {
 }
 
 IR_temporal P_variable_lookup(const Parser* restrict p, const Token restrict name, const Identifier name2) {
-    IR_temporal dest = { .val = 0 };
+    IR_temporal dest = {.val = 0};
     bool found_temp = false;
     // lookup bindings
     const IR_SSA_binding_LIST* bindings = P_get_current_block_bindings(p);
@@ -510,20 +548,32 @@ IR_temporal P_variable_lookup(const Parser* restrict p, const Token restrict nam
 }
 
 /// todo: incomplete
-/// handles NUM, VAR_NAME, (EXPR), [EXPR, EXPR, ...]
-/// {VAR_NAME, (EXPR)}.accessors
+/// handles NUM, VAR, (EXPR), [EXPR, EXPR, ...], FN_CALL()
+/// {VAR, (EXPR), FN_CALL()}.accessors
 IR_temporal P_get_expr_val(Parser* p) {
     const Token t = P_next_token(p);
 
-    if (Token_cmp(t, "(")) { // (EXPR)
+    if (Token_cmp(t, "(")) {
+        // (EXPR)
         const IR_temporal rs = P_get_expr(p);
         P_require_next_be(p, TT_EndBracket, SV_from_str(")"));
 
         const IR_temporal wrapped_result = P_expr_accesors_wrapper(p, rs);
-        return wrapped_result;
+        if (wrapped_result.val != rs.val) {
+            const IR_temporal val_load = P_new_temporal(p);
+            P_emit(p, (IR_instr){
+                       .ty = IR_INST_TY__READ_PTR,
+                       .dest = val_load,
+                       .p1.src1 = wrapped_result,
+                   });
+            return val_load;
+        } else {
+            return wrapped_result;
+        }
     }
 
-    if (Token_cmp(t, "[")) { // array
+    if (Token_cmp(t, "[")) {
+        // array
         P_require_having_next_token(p, TT_EndSquareBracket);
         const Token t1 = P_peek_token(p);
 
@@ -534,11 +584,11 @@ IR_temporal P_get_expr_val(Parser* p) {
         if (Token_cmp(t1, "]")) {
             P_next_token(p);
             const IR_temporal dest = P_new_temporal(p);
-            P_emit(p, (IR_instr) {
-                .ty = IR_INST_TY__MAKE_ARRAY,
-                .dest = dest,
-                .p2 = { .array = items }
-            });
+            P_emit(p, (IR_instr){
+                       .ty = IR_INST_TY__MAKE_ARRAY,
+                       .dest = dest,
+                       .p2 = {.array = items}
+                   });
             return dest;
         }
 
@@ -567,11 +617,11 @@ IR_temporal P_get_expr_val(Parser* p) {
 
         const IR_temporal dest = P_new_temporal(p);
 
-        P_emit(p, (IR_instr) {
-            .ty = IR_INST_TY__MAKE_ARRAY,
-            .dest = dest,
-            .p2 = { .array = items }
-        });
+        P_emit(p, (IR_instr){
+                   .ty = IR_INST_TY__MAKE_ARRAY,
+                   .dest = dest,
+                   .p2 = {.array = items}
+               });
         return dest;
     }
 
@@ -581,39 +631,68 @@ IR_temporal P_get_expr_val(Parser* p) {
 
         const Identifier name = P_to_identifier(p, t);
 
-        IR_temporal dest = { .val = 0 };
-        if (p->on_demand_var_temp_alloc) {
-            // todo: check scope or throw error
-            bool found_temp = false;
-            // lookup bindings
-            IR_SSA_binding_LIST* bindings = P_get_current_block_bindings(p);
-            for (size_t n = 0; n < bindings->len; n++) {
-                if (bindings->array[n].variable == name) {
-                    found_temp = true;
-                    dest = bindings->array[n].bind;
+        IR_temporal dest = {.val = 0};
+        if (P_has_next(p)) {
+            const Token nx = P_peek_token(p);
+            if (Token_cmp(nx, "(")) {
+                // fn call
+                P_next_token(p); // (
+                IR_temporal_LIST* args = malloc(sizeof(IR_temporal_LIST));
+                *args = IR_temporal_LIST_new();
+
+                while (1) {
+                    P_require_having_next_token(p, TT_EndBracket);
+                    const Token kx = P_peek_token(p);
+                    if (Token_cmp(kx, ")")) {
+                        P_next_token(p);
+                        break;
+                    }
+
+                    const IR_temporal expr = P_get_expr(p);
+                    IR_temporal_LIST_push(args, expr);
+
+                    P_require_having_next_token(p, TT_EndBracket);
+                    const Token jx = P_next_token(p);
+                    if (Token_cmp(jx, ")")) {
+                        break;
+                    }
+
+                    if (!Token_cmp(jx, ",")) {
+                        P_syntax_error(p, jx, SV_from_str("expected either ',' or ')'"));
+                        exit(1);
+                    }
                 }
-            }
-            if (!found_temp) {
-                dest  = P_new_temporal(p);
-                // create a new binding for that war
-                IR_SSA_binding_LIST_push(bindings, (IR_SSA_binding) {
-                    .bind = dest,
-                    .variable = name
-                });
+
+                const IR_temporal fn_call = P_new_temporal(p);
+
+                P_emit(p, (IR_instr){
+                           .ty = IR_INST_TY__FN_CALL_RET,
+                           .dest = fn_call,
+                           .p1.name = name,
+                           .p2.array = args,
+                       });
+
+                dest = fn_call;
+            } else {
+                dest = P_variable_lookup(p, t, name);
             }
         } else {
             dest = P_variable_lookup(p, t, name);
         }
 
 
-        // P_emit(p, (IR_instr) {
-        //     .ty = IR_INST_TY__LOAD_VAR,
-        //     .dest = dest,
-        //     .p1 = { .name = name },
-        // });
-
         const IR_temporal wrapped_result = P_expr_accesors_wrapper(p, dest);
-        return wrapped_result;
+        if (wrapped_result.val != dest.val) {
+            const IR_temporal val_load = P_new_temporal(p);
+            P_emit(p, (IR_instr){
+                       .ty = IR_INST_TY__READ_PTR,
+                       .dest = val_load,
+                       .p1.src1 = wrapped_result,
+                   });
+            return val_load;
+        } else {
+            return wrapped_result;
+        }
     }
 
     bool is_float = false;
@@ -639,11 +718,11 @@ IR_temporal P_get_expr_val(Parser* p) {
 
         const IR_temporal res = P_new_temporal(p);
 
-        P_emit(p, (IR_instr) {
-            .ty = IR_INST_TY__CONST_FLOAT,
-            .dest = res,
-            .p1.value_float = val,
-        });
+        P_emit(p, (IR_instr){
+                   .ty = IR_INST_TY__CONST_FLOAT,
+                   .dest = res,
+                   .p1.value_float = val,
+               });
 
         return res;
     } else {
@@ -658,11 +737,11 @@ IR_temporal P_get_expr_val(Parser* p) {
 
         const IR_temporal res = P_new_temporal(p);
 
-        P_emit(p, (IR_instr) {
-            .ty = IR_INST_TY__CONST_INT,
-            .dest = res,
-            .p1.value = val,
-        });
+        P_emit(p, (IR_instr){
+                   .ty = IR_INST_TY__CONST_INT,
+                   .dest = res,
+                   .p1.value = val,
+               });
 
         return res;
     }
@@ -670,7 +749,6 @@ IR_temporal P_get_expr_val(Parser* p) {
 
 /// returns IR handle to value that the expr produced
 IR_temporal P_get_expr(Parser* p) {
-
     P_OP_LIST ops = P_OP_LIST_new();
     IR_temporal_LIST temps = IR_temporal_LIST_new();
 
@@ -692,15 +770,17 @@ IR_temporal P_get_expr(Parser* p) {
                 break;
             }
 
-            if (EX_is_OP(t)) { // t->len == 1 &&
+            if (EX_is_OP(t)) {
+                // t->len == 1 &&
                 P_next_token(p); // advance
                 const P_OP item = EX_token_to_op(t);
 
                 while (!P_OP_LIST_is_empty(&ops) &&
-                    (EX_precedence(*P_OP_LIST_peek_last(&ops)) > EX_precedence(item)
+                       (EX_precedence(*P_OP_LIST_peek_last(&ops)) > EX_precedence(item)
                         ||
-                        (EX_precedence(*P_OP_LIST_peek_last(&ops)) == EX_precedence(item) && !EX_is_op_right_assoc(item))
-                    )
+                        (EX_precedence(*P_OP_LIST_peek_last(&ops)) == EX_precedence(item) && !
+                         EX_is_op_right_assoc(item))
+                       )
                 ) {
                     const P_OP op = *P_OP_LIST_pop(&ops);
 
@@ -752,12 +832,12 @@ IR_temporal P_get_expr(Parser* p) {
                             break;
                     }
 
-                    P_emit(p, (IR_instr) {
-                        .dest = dest,
-                        .ty = ty,
-                        .p1 = { .src1 = v2 },
-                        .p2 = { .src2 = v1 },
-                    });
+                    P_emit(p, (IR_instr){
+                               .dest = dest,
+                               .ty = ty,
+                               .p1 = {.src1 = v2},
+                               .p2 = {.src2 = v1},
+                           });
 
                     IR_temporal_LIST_push(&temps, dest);
                 }
@@ -819,12 +899,12 @@ IR_temporal P_get_expr(Parser* p) {
                 break;
         }
 
-        P_emit(p, (IR_instr) {
-            .dest = dest,
-            .ty = ty,
-            .p1 = { .src1 = v2 },
-            .p2 = { .src2 = v1 },
-        });
+        P_emit(p, (IR_instr){
+                   .dest = dest,
+                   .ty = ty,
+                   .p1 = {.src1 = v2},
+                   .p2 = {.src2 = v1},
+               });
 
         IR_temporal_LIST_push(&temps, dest);
     }
@@ -835,7 +915,6 @@ IR_temporal P_get_expr(Parser* p) {
     IR_temporal_LIST_free(&temps);
     return last;
 }
-
 
 
 void P_get_var_dec_stmt(Parser* p) {
@@ -849,12 +928,13 @@ void P_get_var_dec_stmt(Parser* p) {
 
     // do a scope check
     for (size_t n = p->compilation_scope.len; n > 0; n--) {
-        const P_compilation_scope* scope = &p->compilation_scope.array[n-1];
+        const P_compilation_scope* scope = &p->compilation_scope.array[n - 1];
 
         for (size_t k = 0; k < scope->variables.len; k++) {
             const P_variable_record* var = &scope->variables.array[k];
             if (var->name == name) {
-                P_syntax_error(p, &p->positioner.ref->array[var->name_origin_token_index], SV_from_str("declared here"));
+                P_syntax_error(p, &p->positioner.ref->array[var->name_origin_token_index],
+                               SV_from_str("declared here"));
                 P_syntax_error(p, raw_name, SV_from_str("redeclaration"));
                 exit(1);
             }
@@ -862,20 +942,21 @@ void P_get_var_dec_stmt(Parser* p) {
     }
 
     // insert into scope
-    P_variable_record_LIST_push(&P_compilation_scope_LIST_peek_last(&p->compilation_scope)->variables, (P_variable_record) {
-        .name = name,
-        .name_origin_token_index = name_token_pos,
-    });
+    P_variable_record_LIST_push(&P_compilation_scope_LIST_peek_last(&p->compilation_scope)->variables,
+                                (P_variable_record){
+                                    .name = name,
+                                    .name_origin_token_index = name_token_pos,
+                                });
 
     P_require_next_be(p, TT_Equal, SV_from_str_len("=", 1));
 
     const IR_temporal rs = P_get_expr(p);
 
-    P_emit(p, (IR_instr) {
-        .ty = IR_INST_TY__VAR_DECL,
-        .p1 = { .name = name },
-        .p2 = { .type = ty }
-    });
+    P_emit(p, (IR_instr){
+               .ty = IR_INST_TY__VAR_DECL,
+               .p1 = {.name = name},
+               .p2 = {.type = ty}
+           });
 
     // use bindings instead
     // P_emit(p, (IR_instr) {
@@ -892,18 +973,20 @@ void P_get_var_dec_stmt(Parser* p) {
         }
     }
     if (!bind_find) {
-        IR_SSA_binding_LIST_push(binds, (IR_SSA_binding) {
-            .variable = name,
-            .bind = rs
-        });
+        IR_SSA_binding_LIST_push(binds, (IR_SSA_binding){
+                                     .variable = name,
+                                     .bind = rs
+                                 });
     }
 
 
     P_require_next_be(p, TT_Semicolon, SV_from_str_len(";", 1));
 }
 
-IR_SSA_binding_LIST P_PHI_CONDITIONAL_BRANCHING_MERGER(Parser* restrict p, const IR_SSA_binding_LIST* restrict a, const size_t a_block_id, const IR_SSA_binding_LIST* restrict b, const size_t b_block_id) {
-    IR_SSA_binding_LIST out  = IR_SSA_binding_LIST_new();
+IR_SSA_binding_LIST P_PHI_CONDITIONAL_BRANCHING_MERGER(Parser* restrict p, const IR_SSA_binding_LIST* restrict a,
+                                                       const size_t a_block_id, const IR_SSA_binding_LIST* restrict b,
+                                                       const size_t b_block_id) {
+    IR_SSA_binding_LIST out = IR_SSA_binding_LIST_new();
     for (size_t n_a = 0; n_a < a->len; n_a++) {
         const IR_SSA_binding a_val = a->array[n_a];
         for (size_t n_b = 0; n_b < b->len; n_b++) {
@@ -916,25 +999,25 @@ IR_SSA_binding_LIST P_PHI_CONDITIONAL_BRANCHING_MERGER(Parser* restrict p, const
 
                     IR_temporal_block_phi_record_LIST* args = malloc(sizeof(IR_temporal_block_phi_record_LIST));
                     *args = IR_temporal_block_phi_record_LIST_new();
-                    IR_temporal_block_phi_record_LIST_push(args, (IR_temporal_block_phi_record) {
-                        .block = a_block_id,
-                        .temp = a_val.bind
-                    });
-                    IR_temporal_block_phi_record_LIST_push(args, (IR_temporal_block_phi_record) {
-                        .block = b_block_id,
-                        .temp = b_val.bind
-                    });
+                    IR_temporal_block_phi_record_LIST_push(args, (IR_temporal_block_phi_record){
+                                                               .block = a_block_id,
+                                                               .temp = a_val.bind
+                                                           });
+                    IR_temporal_block_phi_record_LIST_push(args, (IR_temporal_block_phi_record){
+                                                               .block = b_block_id,
+                                                               .temp = b_val.bind
+                                                           });
 
-                    P_emit(p, (IR_instr) {
-                        .ty = IR_INST_TY__PHI,
-                        .dest = phi,
-                        .p2.phi_args = args,
-                    });
+                    P_emit(p, (IR_instr){
+                               .ty = IR_INST_TY__PHI,
+                               .dest = phi,
+                               .p2.phi_args = args,
+                           });
 
-                    IR_SSA_binding_LIST_push(&out, (IR_SSA_binding) {
-                        .variable = a_val.variable,
-                        .bind = phi
-                    });
+                    IR_SSA_binding_LIST_push(&out, (IR_SSA_binding){
+                                                 .variable = a_val.variable,
+                                                 .bind = phi
+                                             });
                 }
             }
         }
@@ -976,8 +1059,9 @@ void P_get_if_stmt(Parser* p) {
             after_block = P_get_current_block_index(p);
 
             // PHI MERGER if+cmp blocks
-            const IR_SSA_binding_LIST res = P_PHI_CONDITIONAL_BRANCHING_MERGER(p, &cmp_bindings, block_with_cmp, &if_bindings, if_section_end_block);
-            IR_SSA_binding_LIST *cur = P_get_current_block_bindings(p);
+            const IR_SSA_binding_LIST res = P_PHI_CONDITIONAL_BRANCHING_MERGER(
+                p, &cmp_bindings, block_with_cmp, &if_bindings, if_section_end_block);
+            IR_SSA_binding_LIST* cur = P_get_current_block_bindings(p);
             IR_SSA_binding_LIST_free(cur);
             *cur = res;
 
@@ -997,18 +1081,17 @@ void P_get_if_stmt(Parser* p) {
             const IR_SSA_binding_LIST else_bindings = *P_get_current_block_bindings(p);
 
             // if (!P_emit_block_is_empty(p)) {
-                P_append_block(p);
+            P_append_block(p);
             // }
             after_block = P_get_current_block_index(p);
 
             // todo: unsable
             // todo: WHUT? fix // todo: PHI MERGER
-            const IR_SSA_binding_LIST res = P_PHI_CONDITIONAL_BRANCHING_MERGER(p, &if_bindings, if_section_end_block, &else_bindings, else_section_end_block);
-            IR_SSA_binding_LIST *cur = P_get_current_block_bindings(p);
+            const IR_SSA_binding_LIST res = P_PHI_CONDITIONAL_BRANCHING_MERGER(
+                p, &if_bindings, if_section_end_block, &else_bindings, else_section_end_block);
+            IR_SSA_binding_LIST* cur = P_get_current_block_bindings(p);
             IR_SSA_binding_LIST_free(cur);
             *cur = res;
-
-
         } else if (Token_cmp(nx2, "if")) {
             // P_append_block(p);
             P_append_block_with_bindings(p, IR_SSA_bindings_deep_clone(&cmp_bindings));
@@ -1020,13 +1103,14 @@ void P_get_if_stmt(Parser* p) {
             const IR_SSA_binding_LIST else_bindings = *P_get_current_block_bindings(p);
 
             // if (!P_emit_block_is_empty(p)) {
-                P_append_block(p);
+            P_append_block(p);
             // }
             after_block = P_get_current_block_index(p);
 
             // todo: WHUT? fix // todo: PHI MERGER
-            const IR_SSA_binding_LIST res = P_PHI_CONDITIONAL_BRANCHING_MERGER(p, &if_bindings, if_section_end_block, &else_bindings, else_section_end_block);
-            IR_SSA_binding_LIST *cur = P_get_current_block_bindings(p);
+            const IR_SSA_binding_LIST res = P_PHI_CONDITIONAL_BRANCHING_MERGER(
+                p, &if_bindings, if_section_end_block, &else_bindings, else_section_end_block);
+            IR_SSA_binding_LIST* cur = P_get_current_block_bindings(p);
             IR_SSA_binding_LIST_free(cur);
             *cur = res;
         } else {
@@ -1040,30 +1124,31 @@ void P_get_if_stmt(Parser* p) {
         else_section_start_block = P_emit_pos_get(p);
         else_section_end_block = P_emit_pos_get(p);
         after_block = P_emit_pos_get(p);*/
-        expected_token_error(p->source, p->source_filename, &p->positioner.ref->array[p->positioner.ref->len-1], "function end");
+        expected_token_error(p->source, p->source_filename, &p->positioner.ref->array[p->positioner.ref->len - 1],
+                             "function end");
         exit(1);
     }
 
 end:
 
 
-    P_emit_to_block(p, block_with_cmp, (IR_instr) {
-        .ty = IR_INST_TY__BRANCH,
-        .dest = cmp_rs,
-        .p1.br_true = if_section_start_block,
-        .p2.br_false = else_section_start_block,
-    });
+    P_emit_to_block(p, block_with_cmp, (IR_instr){
+                        .ty = IR_INST_TY__BRANCH,
+                        .dest = cmp_rs,
+                        .p1.br_true = if_section_start_block,
+                        .p2.br_false = else_section_start_block,
+                    });
 
-    P_emit_to_block(p, if_section_end_block, (IR_instr) {
-        .ty = IR_INST_TY__JUMP,
-        .p1.br_true = after_block,
-    });
+    P_emit_to_block(p, if_section_end_block, (IR_instr){
+                        .ty = IR_INST_TY__JUMP,
+                        .p1.br_true = after_block,
+                    });
 
     if (else_section_end_block != after_block) {
-        P_emit_to_block(p, else_section_end_block, (IR_instr) {
-            .ty = IR_INST_TY__JUMP,
-            .p1.br_true = after_block,
-        });
+        P_emit_to_block(p, else_section_end_block, (IR_instr){
+                            .ty = IR_INST_TY__JUMP,
+                            .p1.br_true = after_block,
+                        });
     }
 }
 
@@ -1081,19 +1166,19 @@ void P_get_while_stmt(Parser* p) {
 
     const size_t header_block_start = P_get_current_block_index(p);
 
-    P_emit_to_block(p, pre_header_block, (IR_instr) {
-        .ty = IR_INST_TY__JUMP,
-        .p1.br_true = header_block_start
-    });
+    P_emit_to_block(p, pre_header_block, (IR_instr){
+                        .ty = IR_INST_TY__JUMP,
+                        .p1.br_true = header_block_start
+                    });
 
     {
         IR_SSA_binding_LIST* binds = P_get_current_block_bindings(p);
-        for (size_t n=0; n < pre_header_bindings.len; n++) {
+        for (size_t n = 0; n < pre_header_bindings.len; n++) {
             const IR_temporal temp = P_new_temporal(p);
-            IR_SSA_binding_LIST_push(binds, (IR_SSA_binding) {
-                .bind = temp,
-                .variable = pre_header_bindings.array[n].variable
-            });
+            IR_SSA_binding_LIST_push(binds, (IR_SSA_binding){
+                                         .bind = temp,
+                                         .variable = pre_header_bindings.array[n].variable
+                                     });
         }
     }
     const IR_SSA_binding_LIST header_temp_bindings = *P_get_current_block_bindings(p);
@@ -1107,20 +1192,19 @@ void P_get_while_stmt(Parser* p) {
     P_get_code_section(p);
     const size_t body_blocks_end = P_get_current_block_index(p);
 
-    P_emit(p, (IR_instr) {
-        .ty = IR_INST_TY__JUMP,
-        .p1.br_true = header_block_start,
-    });
+    P_emit(p, (IR_instr){
+               .ty = IR_INST_TY__JUMP,
+               .p1.br_true = header_block_start,
+           });
 
     const IR_SSA_binding_LIST block_end_bindings = *P_get_current_block_bindings(p);
 
 
     // now resolve phis
-    for (size_t n = 0; n < block_end_bindings.len; n++ ) {
+    for (size_t n = 0; n < block_end_bindings.len; n++) {
         for (size_t k = 0; k < header_temp_bindings.len; k++) {
             if (block_end_bindings.array[n].variable == header_temp_bindings.array[k].variable) {
-
-                IR_temporal intake_temporal = { .val = 0 };
+                IR_temporal intake_temporal = {.val = 0};
                 bool intake_temporal_found = false;
                 for (size_t l = 0; l < pre_header_bindings.len; l++) {
                     if (pre_header_bindings.array[n].variable == header_temp_bindings.array[k].variable) {
@@ -1219,18 +1303,33 @@ void P_get_while_stmt(Parser* p) {
                                         instr->p1.src1.val = replace_with.val;
                                     }
                                     break;
-                                case IR_INST_TY__GET_FIELD: {
+                                case IR_INST_TY__GET_FIELD_PTR: {
                                     if (instr->p2.src2.val == what_to_replace.val) {
                                         instr->p2.src2.val = replace_with.val;
                                     }
                                     break;
                                 }
-                                case IR_INST_TY__INDEX: {
+                                case IR_INST_TY__INDEX_PTR: {
                                     if (instr->p1.src1.val == what_to_replace.val) {
                                         instr->p1.src1.val = replace_with.val;
                                     }
                                     if (instr->p2.src2.val == what_to_replace.val) {
                                         instr->p2.src2.val = replace_with.val;
+                                    }
+                                    break;
+                                }
+                                case IR_INST_TY__READ_PTR: {
+                                    if (instr->p1.src1.val == what_to_replace.val) {
+                                        instr->p1.src1.val = replace_with.val;
+                                    }
+                                    break;
+                                }
+                                case IR_INST_TY__FN_CALL_VOID:
+                                case IR_INST_TY__FN_CALL_RET: {
+                                    for (size_t sn = 0; sn < instr->p2.array->len; sn++) {
+                                        if (instr->p2.array->array[sn].val == what_to_replace.val) {
+                                            instr->p2.array->array[sn].val = replace_with.val;
+                                        }
                                     }
                                     break;
                                 }
@@ -1243,22 +1342,22 @@ void P_get_while_stmt(Parser* p) {
                     IR_temporal_block_phi_record_LIST* args = malloc(sizeof(IR_temporal_block_phi_record_LIST));
                     *args = IR_temporal_block_phi_record_LIST_new();
 
-                    IR_temporal_block_phi_record_LIST_push(args, (IR_temporal_block_phi_record) {
-                        .block = pre_header_block,
-                        .temp = intake_temporal
-                    });
+                    IR_temporal_block_phi_record_LIST_push(args, (IR_temporal_block_phi_record){
+                                                               .block = pre_header_block,
+                                                               .temp = intake_temporal
+                                                           });
 
-                    IR_temporal_block_phi_record_LIST_push(args, (IR_temporal_block_phi_record) {
-                        .block = body_blocks_end,
-                        .temp = block_end_bindings.array[n].bind
-                    });
+                    IR_temporal_block_phi_record_LIST_push(args, (IR_temporal_block_phi_record){
+                                                               .block = body_blocks_end,
+                                                               .temp = block_end_bindings.array[n].bind
+                                                           });
 
                     // block_end + pre_header merge
-                    P_emit_to_block_start(p, header_block_start, (IR_instr) {
-                        .ty = IR_INST_TY__PHI,
-                        .dest = header_temp_bindings.array[k].bind,
-                        .p2.phi_args = args,
-                    });
+                    P_emit_to_block_start(p, header_block_start, (IR_instr){
+                                              .ty = IR_INST_TY__PHI,
+                                              .dest = header_temp_bindings.array[k].bind,
+                                              .p2.phi_args = args,
+                                          });
                 }
 
                 break;
@@ -1267,145 +1366,18 @@ void P_get_while_stmt(Parser* p) {
     }
 
 
-    P_append_block_with_bindings(p, IR_SSA_bindings_deep_clone(&header_temp_bindings));  // exit
+    P_append_block_with_bindings(p, IR_SSA_bindings_deep_clone(&header_temp_bindings)); // exit
     const size_t exit_block_start = P_get_current_block_index(p);
 
 
-    P_emit_to_block(p, header_block_end, (IR_instr) {
-        .ty = IR_INST_TY__BRANCH,
-        .dest = condition,
-        .p1.br_true = body_blocks_start,
-        .p2.br_false = exit_block_start,
-    });
-
+    P_emit_to_block(p, header_block_end, (IR_instr){
+                        .ty = IR_INST_TY__BRANCH,
+                        .dest = condition,
+                        .p1.br_true = body_blocks_start,
+                        .p2.br_false = exit_block_start,
+                    });
 }
 
-void P_get_while_stmt_OLD(Parser* p) {
-    const Token while_kw = P_next_token(p);
-    if (!Token_cmp(while_kw, "while")) {
-        fprintf(stderr, "[internal] should be 'while' (from calling this fn)\n");
-        exit(3);
-    }
-
-    const IR_SSA_binding_LIST pre_header_bindings = *P_get_current_block_bindings(p);
-    const size_t pre_header_block = P_get_current_block_index(p);
-
-    // cond block without bindings to generate them on demand
-    P_append_block(p);
-
-    const size_t header_start_block = P_get_current_block_index(p);
-
-    p->on_demand_var_temp_alloc = true;
-    const IR_temporal condition = P_get_expr(p);
-    p->on_demand_var_temp_alloc = false;
-
-    const IR_SSA_binding_LIST condition_diff_new_bindings  = *P_get_current_block_bindings(p);
-
-    // calc old binding + update everything from condition_diff_new_bindings
-    const IR_SSA_binding_LIST new_bindings = IR_SSA_bindings_deep_clone(&pre_header_bindings);
-    const size_t new_bindings_len = new_bindings.len;
-    for (size_t n=0; n<condition_diff_new_bindings.len; n++) {
-        const IR_SSA_binding bind = condition_diff_new_bindings.array[n];
-        bool found = false;
-        for (size_t k=0; k<new_bindings_len; k++) {
-            if (new_bindings.array[k].variable == bind.variable) {
-                new_bindings.array[k].bind = bind.bind;
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            fprintf(stderr, "[internal] should not happen, new variable introduced with expression in SSA while computation\n");
-            exit(3);
-        }
-    }
-
-    const size_t header_end_block = P_get_current_block_index(p);
-
-    // IR_SSA_binding_LIST_free(&p->func_scope_blocks->array[header_end_block].bindings);
-    // for (size_t k = header_start_block; k < header_end_block; k++) {
-    //     p->func_scope_blocks->array[k].bindings = IR_SSA_bindings_deep_clone(&new_bindings);
-    // }
-
-
-    // NEEDED, but actually having correct bindings at this point is not needed
-    // p->func_scope_blocks->array[header_end_block].bindings = IR_SSA_bindings_deep_clone(&new_bindings);
-
-
-
-    P_append_block_with_bindings(p, IR_SSA_bindings_deep_clone(&new_bindings));
-
-    const size_t body_start_block = P_get_current_block_index(p);
-    P_get_code_section(p);
-
-    const IR_SSA_binding_LIST body_end_bindings  = *P_get_current_block_bindings(p);
-    const size_t body_end_block = P_get_current_block_index(p);
-
-    P_append_block_with_bindings(p, IR_SSA_bindings_deep_clone(&new_bindings));
-    const size_t exit_start_block = P_get_current_block_index(p);
-
-
-
-
-    for (size_t n=0; n<condition_diff_new_bindings.len; n++) {
-        // diff% = PHI
-        IR_temporal_block_phi_record_LIST* args = malloc(sizeof(IR_temporal_block_phi_record_LIST));
-        *args = IR_temporal_block_phi_record_LIST_new();
-
-
-        for (size_t k=0; k<body_end_bindings.len; k++) {
-            if (condition_diff_new_bindings.array[n].variable == body_end_bindings.array[k].variable) {
-                IR_temporal_block_phi_record_LIST_push(args, (IR_temporal_block_phi_record) {
-                    .block = body_end_block,
-                    .temp = body_end_bindings.array[k].bind
-                });
-                break;
-            }
-        }
-
-        for (size_t k=0; k<pre_header_bindings.len; k++) {
-            if (condition_diff_new_bindings.array[n].variable == pre_header_bindings.array[k].variable) {
-                IR_temporal_block_phi_record_LIST_push(args, (IR_temporal_block_phi_record) {
-                    .block = pre_header_block,
-                    .temp = pre_header_bindings.array[k].bind,
-                });
-                break;
-            }
-        }
-
-        if (args->len != 2) {
-            fprintf(stderr, "[internal] failed to merge phis for while n=%lu\n", n);
-            exit(3);
-        }
-
-
-        P_emit_to_block_start(p, header_start_block, (IR_instr) {
-            .ty = IR_INST_TY__PHI,
-            .dest = condition_diff_new_bindings.array[n].bind,
-            .p2.phi_args = args,
-        });
-    }
-
-
-    // not valid always
-    // IR_SSA_binding_LIST_free(&p->func_scope_blocks->array[condition_end_block].bindings);
-    // p->func_scope_blocks->array[condition_end_block].bindings = new_bindings;
-
-
-
-    P_emit_to_block(p, header_start_block, (IR_instr) {
-        .ty = IR_INST_TY__BRANCH,
-        .dest = condition,
-        .p1.br_true = body_start_block,
-        .p2.br_false = exit_start_block,
-    });
-
-    P_emit_to_block(p, body_end_block, (IR_instr) {
-        .ty = IR_INST_TY__JUMP,
-        .p1.br_true = header_start_block,
-    });
-
-}
 
 void P_get_return_stmt(Parser* p) {
     const Token ret_kw = P_next_token(p);
@@ -1418,17 +1390,17 @@ void P_get_return_stmt(Parser* p) {
     const Token nx = P_peek_token(p);
     if (Token_cmp(nx, ";")) {
         P_next_token(p);
-        P_emit(p, (IR_instr) {
-            .ty = IR_INST_TY__RETURN_VOID,
-        });
+        P_emit(p, (IR_instr){
+                   .ty = IR_INST_TY__RETURN_VOID,
+               });
         return;
     }
 
     const IR_temporal ret = P_get_expr(p);
-    P_emit(p, (IR_instr) {
-        .ty = IR_INST_TY__RETURN,
-        .p1.src1 = ret,
-    });
+    P_emit(p, (IR_instr){
+               .ty = IR_INST_TY__RETURN,
+               .p1.src1 = ret,
+           });
 
     P_require_next_be(p, TT_Semicolon, SV_from_str_len(";", 1));
 }
@@ -1437,29 +1409,6 @@ void P_get_assignment(Parser* p) {
     const Token origin_name = P_next_token(p);
     const Identifier name = P_to_identifier(p, origin_name);
 
-    // const IR_temporal dest = P_new_temporal(p);
-
-    // P_emit(p, (IR_instr) {
-    //     .ty = IR_INST_TY__LOAD_VAR,
-    //     .dest = dest,
-    //     .p1 = { .name = name },
-    // });
-
-    // IR_temporal dest;
-    // bool found_temp = false;
-    // // lookup bindings
-    // const IR_SSA_binding_LIST* bindings = P_get_current_block_bindings(p);
-    // for (size_t n = 0; n < bindings->len; n++) {
-    //     if (bindings->array[n].variable == name) {
-    //         found_temp = true;
-    //         dest = bindings->array[n].bind;
-    //     }
-    // }
-    // // lookup scope if not in bindings
-    // if (!found_temp) {
-    //     P_syntax_error(p, origin_name, SV_from_str("unknown variable"));
-    //     exit(1);
-    // }
     const IR_temporal dest = P_variable_lookup(p, origin_name, name);
 
     const IR_temporal wrapped_result = P_expr_accesors_wrapper(p, dest);
@@ -1476,39 +1425,39 @@ void P_get_assignment(Parser* p) {
 
     if (Token_cmp(assignment_type, "+=")) {
         const IR_temporal rs = P_new_temporal(p);
-        P_emit(p, (IR_instr) {
-            .ty = IR_INST_TY__OP_ADD,
-            .dest = rs,
-            .p1.src1 = wrapped_result,
-            .p2.src2 = expr,
-        });
+        P_emit(p, (IR_instr){
+                   .ty = IR_INST_TY__OP_ADD,
+                   .dest = rs,
+                   .p1.src1 = wrapped_result,
+                   .p2.src2 = expr,
+               });
         out_val = rs;
     } else if (Token_cmp(assignment_type, "-=")) {
         const IR_temporal rs = P_new_temporal(p);
-        P_emit(p, (IR_instr) {
-            .ty = IR_INST_TY__OP_SUB,
-            .dest = rs,
-            .p1.src1 = wrapped_result,
-            .p2.src2 = expr,
-        });
+        P_emit(p, (IR_instr){
+                   .ty = IR_INST_TY__OP_SUB,
+                   .dest = rs,
+                   .p1.src1 = wrapped_result,
+                   .p2.src2 = expr,
+               });
         out_val = rs;
     } else if (Token_cmp(assignment_type, "*=")) {
         const IR_temporal rs = P_new_temporal(p);
-        P_emit(p, (IR_instr) {
-            .ty = IR_INST_TY__OP_MUL,
-            .dest = rs,
-            .p1.src1 = wrapped_result,
-            .p2.src2 = expr,
-        });
+        P_emit(p, (IR_instr){
+                   .ty = IR_INST_TY__OP_MUL,
+                   .dest = rs,
+                   .p1.src1 = wrapped_result,
+                   .p2.src2 = expr,
+               });
         out_val = rs;
     } else if (Token_cmp(assignment_type, "/=")) {
         const IR_temporal rs = P_new_temporal(p);
-        P_emit(p, (IR_instr) {
-            .ty = IR_INST_TY__OP_DIV,
-            .dest = rs,
-            .p1.src1 = wrapped_result,
-            .p2.src2 = expr,
-        });
+        P_emit(p, (IR_instr){
+                   .ty = IR_INST_TY__OP_DIV,
+                   .dest = rs,
+                   .p1.src1 = wrapped_result,
+                   .p2.src2 = expr,
+               });
         out_val = rs;
     } else if (Token_cmp(assignment_type, "=")) {
         // nothing
@@ -1517,12 +1466,12 @@ void P_get_assignment(Parser* p) {
         exit(1);
     }
 
-    if(is_dest_ptr) {
-        P_emit(p, (IR_instr) {
-            .ty = IR_INST_TY__STORE_PTR,
-            .dest = wrapped_result,
-            .p1.src1 = out_val,
-        });
+    if (is_dest_ptr) {
+        P_emit(p, (IR_instr){
+                   .ty = IR_INST_TY__STORE_PTR,
+                   .dest = wrapped_result,
+                   .p1.src1 = out_val,
+               });
     } else {
         // P_emit(p, (IR_instr) {
         //     .ty = IR_INST_TY__STORE_VAR,
@@ -1539,12 +1488,61 @@ void P_get_assignment(Parser* p) {
             }
         }
         if (!found) {
-            IR_SSA_binding_LIST_push(binds, (IR_SSA_binding) {
-                .variable = name,
-                .bind = out_val,
-            });
+            IR_SSA_binding_LIST_push(binds, (IR_SSA_binding){
+                                         .variable = name,
+                                         .bind = out_val,
+                                     });
         }
     }
+}
+
+
+void P_get_function_call_stmt(Parser* p) {
+    P_require_having_next_token(p, TT_Identifier);
+    const Token t = P_next_token(p);
+    const Identifier name = P_to_identifier(p, t);
+
+    P_require_having_next_token(p, TT_StartBracket);
+    const Token nx = P_next_token(p);
+    if (!Token_cmp(nx, "(")) {
+        fprintf(stderr, "[internal] expected '(' based on fn_call_stmt being called\n");
+        exit(3);
+    }
+
+    IR_temporal_LIST* args = malloc(sizeof(IR_temporal_LIST));
+    *args = IR_temporal_LIST_new();
+
+    while (1) {
+        P_require_having_next_token(p, TT_EndBracket);
+        const Token kx = P_peek_token(p);
+        if (Token_cmp(kx, ")")) {
+            P_next_token(p);
+            break;
+        }
+
+        const IR_temporal expr = P_get_expr(p);
+        IR_temporal_LIST_push(args, expr);
+
+        P_require_having_next_token(p, TT_EndBracket);
+        const Token jx = P_next_token(p);
+        if (Token_cmp(jx, ")")) {
+            break;
+        }
+
+        if (!Token_cmp(jx, ",")) {
+            P_syntax_error(p, jx, SV_from_str("expected either ',' or ')'"));
+            exit(1);
+        }
+    }
+
+
+    P_emit(p, (IR_instr){
+        .ty = IR_INST_TY__FN_CALL_VOID,
+        .p1.name = name,
+        .p2.array = args,
+    });
+
+    P_require_next_be(p, TT_Semicolon, SV_from_str_len(";", 1));
 
 }
 
@@ -1580,8 +1578,15 @@ void P_get_stmt(Parser* p) {
 
     p->positioner.pos = p_pos;
 
-    if (Token_cmp(t2, "<")) { // type
+    if (Token_cmp(t2, "<")) {
+        // type
         P_get_var_dec_stmt(p);
+        return;
+    }
+
+    if (Token_cmp(t2, "(")) {
+        // function call
+        P_get_function_call_stmt(p);
         return;
     }
 
@@ -1601,15 +1606,14 @@ void P_get_stmt(Parser* p) {
     }
 
     P_get_var_dec_stmt(p);
-
 }
 
 void P_get_code_section(Parser* p) {
     P_require_next_be(p, TT_StartCurlyBracket, SV_from_str_len("{", 1));
 
-    P_compilation_scope_LIST_push(&p->compilation_scope, (P_compilation_scope) {
-        .variables = P_variable_record_LIST_new(),
-    });
+    P_compilation_scope_LIST_push(&p->compilation_scope, (P_compilation_scope){
+                                      .variables = P_variable_record_LIST_new(),
+                                  });
 
     while (1) {
         P_require_having_next_token(p, TT_EndCurlyBracket);
@@ -1639,9 +1643,66 @@ IR_block_LIST P_get_isolated_function_code_section(Parser* p) {
 
 // -------------------------------------------
 
-void P_get_top_struct(Parser* p) { UNIMPLEMENTED("P_get_top_struct"); }
-void P_get_top_enum(Parser* p) { UNIMPLEMENTED("P_get_top_enum"); }
-void P_get_top_global(Parser* p) { UNIMPLEMENTED("P_get_top_global"); }
+void P_get_top_struct(Parser* p) {
+    const Token struct_kw = P_next_token(p);
+    if (!Token_cmp(struct_kw, "struct")) {
+        fprintf(stderr, "[internal] should be 'struct' (from calling this fn)\n");
+        exit(3);
+    }
+
+    P_require_having_next_token(p, TT_Identifier);
+    const Token raw_struct_name = P_next_token(p);
+    const Identifier struct_name = P_to_identifier(p, raw_struct_name);
+
+    P_require_next_be(p, TT_StartCurlyBracket, SV_from_str_len("{", 1));
+
+    IR_field_LIST fields = IR_field_LIST_new();
+
+
+    while (1) {
+        if (!P_has_next(p)) {
+            expected_token_error(p->source, p->source_filename, &p->positioner.ref->array[p->positioner.ref->len - 1],
+                                 "}");
+            exit(1);
+        }
+        const Token nx = P_peek_token(p);
+        if (Token_cmp(nx, "}")) {
+            P_next_token(p);
+            break;
+        }
+        const IR_typeuse ty = P_get_typeuse(p);
+        P_require_having_next_token(p, TT_Identifier);
+        const Token raw_field_name = P_next_token(p);
+        const Identifier field_name = P_to_identifier(p, raw_field_name);
+
+        IR_field_LIST_push(&fields, (IR_field){
+                               .name = field_name,
+                               .type = ty,
+                           });
+
+        P_require_having_next_token(p, TT_EndCurlyBracket);
+        const Token nx2 = P_next_token(p);
+        if (Token_cmp(nx2, "}")) {
+            break;
+        }
+        if (!Token_cmp(nx2, ";")) {
+            P_syntax_error(p, nx2, SV_from_str("expected either ';' or '}'"));
+            exit(1);
+        }
+    }
+
+    // P_require_next_be(p, TT_EndCurlyBracket, SV_from_str_len("}", 1));
+
+    IR_structdef_LIST_push(&p->type_table.structs, (IR_structdef){
+                               .name = struct_name,
+                               .fields = fields,
+                           });
+
+    // UNIMPLEMENTED("P_get_top_struct");
+}
+
+// void P_get_top_enum(Parser* p) { UNIMPLEMENTED("P_get_top_enum"); }
+// void P_get_top_global(Parser* p) { UNIMPLEMENTED("P_get_top_global"); }
 
 void P_get_top_fn(Parser* p) {
     p->temporal_fn_cnt = 0;
@@ -1665,7 +1726,7 @@ void P_get_top_fn(Parser* p) {
         const IR_typeuse ty = P_get_typeuse(p);
 
         P_require_having_next_token(p, TT_Identifier);
-        const Token pre_name_token = &p->positioner.ref->array[p->positioner.pos-1];
+        const Token pre_name_token = &p->positioner.ref->array[p->positioner.pos - 1];
         const Token name = P_next_token(p);
         if (Token_cmp(name, ",")) {
             expected_token_error(p->source, p->source_filename, pre_name_token, "argument name");
@@ -1674,7 +1735,7 @@ void P_get_top_fn(Parser* p) {
 
         const Identifier id_name = P_to_identifier(p, name);
 
-        IR_typename_pair_LIST_push(&args, (IR_typename_pair) { .type = ty, .name = id_name });
+        IR_typename_pair_LIST_push(&args, (IR_typename_pair){.type = ty, .name = id_name});
 
         if (Token_cmp(P_peek_token(p), ")")) {
             break;
@@ -1683,17 +1744,16 @@ void P_get_top_fn(Parser* p) {
     }
 
 
-
     P_require_next_be(p, TT_EndBracket, SV_from_str_len(")", 1));
 
     const IR_block_LIST blocks = P_get_isolated_function_code_section(p);
 
-    IR_func_LIST_push(&p->functions, (IR_func) {
-        .fn_ret_t =  fn_ret_t,
-        .blocks = blocks,
-        .args = args,
-        .fn_name = fn_name
-    });
+    IR_func_LIST_push(&p->functions, (IR_func){
+                          .fn_ret_t = fn_ret_t,
+                          .blocks = blocks,
+                          .args = args,
+                          .fn_name = fn_name
+                      });
     printf("[info] parsed function '"SV_format"'\n", SV_p_args(raw_fn_name));
 
 
@@ -1705,16 +1765,14 @@ void P_get_top(Parser* p) {
     const Token t1 = P_peek_token(p);
     if (Token_cmp(t1, "struct")) {
         P_get_top_struct(p);
-    } else if (Token_cmp(t1, "enum")) {
-        P_get_top_enum(p);
-    } else if (Token_cmp(t1, "global")) {
-        P_get_top_global(p);
+        // } else if (Token_cmp(t1, "enum")) {
+        //     P_get_top_enum(p);
+        // } else if (Token_cmp(t1, "global")) {
+        //     P_get_top_global(p);
     } else {
         P_get_top_fn(p);
     }
-
 }
-
 
 
 void parse(SVList* restrict tokens, const SV* restrict source, const SV* restrict source_filename) {
@@ -1725,46 +1783,52 @@ void parse(SVList* restrict tokens, const SV* restrict source, const SV* restric
         .functions = IR_func_LIST_new(),
         .identifier_map = kh_init(sv_u64_map),
         .identifier_map_cnt = 1,
-        .on_demand_var_temp_alloc = false,
+        .type_table = (TypeTable){
+            .structs = IR_structdef_LIST_new()
+        }
     };
 
-    // // printf("tokens: {\n");
-    // // int i = 0;
-    // while (P_has_next(&p)) {
-    //     const Token t = P_next_token(&p);
-    //     // i++;
-    //     // if (i == 5) {
-    //     SV msg = SV_from_str("jup");
-    //     syntax_error(source, source_filename, t, &msg);
-    //     // }
-    //     // printf("  '"SV_format"',\n", SV_p_args(t));
-    // }
-    // // printf("}\n");
 
     while (P_has_next(&p)) {
         P_get_top(&p);
     }
 
+
+    // ---------------------------------------------------------------------------------
+
+    printf("TYPES:\n");
+    for (size_t k = 0; k < p.type_table.structs.len; k++) {
+        IR_structdef sdef = p.type_table.structs.array[k];
+
+        const SV struct_name = SV_from_identifiermap_lookup(p.identifier_map, sdef.name);
+        printf("  STRUCT <"SV_format"> {\n", SV_v_args(struct_name));
+        for (size_t j = 0; j < sdef.fields.len; j++) {
+            const IR_field f = sdef.fields.array[j];
+            const SV field_name = SV_from_identifiermap_lookup(p.identifier_map, f.name);
+
+            printf("    FIELD <");
+            print_IR_typeuse(&f.type, p.identifier_map);
+            printf("> '"SV_format"'\n", SV_v_args(field_name));
+        }
+    }
+
+    printf("FUNCTIONS:\n");
     for (size_t f = 0; f < p.functions.len; f++) {
         const Identifier fn_name = p.functions.array[f].fn_name;
 
-        // khash_t(sv_u64_map)* h = ;
         const SV real_fn_name = SV_from_identifiermap_lookup(p.identifier_map, fn_name);
 
         printf("FUNC <"SV_format"> {\n", SV_v_args(real_fn_name));
 
         for (size_t b = 0; b < p.functions.array[f].blocks.len; b++) {
             const IR_block* block = &p.functions.array[f].blocks.array[b];
-            // printf("  block %lu: {\n", b);
             printf("  block %lu,\n", b);
-
-
             printf("    binds: { ");
             for (size_t n = 0; n < block->bindings.len; n++) {
                 const IR_SSA_binding bind = block->bindings.array[n];
                 const SV var = SV_from_identifiermap_lookup(p.identifier_map, bind.variable);
                 printf("'"SV_format"' %%%lu", SV_v_args(var), bind.bind.val);
-                if (n+1 != block->bindings.len) {
+                if (n + 1 != block->bindings.len) {
                     printf(", ");
                 }
             }
@@ -1779,6 +1843,5 @@ void parse(SVList* restrict tokens, const SV* restrict source, const SV* restric
             printf("  }\n");
         }
         printf("}\n");
-        // print_IR_instr
     }
 }
