@@ -8,6 +8,7 @@
 #include "ir.h"
 
 #include "khash.h"
+#include "typechecking.h"
 
 typedef struct {
     Identifier name;
@@ -22,41 +23,8 @@ typedef struct {
 
 init_list_type(P_compilation_scope, P_compilation_scope_LIST)
 
-// typedef struct {
-//     Identifier field_name;
-//
-// } TYPEDEF_StructField;
-//
-// init_list_type(TYPEDEF_StructField, TYPEDEF_StructField_LIST)
-//
-// typedef struct {
-//     Identifier name;
-//     // fields: Vec<FieldDef>,
-//     TYPEDEF_StructField_LIST fields;
-//     size_t size;       // computed after resolution
-//     size_t align;
-// } TYPEDEF_StructDef;
-//
-// // KHASH_MAP_INIT_INT64(structs_map, TYPEDEF_StructDef)
-// init_list_type(TYPEDEF_StructDef, TYPEDEF_StructDef_LIST)
 
-typedef struct {
-    Identifier name;
-    IR_typeuse type; // IR_TY_Named for structs, IR_TY_Primitive for builtins, etc.
-} IR_field;
 
-init_list_type(IR_field, IR_field_LIST)
-
-typedef struct {
-    Identifier name;
-    IR_field_LIST fields;
-} IR_structdef;
-
-init_list_type(IR_structdef, IR_structdef_LIST)
-
-typedef struct {
-    IR_structdef_LIST structs;
-} TypeTable;
 
 typedef struct {
     // --- compilation process --
@@ -75,7 +43,7 @@ typedef struct {
     uint64_t temporal_fn_cnt;
     P_compilation_scope_LIST compilation_scope;
 
-    TypeTable type_table;
+    IR_incomplete_TypeTable type_table;
 } Parser;
 
 bool P_has_next(Parser* p) {
@@ -216,7 +184,15 @@ Identifier P_to_identifier(Parser* restrict p, const Token restrict t) {
     return id;
 }
 
-SV SV_from_identifiermap_lookup(khash_t(sv_u64_map)* identifier_map, const uint64_t identifier) {
+Identifier* find_identifier_from_sv(const khash_t(sv_u64_map)* restrict identifier_map, const Token restrict t) {
+    const khiter_t kf = kh_get(sv_u64_map, identifier_map, *t);
+    if (kf != kh_end(identifier_map)) {
+        return &kh_value(identifier_map, kf); // found
+    }
+    return NULL;
+}
+
+SV SV_from_identifiermap_lookup(const khash_t(sv_u64_map)* identifier_map, const uint64_t identifier) {
     for (khint_t k = kh_begin(identifier_map); k != kh_end(identifier_map); ++k) {
         if (!kh_exist(identifier_map, k)) continue;
 
@@ -235,7 +211,7 @@ SV SV_from_identifiermap_lookup(khash_t(sv_u64_map)* identifier_map, const uint6
 
 IR_typeuse P_get_typeuse(Parser* p);
 
-IR_typeuse P_get_typeuse_intern_generic(Parser* p, const Token name, IR_typeuse_type ty) {
+IR_typeuse P_get_typeuse_intern_generic(Parser* p, const Token name, const IR_typeuse_type ty) {
     P_require_next_be(p, TT_Less, SV_from_str_len("<", 1));
 
     IR_typeuse* irt = malloc(sizeof(IR_typeuse));
@@ -246,20 +222,42 @@ IR_typeuse P_get_typeuse_intern_generic(Parser* p, const Token name, IR_typeuse_
     const Identifier id_name = P_to_identifier(p, name);
 
     return (IR_typeuse){
-        .name = id_name,
+        .info.name = id_name,
         .tt_ty = ty,
         .contained = irt,
     };
 }
 
+void default_type_name(const Token name, SV* restrict out) {
+    if (Token_cmp(name, "Int")) {
+        *out = SV_from_str_len("Int32", 5);
+        return;
+    }
+    if (Token_cmp(name, "Uint")) {
+        *out = SV_from_str_len("Uint32", 6);
+        return;
+    }
+    if (Token_cmp(name, "Float")) {
+        *out = SV_from_str_len("Float32", 7);
+        return;
+    }
+    *out = *name;
+}
+
 IR_typeuse P_get_typeuse(Parser* p) {
     const Token name = P_next_token(p);
-    const SV int_repl = SV_from_str_len("Int32", 5);
-    const Identifier id_name = P_to_identifier(p, Token_cmp(name, "Int") ? &int_repl : name);
 
-    if (IR_TY_is(name)) {
-        return (IR_typeuse){.name = id_name, .tt_ty = IR_TY_Primitive};
+    SV defaulted_type_name;
+    default_type_name(name, &defaulted_type_name);
+
+    const Identifier id_name = P_to_identifier(p, &defaulted_type_name);
+
+
+    TC_Primitive_TY tt;
+    if (TC_Primitive_TY_from_SV(&defaulted_type_name, &tt)) {
+        return (IR_typeuse){ .info.primitive = tt, .tt_ty = IR_TY_Primitive};
     }
+
 
     if (Token_cmp(name, "Ref")) {
         return P_get_typeuse_intern_generic(p, name, IR_TY_Ref);
@@ -273,7 +271,8 @@ IR_typeuse P_get_typeuse(Parser* p) {
         return P_get_typeuse_intern_generic(p, name, IR_TY_List);
     }
 
-    return (IR_typeuse){.name = id_name, .tt_ty = IR_TY_Named};
+    // printf("named type '"SV_format"'\n", SV_v_args(defaulted_type_name));
+    return (IR_typeuse){.info.name = id_name, .tt_ty = IR_TY_Named};
 }
 
 // -------------------------------------------
@@ -547,8 +546,7 @@ IR_temporal P_variable_lookup(const Parser* restrict p, const Token restrict nam
     return dest;
 }
 
-/// todo: incomplete
-/// handles NUM, VAR, (EXPR), [EXPR, EXPR, ...], FN_CALL()
+/// handles NUM, VAR, (EXPR), [EXPR, EXPR, ...], FN_CALL(), MAKE_STRUCT {...}
 /// {VAR, (EXPR), FN_CALL()}.accessors
 IR_temporal P_get_expr_val(Parser* p) {
     const Token t = P_next_token(p);
@@ -634,8 +632,7 @@ IR_temporal P_get_expr_val(Parser* p) {
         IR_temporal dest = {.val = 0};
         if (P_has_next(p)) {
             const Token nx = P_peek_token(p);
-            if (Token_cmp(nx, "(")) {
-                // fn call
+            if (Token_cmp(nx, "(")) { // fn call
                 P_next_token(p); // (
                 IR_temporal_LIST* args = malloc(sizeof(IR_temporal_LIST));
                 *args = IR_temporal_LIST_new();
@@ -673,6 +670,48 @@ IR_temporal P_get_expr_val(Parser* p) {
                        });
 
                 dest = fn_call;
+            } else if (Token_cmp(nx, "{")) { // struct constructor
+                P_next_token(p); // {
+                IR_named_value_LIST* args = malloc(sizeof(IR_named_value_LIST));
+                *args = IR_named_value_LIST_new();
+
+
+                while (1) {
+                    P_require_having_next_token(p, TT_EndCurlyBracket);
+                    const Token kx = P_next_token(p);
+                    if (Token_cmp(kx, "}")) {
+                        break;
+                    }
+                    const Identifier field_name = P_to_identifier(p, kx);
+                    P_require_next_be(p, TT_Equal, SV_from_str_len("=", 1));
+                    const IR_temporal val = P_get_expr(p);
+
+                    IR_named_value_LIST_push(args, (IR_named_value) {
+                        .name = field_name,
+                        .value = val,
+                    });
+
+                    P_require_having_next_token(p, TT_EndCurlyBracket);
+                    const Token jx = P_next_token(p);
+                    if (Token_cmp(jx, "}")) {
+                        break;
+                    }
+                    if (!Token_cmp(jx, ",")) {
+                        P_syntax_error(p, jx, SV_from_str("expected either ',' or '}'"));
+                        exit(1);
+                    }
+                }
+
+                const IR_temporal out = P_new_temporal(p);
+
+                P_emit(p, (IR_instr) {
+                    .ty = IR_INST_TY__MAKE_STRUCT,
+                    .dest = out,
+                    .p1.name = name,
+                    .p2.struct_args = args,
+                });
+
+                dest = out;
             } else {
                 dest = P_variable_lookup(p, t, name);
             }
@@ -1269,6 +1308,14 @@ void P_get_while_stmt(Parser* p) {
                                     }
                                     break;
                                 }
+                                case IR_INST_TY__MAKE_STRUCT: {
+                                    for (size_t sn = 0; sn < instr->p2.struct_args->len; sn++) {
+                                        if (instr->p2.struct_args->array[sn].value.val == what_to_replace.val) {
+                                            instr->p2.struct_args->array[sn].value.val = replace_with.val;
+                                        }
+                                    }
+                                    break;
+                                }
                                 case IR_INST_TY__OP_ADD:
                                 case IR_INST_TY__OP_SUB:
                                 case IR_INST_TY__OP_DIV:
@@ -1691,10 +1738,16 @@ void P_get_top_struct(Parser* p) {
         }
     }
 
+    if (fields.len == 0) { // FORBIDDEN
+        P_syntax_error(p, raw_struct_name, SV_from_str("empty structs are forbidden"));
+        exit(1);
+    }
+
     // P_require_next_be(p, TT_EndCurlyBracket, SV_from_str_len("}", 1));
 
     IR_structdef_LIST_push(&p->type_table.structs, (IR_structdef){
                                .name = struct_name,
+                                .raw_name = *raw_struct_name,
                                .fields = fields,
                            });
 
@@ -1783,34 +1836,47 @@ void parse(SVList* restrict tokens, const SV* restrict source, const SV* restric
         .functions = IR_func_LIST_new(),
         .identifier_map = kh_init(sv_u64_map),
         .identifier_map_cnt = 1,
-        .type_table = (TypeTable){
+        .type_table = (IR_incomplete_TypeTable){
             .structs = IR_structdef_LIST_new()
         }
     };
 
 
-    while (P_has_next(&p)) {
-        P_get_top(&p);
-    }
+    const SV tk1 = SV_from_str_len("Int64", 5);
+    const SV tk2 = SV_from_str_len("Int32", 5);
+    const SV tk3 = SV_from_str_len("Int16", 5);
+    const SV tk4 = SV_from_str_len("Int8", 4);
+    const SV tk5 = SV_from_str_len("Char", 4);
+    P_to_identifier(&p, &tk1);
+    P_to_identifier(&p, &tk2);
+    P_to_identifier(&p, &tk3);
+    P_to_identifier(&p, &tk4);
+    P_to_identifier(&p, &tk5);
 
 
     // ---------------------------------------------------------------------------------
 
-    printf("TYPES:\n");
-    for (size_t k = 0; k < p.type_table.structs.len; k++) {
-        IR_structdef sdef = p.type_table.structs.array[k];
-
-        const SV struct_name = SV_from_identifiermap_lookup(p.identifier_map, sdef.name);
-        printf("  STRUCT <"SV_format"> {\n", SV_v_args(struct_name));
-        for (size_t j = 0; j < sdef.fields.len; j++) {
-            const IR_field f = sdef.fields.array[j];
-            const SV field_name = SV_from_identifiermap_lookup(p.identifier_map, f.name);
-
-            printf("    FIELD <");
-            print_IR_typeuse(&f.type, p.identifier_map);
-            printf("> '"SV_format"'\n", SV_v_args(field_name));
-        }
+    while (P_has_next(&p)) {
+        P_get_top(&p);
     }
+
+    // ---------------------------------------------------------------------------------
+
+    // printf("TYPES:\n");
+    // for (size_t k = 0; k < p.type_table.structs.len; k++) {
+    //     IR_structdef sdef = p.type_table.structs.array[k];
+    //
+    //     const SV struct_name = SV_from_identifiermap_lookup(p.identifier_map, sdef.name);
+    //     printf("  STRUCT <"SV_format"> {\n", SV_v_args(struct_name));
+    //     for (size_t j = 0; j < sdef.fields.len; j++) {
+    //         const IR_field f = sdef.fields.array[j];
+    //         const SV field_name = SV_from_identifiermap_lookup(p.identifier_map, f.name);
+    //
+    //         printf("    FIELD <");
+    //         print_IR_typeuse(&f.type, p.identifier_map);
+    //         printf("> '"SV_format"'\n", SV_v_args(field_name));
+    //     }
+    // }
 
     printf("FUNCTIONS:\n");
     for (size_t f = 0; f < p.functions.len; f++) {
@@ -1844,4 +1910,47 @@ void parse(SVList* restrict tokens, const SV* restrict source, const SV* restric
         }
         printf("}\n");
     }
+
+
+
+    // ---------------------------------------------------------------------------------
+
+
+    const TargetInfo ti = (TargetInfo) {
+        .ptr_size = 4,
+        .f64_align = 4
+    };
+
+    const SourceInfo si = (SourceInfo) {
+        .source = p.source,
+        .source_filename = p.source_filename
+    };
+
+    TC_TypeTable nct = close_type_table(&p.type_table, p.identifier_map, &ti, &si);
+
+
+    // ---------------------------------------------------------------------------------
+
+    printf("[info] ptr_align = %u\n", ti.ptr_size);
+    printf("STRUCTS:\n");
+    for (size_t n=0; n<nct.structs.len; n++) {
+        TC_structdef sd = nct.structs.array[n];
+        TC_struct_layout sl = nct.struct_layouts[n];
+
+        SV name = SV_from_identifiermap_lookup(p.identifier_map, sd.name);
+        printf("  STRUCT '"SV_format"', align=%u, size=%u: {\n", SV_v_args(name), sl.align, sl.size);
+
+        for (size_t k=0; k<sd.fields.len; k++) {
+            uint32_t offset = sl.field_offsets[k];
+            TC_field f = sd.fields.array[k];
+            SV f_name = SV_from_identifiermap_lookup(p.identifier_map, f.name);
+
+            printf("    FIELD '"SV_format"', type='", SV_v_args(f_name));
+            print_TC_typeid(&f.type, p.identifier_map, &nct);
+            printf("', offset=%u\n", offset);
+        }
+        printf("  }\n");
+
+    }
+
 }

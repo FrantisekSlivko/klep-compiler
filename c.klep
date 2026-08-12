@@ -1,0 +1,96 @@
+// tests structs and their processing
+
+
+struct NoPad {
+    Int32 a;
+    Int32 b;
+    Int32 c;
+}
+
+struct TailPad {
+    Int32 a;
+    Int8  b;
+}
+
+struct AlignJump {
+    Int8  a;
+    Int64 b;
+}
+
+struct MultiPad {
+    Int8  a;
+    Int32 b;
+    Int8  c;
+    Int64 d;
+}
+
+struct Inner {
+    Int8  x;
+    Int16 y;
+}
+
+struct Outer {
+    Int8  a;
+    Inner b;
+    Int32 c;
+}
+
+struct BigAlign {
+    Int8  a;
+    Int64 b;
+}
+
+struct Container {
+    Int8     pre;
+    BigAlign inner;
+}
+
+
+struct A {
+    Int32 x;
+}
+
+struct B {
+    A     inner;
+    Int32 y;
+}
+
+struct C {
+    B     nested;
+    Int32 z;
+}
+
+struct WithHeap {
+    Int32       a;
+    Ref<Int32>  r;
+    Array<Int8> arr;
+    List<Int64> lst;
+}
+
+struct Node {
+    Int32      value;
+    Ref<Node>  next;
+}
+
+struct AllBytes {
+    Int8 a;
+    Int8 b;
+    Int8 c;
+}
+
+struct Single {
+    Int64 x;
+}
+
+// struct Empty {}
+
+// struct Cycle {
+//     Cycle b;
+// }
+
+// struct CycleA {
+//     CycleB b;
+// }
+// struct CycleB {
+//     CycleA a;
+// }

@@ -2,25 +2,17 @@
 
 #include "utils/color.h"
 
-bool IR_TY_is(const SV* t) {
-    if (
-        Token_cmp(t, "Int64") ||
-        Token_cmp(t, "Int32") ||
-        Token_cmp(t, "Int16") ||
-        Token_cmp(t, "Int8")  ||
-        Token_cmp(t, "Char")
-    ) {
-        return true;
-    }
-    return false;
-}
 
 void print_IR_typeuse(const IR_typeuse* restrict ty, khash_t(sv_u64_map)* restrict identifier_map) {
-    const SV type_name = SV_from_identifiermap_lookup(identifier_map, ty->name);
+    if (ty->tt_ty == IR_TY_Primitive) {
+        const SV k = TC_Primitive_TY_to_SV(ty->info.primitive);
+        printf(SV_format, SV_v_args(k));
+        return;
+    }
+    const SV type_name = SV_from_identifiermap_lookup(identifier_map, ty->info.name);
     printf(SV_format, SV_v_args(type_name));
     switch (ty->tt_ty) {
         case IR_TY_Primitive:
-            break;
         case IR_TY_Named:
             break;
         case IR_TY_Ref:
@@ -105,6 +97,22 @@ void print_IR_instr(const IR_instr* restrict instr, khash_t(sv_u64_map)* restric
             putc(']' ,stdout);
             break;
         }
+        case IR_INST_TY__MAKE_STRUCT: {
+            const SV name = SV_from_identifiermap_lookup(identifier_map, instr->p1.name);
+            printf("%%%lu = MAKE_STRUCT '"SV_format"' {", instr->dest.val, SV_v_args(name));
+            for (size_t i = 0; i < instr->p2.struct_args->len; i++) {
+                const IR_named_value v = instr->p2.struct_args->array[i];
+                const SV field_name = SV_from_identifiermap_lookup(identifier_map, v.name);
+                printf("'."SV_format"' = %%%lu", SV_v_args(field_name), v.value.val);
+                // printf("%%%lu", instr->p2.array->array[i].val);
+                if (i+1 != instr->p2.struct_args->len) {
+                    printf(", ");
+                }
+            }
+            putc('}' ,stdout);
+            break;
+        }
+
 
         case IR_INST_TY__OP_ADD: {
             printf("%%%lu = ADD %%%lu, %%%lu", instr->dest.val, instr->p1.src1.val, instr->p2.src2.val);

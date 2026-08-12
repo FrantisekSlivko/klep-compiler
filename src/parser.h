@@ -8,7 +8,9 @@
 #include "sv_u64_map.h"
 #include "list.h"
 
-SV SV_from_identifiermap_lookup(khash_t(sv_u64_map)* restrict identifier_map, uint64_t identifier);
+
+
+SV SV_from_identifiermap_lookup(const khash_t(sv_u64_map)* restrict identifier_map, uint64_t identifier);
 
 typedef enum {
     P_OP__ADD,
@@ -39,5 +41,7 @@ init_list_type(P_OP, P_OP_LIST)
 typedef const SV* Token;
 
 void parse(SVList* restrict tokens, const SV* restrict source, const SV* restrict source_filename);
+
+uint64_t* find_identifier_from_sv(const khash_t(sv_u64_map)* restrict identifier_map, Token restrict t);
 
 #endif //KLEPCOMPILER_PARSER_H

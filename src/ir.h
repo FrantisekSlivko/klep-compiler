@@ -1,30 +1,20 @@
 #ifndef KLEPCOMPILER_IR_H
 #define KLEPCOMPILER_IR_H
+#include "ir_defs.h"
+
 #include <stdint.h>
 #include <stdio.h>
 #include "sv_u64_map.h"
 #include "parser.h"
+#include "typechecking.h"
 #include "utils/float64.h"
 
-typedef uint64_t Identifier;
 
-// init_list_type(Identifier, Identifier_LIST)
 
-bool IR_TY_is(const SV* t);
 
-typedef enum {
-    IR_TY_Primitive,
-    IR_TY_Named,
-    IR_TY_Ref,
-    IR_TY_Array,
-    IR_TY_List,
-} IR_typeuse_type;
+// bool IR_TY_is(const SV* t);
 
-typedef struct IR_typeuse {
-    Identifier name;
-    IR_typeuse_type tt_ty;
-    struct IR_typeuse* contained;
-} IR_typeuse;
+
 
 void print_IR_typeuse(const IR_typeuse* restrict ty, khash_t(sv_u64_map)* restrict identifier_map);
 
@@ -42,8 +32,15 @@ typedef struct {
 
 init_list_type(IR_temporal, IR_temporal_LIST)
 
-typedef struct {int a;} IR_struct_typedef;
-typedef struct {int a;} IR_enum_typedef;
+// typedef struct {int a;} IR_struct_typedef;
+// typedef struct {int a;} IR_enum_typedef;
+
+typedef struct {
+    IR_temporal value;
+    Identifier name;
+} IR_named_value;
+
+init_list_type(IR_named_value, IR_named_value_LIST)
 
 typedef struct {
     IR_temporal temp;
@@ -105,6 +102,9 @@ typedef enum {
     /// expected to return value
     /// dest = CALL p1.name={name} (p2.array={args})
     IR_INST_TY__FN_CALL_RET,
+
+    /// dest = MAKE_STRUCT p1.name={name} { .p2.struct_args }
+    IR_INST_TY__MAKE_STRUCT,
 } IR_instr_TY;
 
 typedef struct {
@@ -122,6 +122,7 @@ typedef struct {
         IR_typeuse* type;
         IR_temporal_LIST* array;
         IR_temporal_block_phi_record_LIST* phi_args;
+        IR_named_value_LIST* struct_args;
         size_t br_false;
     } p2;
 } IR_instr;
@@ -154,6 +155,17 @@ typedef struct {
 } IR_func;
 
 init_list_type(IR_func, IR_func_LIST)
+
+
+
+
+
+
+
+
+
+
+
 
 void print_IR_instr(const IR_instr* instr, khash_t(sv_u64_map)* identifier_map);
 

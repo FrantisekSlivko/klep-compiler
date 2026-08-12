@@ -34,3 +34,8 @@ void calls() {
     }
     int i2 = add(i, 2);
 }
+
+void structs() {
+    Point p1 = Point { x=10, y=20 };
+    print(p1.x);
+}

@@ -23,6 +23,9 @@ Uint16
 Uint32
 Uint64
 
+Float32
+Float64
+
 Char
 String
 List<T>
@@ -40,5 +43,23 @@ int main(Array<String> args) {
     return 0;
 }
 
-
 ```
+
+
+
+## Compiler types
+
+| Type | Storage | Ownership | Freed by |
+| ------ | ---------| ------------- | -------|
+| `primitives` | stack / inline | copy | scope exit |
+| `structs` | stack / inline | move | scope exit |
+| `Array<T>` | heap | unique, owned | scope exit (RAII) |
+| `List<T>` | heap | unique, owned | scope exit (RAII) |
+| `Ref<T>` | — | non-owning | n/a |
+
+### built-in types
+
+- 
+
+### todo
+To variable declaration add scope depth (for ref out-scope checks).
