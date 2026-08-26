@@ -211,7 +211,7 @@ SV SV_from_identifiermap_lookup(const khash_t(sv_u64_map)* identifier_map, const
 
 IR_typeuse P_get_typeuse(Parser* p);
 
-IR_typeuse P_get_typeuse_intern_generic(Parser* p, const Token name, const IR_typeuse_type ty) {
+IR_typeuse P_get_typeuse_intern_single_generic(Parser* p, const Token name, const IR_typeuse_type ty) {
     P_require_next_be(p, TT_Less, SV_from_str_len("<", 1));
 
     IR_typeuse* irt = malloc(sizeof(IR_typeuse));
@@ -260,19 +260,48 @@ IR_typeuse P_get_typeuse(Parser* p) {
 
 
     if (Token_cmp(name, "Ref")) {
-        return P_get_typeuse_intern_generic(p, name, IR_TY_Ref);
+        return P_get_typeuse_intern_single_generic(p, name, IR_TY_Ref);
     }
 
     if (Token_cmp(name, "Array")) {
-        return P_get_typeuse_intern_generic(p, name, IR_TY_Array);
+        return P_get_typeuse_intern_single_generic(p, name, IR_TY_Array);
     }
 
     if (Token_cmp(name, "List")) {
-        return P_get_typeuse_intern_generic(p, name, IR_TY_List);
+        return P_get_typeuse_intern_single_generic(p, name, IR_TY_List);
     }
 
-    // printf("named type '"SV_format"'\n", SV_v_args(defaulted_type_name));
-    return (IR_typeuse){.info.name = id_name, .tt_ty = IR_TY_Named};
+    if (P_has_next(p) && Token_cmp(P_peek_token(p), "<")) {
+        P_next_token(p);
+
+        IR_typeuse_LIST irts = IR_typeuse_LIST_new();
+
+        while (1) {
+            IR_typeuse_LIST_push(&irts, P_get_typeuse(p));
+            P_require_having_next_token(p, TT_Comma);
+            const Token t = P_next_token(p);
+            if (Token_cmp(t, ">")) {
+                break;
+            }
+            if (!Token_cmp(t, ",")) {
+                P_syntax_error(p, t, SV_from_str("expected either ',' or '>'"));
+                exit(1);
+            }
+        }
+
+        IR_typeuse* res = realloc(irts.array, irts.len*sizeof(IR_typeuse));
+
+        return (IR_typeuse) {
+            .tt_ty = IR_TY_Generic,
+            .info.name = id_name,
+            .contained = res,
+            .contained_len = irts.len
+        };
+    }
+    return (IR_typeuse){
+        .info.name = id_name,
+        .tt_ty = IR_TY_Named
+    };
 }
 
 // -------------------------------------------
@@ -1690,22 +1719,7 @@ IR_block_LIST P_get_isolated_function_code_section(Parser* p) {
 
 // -------------------------------------------
 
-void P_get_top_struct(Parser* p) {
-    const Token struct_kw = P_next_token(p);
-    if (!Token_cmp(struct_kw, "struct")) {
-        fprintf(stderr, "[internal] should be 'struct' (from calling this fn)\n");
-        exit(3);
-    }
-
-    P_require_having_next_token(p, TT_Identifier);
-    const Token raw_struct_name = P_next_token(p);
-    const Identifier struct_name = P_to_identifier(p, raw_struct_name);
-
-    P_require_next_be(p, TT_StartCurlyBracket, SV_from_str_len("{", 1));
-
-    IR_field_LIST fields = IR_field_LIST_new();
-
-
+void P_get_struct_field_list(Parser* restrict p, IR_field_LIST* restrict fields) {
     while (1) {
         if (!P_has_next(p)) {
             expected_token_error(p->source, p->source_filename, &p->positioner.ref->array[p->positioner.ref->len - 1],
@@ -1722,7 +1736,7 @@ void P_get_top_struct(Parser* p) {
         const Token raw_field_name = P_next_token(p);
         const Identifier field_name = P_to_identifier(p, raw_field_name);
 
-        IR_field_LIST_push(&fields, (IR_field){
+        IR_field_LIST_push(fields, (IR_field){
                                .name = field_name,
                                .type = ty,
                            });
@@ -1737,25 +1751,41 @@ void P_get_top_struct(Parser* p) {
             exit(1);
         }
     }
+}
+
+void P_get_top_struct(Parser* p) {
+    const Token struct_kw = P_next_token(p);
+    if (!Token_cmp(struct_kw, "struct")) {
+        fprintf(stderr, "[internal] should be 'struct' (from calling this fn)\n");
+        exit(3);
+    }
+
+    P_require_having_next_token(p, TT_Identifier);
+    const Token raw_struct_name = P_next_token(p);
+    const Identifier struct_name = P_to_identifier(p, raw_struct_name);
+
+    P_require_next_be(p, TT_StartCurlyBracket, SV_from_str_len("{", 1));
+
+    IR_field_LIST fields = IR_field_LIST_new();
+
+
+    P_get_struct_field_list(p, &fields);
 
     if (fields.len == 0) { // FORBIDDEN
         P_syntax_error(p, raw_struct_name, SV_from_str("empty structs are forbidden"));
         exit(1);
     }
 
-    // P_require_next_be(p, TT_EndCurlyBracket, SV_from_str_len("}", 1));
 
-    IR_structdef_LIST_push(&p->type_table.structs, (IR_structdef){
-                               .name = struct_name,
-                                .raw_name = *raw_struct_name,
-                               .fields = fields,
-                           });
-
-    // UNIMPLEMENTED("P_get_top_struct");
+    IR_structdef_LIST_push(&p->type_table.structs,
+        (IR_structdef){
+            .name = struct_name,
+            .raw_name = *raw_struct_name,
+            .fields = fields,
+        }
+    );
 }
 
-// void P_get_top_enum(Parser* p) { UNIMPLEMENTED("P_get_top_enum"); }
-// void P_get_top_global(Parser* p) { UNIMPLEMENTED("P_get_top_global"); }
 
 void P_get_top_fn(Parser* p) {
     p->temporal_fn_cnt = 0;
@@ -1814,14 +1844,202 @@ void P_get_top_fn(Parser* p) {
     P_compilation_scope_LIST_free(&p->compilation_scope);
 }
 
+void P_get_enum_variants_defs(Parser* restrict p, IR_enumdef_variant_LIST* restrict variants, const SV* restrict raw_enum_name) {
+    while (1) {
+        P_require_having_next_token(p, TT_EndCurlyBracket);
+
+        if (Token_cmp(P_peek_token(p), "}")) {
+            P_next_token(p);
+            break;
+        }
+
+        const Token raw_variant_name = P_next_token(p);
+        const Identifier variant_name = P_to_identifier(p, raw_variant_name);
+
+        P_require_having_next_token(p, TT_EndCurlyBracket);
+        const Token comma_or_vals = P_next_token(p);
+        if (Token_cmp(comma_or_vals, "}") || Token_cmp(comma_or_vals, ",")) {
+            IR_enumdef_variant_LIST_push(variants, (IR_enumdef_variant) {
+                .name = variant_name,
+                .values_len = 0,
+                .values = NULL,
+            });
+        }
+        if (Token_cmp(comma_or_vals, "}")) break;
+        if (Token_cmp(comma_or_vals, ",")) continue;
+
+        if (Token_cmp(comma_or_vals, "(")) {
+
+            IR_typeuse_LIST irts = IR_typeuse_LIST_new();
+
+            while (1) {
+                IR_typeuse_LIST_push(&irts, P_get_typeuse(p));
+                P_require_having_next_token(p, TT_Comma);
+                const Token t = P_next_token(p);
+                if (Token_cmp(t, ")")) {
+                    break;
+                }
+                if (!Token_cmp(t, ",")) {
+                    P_syntax_error(p, t, SV_from_str("expected either ',' or ')'"));
+                    exit(1);
+                }
+            }
+
+            IR_typeuse* res = realloc(irts.array, irts.len*sizeof(IR_typeuse));
+
+            // P_require_next_be(p, TT_EndBracket, SV_from_str_len(")", 1));
+
+            IR_enumdef_variant_LIST_push(variants, (IR_enumdef_variant) {
+                .name = variant_name,
+                .values = res,
+                .values_len = irts.len
+            });
+
+            P_require_having_next_token(p, TT_EndCurlyBracket);
+
+            const Token end = P_next_token(p);
+            if (Token_cmp(end, ",")) continue;
+            if (Token_cmp(end, "}")) break;
+
+            P_syntax_error(p, end, SV_from_str("expected either ',' or '}'"));
+            exit(1);
+
+        } else {
+            // error
+            P_syntax_error(p, comma_or_vals, SV_from_str("expected either ',', '(' or '}'"));
+            exit(1);
+        }
+
+    }
+
+    if (variants->len == 0) {
+        P_syntax_error(p, raw_enum_name, SV_from_str("enums must have at least one variant"));
+        exit(1);
+    }
+}
+
+void P_get_top_enum(Parser* p) {
+    const Token enum_kw = P_next_token(p);
+    if (!Token_cmp(enum_kw, "enum")) {
+        fprintf(stderr, "[internal] should be 'enum' (from calling this fn)\n");
+        exit(3);
+    }
+
+    P_require_having_next_token(p, TT_Identifier);
+    const Token raw_enum_name = P_next_token(p);
+    const Identifier enum_name = P_to_identifier(p, raw_enum_name);
+
+    P_require_next_be(p, TT_StartCurlyBracket, SV_from_str_len("{", 1));
+
+    IR_enumdef_variant_LIST variants = IR_enumdef_variant_LIST_new();
+
+    P_get_enum_variants_defs(p, &variants, raw_enum_name);
+
+    IR_enumdef_LIST_push(&p->type_table.enums, (IR_enumdef) {
+        .name = enum_name,
+        .raw_name = *raw_enum_name,
+        .variants = variants,
+    });
+}
+
+void P_get_generic_def_args(Parser* restrict p, Identifier_LIST* restrict generic_args) {
+    while (1) {
+        P_require_having_next_token(p, TT_Greater);
+        const Token t1 = P_peek_token(p);
+        if (Token_cmp(t1, ">")) break;
+        P_next_token(p);
+
+        if (t1->len != 1) {
+            goto invalid_name;
+        }
+        if (t1->start[0] >= 'A' && t1->start[0] <= 'Z') {
+            goto valid_continue;
+        }
+        invalid_name: {
+            P_syntax_error(p, t1, SV_from_str("generic argument must be one uppercase letter"));
+            exit(1);
+        }
+        valid_continue: {
+            const Identifier name = P_to_identifier(p, t1);
+            Identifier_LIST_push(generic_args, name);
+        }
+    }
+}
+
+void P_get_top_generic_struct(Parser* p) {
+
+    P_require_having_next_token(p, TT_Identifier);
+    const Token raw_generic_name = P_next_token(p);
+    const Identifier generic_name = P_to_identifier(p, raw_generic_name);
+
+    P_require_next_be(p, TT_Less, SV_from_str_len("<", 1));
+
+    Identifier_LIST generic_args = Identifier_LIST_new();
+
+    P_get_generic_def_args(p, &generic_args);
+
+    P_require_next_be(p, TT_Greater, SV_from_str_len(">", 1));
+
+    P_require_next_be(p, TT_StartCurlyBracket, SV_from_str_len("{", 1));
+
+    IR_field_LIST fields = IR_field_LIST_new();
+
+    P_get_struct_field_list(p, &fields);
+
+    IR_generic_structdef_LIST_push(&p->type_table.generic_structs, (IR_generic_structdef) {
+        .name = generic_name,
+        .raw_name = *raw_generic_name,
+        .fields = fields,
+        .generic_args = generic_args
+    });
+}
+
+void P_get_top_generic_enum(Parser* p) {
+    P_require_having_next_token(p, TT_Identifier);
+    const Token raw_generic_name = P_next_token(p);
+    const Identifier generic_name = P_to_identifier(p, raw_generic_name);
+
+    P_require_next_be(p, TT_Less, SV_from_str_len("<", 1));
+
+    Identifier_LIST generic_args = Identifier_LIST_new();
+
+    P_get_generic_def_args(p, &generic_args);
+
+    P_require_next_be(p, TT_Greater, SV_from_str_len(">", 1));
+
+    P_require_next_be(p, TT_StartCurlyBracket, SV_from_str_len("{", 1));
+
+
+    IR_enumdef_variant_LIST variants = IR_enumdef_variant_LIST_new();
+
+    P_get_enum_variants_defs(p, &variants, raw_generic_name);
+
+    IR_generic_enumdef_LIST_push(&p->type_table.generic_enums, (IR_generic_enumdef) {
+        .name = generic_name,
+        .raw_name = *raw_generic_name,
+        .generic_args = generic_args,
+        .variants = variants
+    });
+}
+
 void P_get_top(Parser* p) {
     const Token t1 = P_peek_token(p);
     if (Token_cmp(t1, "struct")) {
         P_get_top_struct(p);
-        // } else if (Token_cmp(t1, "enum")) {
-        //     P_get_top_enum(p);
-        // } else if (Token_cmp(t1, "global")) {
-        //     P_get_top_global(p);
+    } else if (Token_cmp(t1, "enum")) {
+        P_get_top_enum(p);
+    } else if (Token_cmp(t1, "generic")) {
+        P_next_token(p);
+        P_require_having_next_token(p, TT_Identifier);
+        const Token t2 = P_next_token(p);
+        if (Token_cmp(t2, "struct")) {
+            P_get_top_generic_struct(p);
+        } else if (Token_cmp(t2, "enum")) {
+            P_get_top_generic_enum(p);
+        } else {
+            P_syntax_error(p, t2, SV_from_str("expected either 'struct' or 'enum'"));
+            exit(1);
+        }
     } else {
         P_get_top_fn(p);
     }
@@ -1837,21 +2055,12 @@ void parse(SVList* restrict tokens, const SV* restrict source, const SV* restric
         .identifier_map = kh_init(sv_u64_map),
         .identifier_map_cnt = 1,
         .type_table = (IR_incomplete_TypeTable){
-            .structs = IR_structdef_LIST_new()
+            .structs = IR_structdef_LIST_new(),
+            .enums = IR_enumdef_LIST_new(),
         }
     };
 
 
-    const SV tk1 = SV_from_str_len("Int64", 5);
-    const SV tk2 = SV_from_str_len("Int32", 5);
-    const SV tk3 = SV_from_str_len("Int16", 5);
-    const SV tk4 = SV_from_str_len("Int8", 4);
-    const SV tk5 = SV_from_str_len("Char", 4);
-    P_to_identifier(&p, &tk1);
-    P_to_identifier(&p, &tk2);
-    P_to_identifier(&p, &tk3);
-    P_to_identifier(&p, &tk4);
-    P_to_identifier(&p, &tk5);
 
 
     // ---------------------------------------------------------------------------------
@@ -1861,22 +2070,6 @@ void parse(SVList* restrict tokens, const SV* restrict source, const SV* restric
     }
 
     // ---------------------------------------------------------------------------------
-
-    // printf("TYPES:\n");
-    // for (size_t k = 0; k < p.type_table.structs.len; k++) {
-    //     IR_structdef sdef = p.type_table.structs.array[k];
-    //
-    //     const SV struct_name = SV_from_identifiermap_lookup(p.identifier_map, sdef.name);
-    //     printf("  STRUCT <"SV_format"> {\n", SV_v_args(struct_name));
-    //     for (size_t j = 0; j < sdef.fields.len; j++) {
-    //         const IR_field f = sdef.fields.array[j];
-    //         const SV field_name = SV_from_identifiermap_lookup(p.identifier_map, f.name);
-    //
-    //         printf("    FIELD <");
-    //         print_IR_typeuse(&f.type, p.identifier_map);
-    //         printf("> '"SV_format"'\n", SV_v_args(field_name));
-    //     }
-    // }
 
     printf("FUNCTIONS:\n");
     for (size_t f = 0; f < p.functions.len; f++) {
@@ -1926,7 +2119,7 @@ void parse(SVList* restrict tokens, const SV* restrict source, const SV* restric
         .source_filename = p.source_filename
     };
 
-    TC_TypeTable nct = close_type_table(&p.type_table, p.identifier_map, &ti, &si);
+    const TC_TypeTable nct = close_type_table(&p.type_table, p.identifier_map, &ti, &si);
 
 
     // ---------------------------------------------------------------------------------

@@ -11,11 +11,6 @@
 
 
 
-
-// bool IR_TY_is(const SV* t);
-
-
-
 void print_IR_typeuse(const IR_typeuse* restrict ty, khash_t(sv_u64_map)* restrict identifier_map);
 
 typedef struct {
@@ -23,31 +18,28 @@ typedef struct {
     Identifier name;
 } IR_typename_pair;
 
-init_list_type(IR_typename_pair, IR_typename_pair_LIST)
+init_prefixed_list_type(IR_typename_pair)
 
 
 typedef struct {
     uint64_t val;
 } IR_temporal;
 
-init_list_type(IR_temporal, IR_temporal_LIST)
-
-// typedef struct {int a;} IR_struct_typedef;
-// typedef struct {int a;} IR_enum_typedef;
+init_prefixed_list_type(IR_temporal)
 
 typedef struct {
     IR_temporal value;
     Identifier name;
 } IR_named_value;
 
-init_list_type(IR_named_value, IR_named_value_LIST)
+init_prefixed_list_type(IR_named_value)
 
 typedef struct {
     IR_temporal temp;
     size_t block;
 } IR_temporal_block_phi_record;
 
-init_list_type(IR_temporal_block_phi_record, IR_temporal_block_phi_record_LIST)
+init_prefixed_list_type(IR_temporal_block_phi_record)
 
 typedef enum {
     IR_INST_TY__INVALID = 0,
@@ -56,7 +48,6 @@ typedef enum {
 
     // IR_INST_TY__STORE_VAR,
     IR_INST_TY__VAR_DECL,
-    // IR_INST_TY__LOAD_VAR,
 
     /// STORE dest={ptr}, p1.src1={value}
     IR_INST_TY__STORE_PTR,
@@ -127,25 +118,22 @@ typedef struct {
     } p2;
 } IR_instr;
 
-init_list_type(IR_instr, IR_instr_LIST)
+init_prefixed_list_type(IR_instr)
 
 typedef struct {
     Identifier variable;
     IR_temporal bind;
 } IR_SSA_binding;
 
-init_list_type(IR_SSA_binding, IR_SSA_binding_LIST)
+init_prefixed_list_type(IR_SSA_binding)
 
 typedef struct {
     IR_instr_LIST instructions;
     IR_SSA_binding_LIST bindings;
 } IR_block;
 
-init_list_type(IR_block, IR_block_LIST)
+init_prefixed_list_type(IR_block)
 
-// typedef struct {
-//     IR_block_LIST blocks;
-// } IR_code_section;
 
 typedef struct {
     IR_typeuse fn_ret_t;
@@ -154,15 +142,7 @@ typedef struct {
     IR_block_LIST blocks;
 } IR_func;
 
-init_list_type(IR_func, IR_func_LIST)
-
-
-
-
-
-
-
-
+init_prefixed_list_type(IR_func)
 
 
 

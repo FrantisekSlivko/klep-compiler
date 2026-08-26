@@ -23,6 +23,7 @@ typedef enum {
     TC_TY_Ref,
     TC_TY_Array,
     TC_TY_List,
+    TC_TY_Generic,
 } TC_type_ty;
 
 typedef struct TC_typeid {
@@ -31,6 +32,11 @@ typedef struct TC_typeid {
         TC_Primitive_TY primitive;
         uint32_t type_id;
         struct TC_typeid* contained;
+        struct {
+            struct TC_typeid* contained;
+            size_t contained_len;
+            Identifier generics_name;
+        } generic;
     } info;
 } TC_typeid;
 
@@ -58,10 +64,22 @@ typedef struct {
     uint32_t* field_offsets; // length = fields.len of corresponding structdef
 } TC_struct_layout;
 
+// typedef struct {
+//     Identifier name;
+//     SV raw_name;
+//     IR_enumdef_variant_LIST variants;
+// } TC_enumdef;
+
+typedef IR_enumdef TC_enumdef;
+
+init_list_type(TC_enumdef, TC_enumdef_LIST)
 
 typedef struct {
     TC_structdef_LIST structs;
     TC_struct_layout* struct_layouts;
+
+    TC_enumdef_LIST enums;
+    size_t* enum_sizes;
 } TC_TypeTable;
 
 

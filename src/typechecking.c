@@ -1,6 +1,6 @@
 #include "typechecking.h"
-
 #include "error.h"
+#include "utils/dev.h"
 
 
 void print_TC_typeid(const TC_typeid* restrict ty, khash_t(sv_u64_map)* restrict identifier_map, const TC_TypeTable* restrict tt) {
@@ -11,7 +11,7 @@ void print_TC_typeid(const TC_typeid* restrict ty, khash_t(sv_u64_map)* restrict
             break;
         }
         case TC_TY_Struct: {
-            SV name = SV_from_identifiermap_lookup(identifier_map, tt->structs.array[ty->info.type_id].name);
+            const SV name = SV_from_identifiermap_lookup(identifier_map, tt->structs.array[ty->info.type_id].name);
             printf(SV_format, SV_v_args(name));
             break;
         }
@@ -31,6 +31,18 @@ void print_TC_typeid(const TC_typeid* restrict ty, khash_t(sv_u64_map)* restrict
         case TC_TY_List: {
             printf("List<");
             print_TC_typeid(ty->info.contained, identifier_map, tt);
+            putc('>', stdout);
+            break;
+        }
+        case TC_TY_Generic: {
+            const SV name = SV_from_identifiermap_lookup(identifier_map, ty->info.generic.generics_name);
+            printf(SV_format"<", SV_v_args(name));
+            for (size_t n=0; n < ty->info.generic.contained_len; n++) {
+                print_TC_typeid(&ty->info.generic.contained[n], identifier_map, tt);
+                if (n+1 != ty->info.generic.contained_len) {
+                    printf(", ");
+                }
+            }
             putc('>', stdout);
             break;
         }
@@ -183,8 +195,12 @@ SV TC_Primitive_TY_to_SV(const TC_Primitive_TY pt) {
 
 init_list_type(size_t, size_t_LIST)
 
-TC_typeid get_type(const khash_t(sv_u64_map)* restrict identifier_map, TC_structdef_LIST* restrict structs,
-                   size_t_LIST* restrict incomplete_structs_indexes, const IR_typeuse* restrict type) {
+TC_typeid get_type(const khash_t(sv_u64_map)* restrict identifier_map,
+    TC_structdef_LIST* restrict structs,
+    TC_enumdef_LIST* restrict enums,
+    size_t_LIST* restrict incomplete_structs_indexes,
+    const IR_typeuse* restrict type
+) {
     switch (type->tt_ty) {
         case IR_TY_Primitive: {
             return (TC_typeid){
@@ -193,8 +209,6 @@ TC_typeid get_type(const khash_t(sv_u64_map)* restrict identifier_map, TC_struct
             };
         }
         case IR_TY_Named: {
-            // const SV name = SV_from_identifiermap_lookup(identifier_map, type->info.name);
-            // printf("KKL '"SV_format"'\n", SV_v_args(name));
             // search existing ones if not found, make an incomplete one
             for (size_t n = 0; n < structs->len; n++) {
                 if (type->info.name == structs->array[n].name) {
@@ -223,9 +237,10 @@ TC_typeid get_type(const khash_t(sv_u64_map)* restrict identifier_map, TC_struct
         }
         case IR_TY_Ref:
         case IR_TY_Array:
+        case IR_TY_Box:
         case IR_TY_List: {
             TC_typeid* contained = malloc(sizeof(TC_typeid));
-            *contained = get_type(identifier_map, structs, incomplete_structs_indexes, type->contained);
+            *contained = get_type(identifier_map, structs, enums, incomplete_structs_indexes, type->contained);
 
             free(type->contained);
 
@@ -254,6 +269,24 @@ TC_typeid get_type(const khash_t(sv_u64_map)* restrict identifier_map, TC_struct
                 .info.contained = contained
             };
         }
+        case IR_TY_Generic: {
+            // fprintf(stderr, "[WARNING] IR_Type to TC_type for GENERICS unimplemented\n");
+
+            TC_typeid* contained = malloc(sizeof(TC_typeid)*type->contained_len);
+            for (size_t n = 0; n < type->contained_len; n++) {
+                const TC_typeid tc = get_type(identifier_map, structs, enums, incomplete_structs_indexes, &type->contained[n]);
+                contained[n] = tc;
+            }
+
+            return (TC_typeid) {
+                .ty = TC_TY_Generic,
+                .info.generic = {
+                    .contained = contained,
+                    .contained_len = type->contained_len,
+                    .generics_name = type->info.name,
+                },
+            };
+        }
     }
 
     // return ();
@@ -264,29 +297,6 @@ TC_typeid get_type(const khash_t(sv_u64_map)* restrict identifier_map, TC_struct
 
 // typedef enum { UNVISITED, IN_STACK, DONE } topo_state;
 typedef enum { UNVISITED, IN_STACK, DONE, ERROR } topo_state;
-
-// // order[] filled in reverse-finish order, order_len counts entries
-// void dfs(const uint32_t idx, TC_structdef_LIST* structs, topo_state* state, uint32_t* order, uint32_t* order_len) {
-//     if (state[idx] == DONE)    return;
-//     // if (state[idx] == IN_STACK) { /* cycle error */ abort(); }
-//     if (state[idx] == IN_STACK) {
-//         state[idx] = ERROR;
-//         return; // propagate upward
-//     }
-//     if (state[idx] == ERROR) return;
-//
-//     state[idx] = IN_STACK;
-//     const TC_structdef* s = &structs->array[idx];
-//
-//     for (uint32_t i = 0; i < s->fields.len; i++) {
-//         const TC_typeid* ft = &s->fields.array[i].type;
-//         if (ft->ty == TC_TY_Struct)
-//             dfs(ft->info.type_id, structs, state, order, order_len);
-//     }
-//
-//     state[idx] = DONE;
-//     order[(*order_len)++] = idx;
-// }
 
 void dfs(const uint32_t idx, const TC_structdef_LIST* restrict structs,
          topo_state* restrict state, uint32_t* restrict order, uint32_t* restrict order_len,
@@ -328,6 +338,10 @@ uint32_t size_of(const TC_typeid* restrict t, const TC_struct_layout* restrict l
         case TC_TY_Ref:       return ptr_size;
         case TC_TY_Array:     return ptr_size * 2;
         case TC_TY_List:      return ptr_size * 3;
+        case TC_TY_Generic: {
+            UNIMPLEMENTED("generics size")
+            return -1;
+        }
     }
     abort();
 }
@@ -345,6 +359,9 @@ uint32_t align_of(const TC_typeid* restrict t, const TC_struct_layout* restrict 
         case TC_TY_List: {
             return ptr_size;
         }
+        case TC_TY_Generic:
+            UNIMPLEMENTED("generics align")
+            return -1;
     }
     abort();
 }
@@ -378,6 +395,8 @@ TC_TypeTable close_type_table(const IR_incomplete_TypeTable* restrict table,
 
 
     TC_structdef_LIST out_structs = TC_structdef_LIST_new();
+    TC_enumdef_LIST out_enums = TC_enumdef_LIST_new();
+
     size_t_LIST incomplete_structs_indexes = size_t_LIST_new();
 
     for (size_t n = 0; n < table->structs.len; n++) {
@@ -385,7 +404,7 @@ TC_TypeTable close_type_table(const IR_incomplete_TypeTable* restrict table,
         TC_field_LIST fields = TC_field_LIST_new();
         for (size_t f = 0; f < sd.fields.len; f++) {
             const IR_field field = sd.fields.array[f];
-            const TC_typeid type = get_type(identifier_map, &out_structs, &incomplete_structs_indexes, &field.type);
+            const TC_typeid type = get_type(identifier_map, &out_structs, &out_enums, &incomplete_structs_indexes, &field.type);
             TC_field_LIST_push(&fields, (TC_field){
                                    .name = field.name,
                                    .type = type
@@ -433,18 +452,7 @@ TC_TypeTable close_type_table(const IR_incomplete_TypeTable* restrict table,
         exit(1);
     }
 
-    // TODO: CALC SIZE FOR EACH TYPE (field in struct + whole struct + reject owned cycles)
     TC_struct_layout* struct_layouts = malloc(sizeof(TC_struct_layout)*out_structs.len);
-    // for (size_t n=0; n<out_structs.len; n++) {
-    //     compute_layout(n, &out_structs, struct_layouts, target_info->ptr_size);
-    //     // for (uint32_t i = 0; i < table->structs.len; i++) {
-    //     //     if (topo_state[i] == ERROR) {
-    //     //         fprintf(stderr, "cycle detected involving struct '%s'\n",
-    //     //                 table->structs.data[i].name);
-    //     //         return;
-    //     //     }
-    //     // }
-    // }
 
     {
         topo_state* state = calloc(out_structs.len, sizeof(topo_state));
@@ -457,7 +465,7 @@ TC_TypeTable close_type_table(const IR_incomplete_TypeTable* restrict table,
         // check for cycles before doing any layout
         for (uint32_t i = 0; i < out_structs.len; i++) {
             if (state[i] == ERROR) {
-                fprintf(stderr, "cycle detected\n");
+                fprintf(stderr, "cycle detected, use Box<T> if needed\n");
                 // return;
                 exit(1);
             }

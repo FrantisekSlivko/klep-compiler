@@ -80,7 +80,7 @@ static inline const NAME* PREFIX ## View_peek(PREFIX ## View* instance) { \
 
 
 
-
+#define init_prefixed_list_type(x) init_list_type(x, x ## _LIST)
 
 
 #endif //KLEPCOMPILER_LIST_H

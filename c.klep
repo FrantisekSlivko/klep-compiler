@@ -94,3 +94,20 @@ struct Single {
 // struct CycleB {
 //     CycleA a;
 // }
+
+
+struct Generics_Use {
+    Option<Int32> val;
+    Option<List<Option<Char>>> val2;
+}
+
+enum Semaphore {
+    Red,
+    Yellow,
+    Green,
+}
+
+enum Int32_Option {
+    Some(Int32),
+    None,
+}

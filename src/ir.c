@@ -17,9 +17,19 @@ void print_IR_typeuse(const IR_typeuse* restrict ty, khash_t(sv_u64_map)* restri
             break;
         case IR_TY_Ref:
         case IR_TY_Array:
+        case IR_TY_Box:
         case IR_TY_List: {
             putc('<', stdout);
             print_IR_typeuse(ty->contained, identifier_map);
+            putc('>', stdout);
+            break;
+        }
+        case IR_TY_Generic: {
+            putc('<', stdout);
+            for (size_t i=0; i<ty->contained_len; i++) {
+                print_IR_typeuse(&ty->contained[i], identifier_map);
+                if (i+1 != ty->contained_len) printf(", ");
+            }
             putc('>', stdout);
             break;
         }
@@ -32,7 +42,6 @@ void print_IR_instr(const IR_instr* restrict instr, khash_t(sv_u64_map)* restric
             printf(C_RED"INVALID IR"C_RESET);
             break;
         }
-
 
 
         case IR_INST_TY__PHI: {
