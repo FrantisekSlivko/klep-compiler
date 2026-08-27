@@ -16,18 +16,23 @@
 } PREFIX; \
 \
 \
-static inline PREFIX PREFIX ## _new (void) { \
+__attribute__((unused)) static inline PREFIX PREFIX ## _new (void) { \
     NAME* array = malloc(sizeof(NAME)*4); \
     return (PREFIX) { .array=array, .cap=4, .len=0  }; \
 } \
+__attribute__((unused)) static inline PREFIX PREFIX ## _new_with_capacity (size_t capacity) { \
+    NAME* array = malloc(sizeof(NAME)*capacity); \
+    return (PREFIX) { .array=array, .cap=capacity, .len=0  }; \
+} \
 \
-static inline void PREFIX ## _free(PREFIX* instance) { \
+__attribute__((unused)) static inline void PREFIX ## _free(PREFIX* instance) { \
     free(instance->array); \
 } \
 \
-static inline void PREFIX ## _push(PREFIX* instance, NAME item) { \
+__attribute__((unused)) static inline void PREFIX ## _push(PREFIX* instance, NAME item) { \
     if (instance->len + 1 > instance->cap) { \
-        instance->cap *= 2;\
+        instance->cap *= 2; \
+        if (instance->cap == 0) instance->cap = 4; \
         NAME* new_array = realloc(instance->array, sizeof(NAME)*instance->cap); \
         if (!new_array) return; \
         instance->array = new_array; \
@@ -35,21 +40,27 @@ static inline void PREFIX ## _push(PREFIX* instance, NAME item) { \
     instance->array[(instance->len)++] = item; \
 } \
 \
-static inline NAME* PREFIX ## _pop(PREFIX* instance) { \
+__attribute__((unused)) static inline NAME* PREFIX ## _pop(PREFIX* instance) { \
     if (instance->len < 1) { \
         return NULL; \
     } \
     return &instance->array[--(instance->len)]; \
 } \
 \
-static inline NAME* PREFIX ## _peek_last(PREFIX* instance) { \
-if (instance->len < 1) { \
-return NULL; \
+__attribute__((unused)) static inline NAME* PREFIX ## _peek_last(PREFIX* instance) { \
+    if (instance->len < 1) { \
+        return NULL; \
+    } \
+    return &instance->array[instance->len - 1]; \
 } \
-return &instance->array[instance->len - 1]; \
-} \
-static inline bool PREFIX ## _is_empty(PREFIX* instance) { \
+__attribute__((unused)) static inline bool PREFIX ## _is_empty(PREFIX* instance) { \
     return instance->len < 1; \
+} \
+__attribute__((unused)) static inline void PREFIX ## _shrink(PREFIX* instance) { \
+    NAME* new_array = realloc(instance->array, sizeof(NAME)*instance->len); \
+    if (!new_array) return; \
+    instance->array = new_array; \
+    instance->cap = instance->len; \
 } \
 \
 typedef struct { \
@@ -57,20 +68,20 @@ typedef struct { \
     size_t pos; \
 } PREFIX ## View; \
 \
-static inline PREFIX ## View PREFIX ## _to_view(PREFIX* instance) { \
+__attribute__((unused)) static inline PREFIX ## View PREFIX ## _to_view(PREFIX* instance) { \
     return (PREFIX ## View) { .ref=instance, .pos=0 }; \
 } \
 \
 \
-static inline bool PREFIX ## View_has_next(PREFIX ## View* instance) { \
+__attribute__((unused)) static inline bool PREFIX ## View_has_next(PREFIX ## View* instance) { \
     return instance->pos < instance->ref->len; \
 } \
-static inline const NAME* PREFIX ## View_next(PREFIX ## View* instance) { \
+__attribute__((unused)) static inline const NAME* PREFIX ## View_next(PREFIX ## View* instance) { \
     if (instance->pos < instance->ref->len) \
         return &instance->ref->array[(instance->pos)++]; \
     return NULL; \
 } \
-static inline const NAME* PREFIX ## View_peek(PREFIX ## View* instance) { \
+__attribute__((unused)) static inline const NAME* PREFIX ## View_peek(PREFIX ## View* instance) { \
     if (instance->pos < instance->ref->len)\
         return &instance->ref->array[instance->pos]; \
     return NULL; \

@@ -95,19 +95,47 @@ struct Single {
 //     CycleA a;
 // }
 
+// generic enum Option<T> {
+//     Some(T),
+//     None
+// }
+//
+// generic struct Double<A> {
+//     A v1;
+//     A v2;
+// }
+//
+// struct Generics_Use {
+//     Option<Int32> val;
+//     Option<List<Option<Char>>> val2;
+// }
+//
+// enum Semaphore {
+//     Red,
+//     Yellow,
+//     Green,
+// }
+//
+// enum Int32_Option {
+//     Some(Int32),
+//     None,
+// }
+//
+// void test() {
+//     if ( 1 != 2 ) {
+//         print(10);
+//     }
+//
+// }
 
-struct Generics_Use {
-    Option<Int32> val;
-    Option<List<Option<Char>>> val2;
+
+Int add(Int a, Int b) {
+    return a + b;
 }
 
-enum Semaphore {
-    Red,
-    Yellow,
-    Green,
-}
-
-enum Int32_Option {
-    Some(Int32),
-    None,
+Int factorial(Int n) {
+    if n <= 1 {
+        return 1;
+    }
+    return n * factorial(n-1);
 }

@@ -66,6 +66,7 @@ typedef enum {
     IR_INST_TY__OP_AND,
 
     IR_INST_TY__OP_CMP_EQ,
+    IR_INST_TY__OP_CMP_NOT_EQ,
     IR_INST_TY__OP_CMP_LESS,
     IR_INST_TY__OP_CMP_LESS_EQ,
     IR_INST_TY__OP_CMP_GREATER,

@@ -1,8 +1,9 @@
 cmake_minimum_required(VERSION 3.12)
+#set(CMAKE_C_COMPILER clang)
 
 project(KlepCompiler C)
 
-set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD 23) # 11
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin)
@@ -27,6 +28,7 @@ if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_C_COMPILER_ID MATCHES "Clang")
             -Wno-error=unused-local-typedefs
             -Wno-error=unused-result
             -Wno-error=unused-function
+            -Werror=missing-field-initializers
     )
 
     target_compile_options(main PRIVATE

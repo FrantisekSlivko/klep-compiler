@@ -36,7 +36,10 @@ typedef enum {
 typedef struct IR_typeuse {
     union {
         TC_Primitive_TY primitive;
-        Identifier name;
+        struct {
+            Identifier name;
+            SV raw_name;
+        } named;
     } info;
     IR_typeuse_type tt_ty;
     struct IR_typeuse* contained;
@@ -47,6 +50,7 @@ init_prefixed_list_type(IR_typeuse)
 
 typedef struct {
     Identifier name;
+    SV raw_name;
     IR_typeuse type;
 } IR_field;
 
@@ -63,6 +67,7 @@ init_prefixed_list_type(IR_structdef)
 
 typedef struct {
     Identifier name;
+    SV raw_name;
     IR_typeuse* values;
     /// =0 if without values
     size_t values_len;

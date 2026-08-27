@@ -7,7 +7,7 @@
 #include "parser.h"
 
 
-void compile(const SV* restrict source, const SV* restrict source_filename);
+void compile(SV source, SV source_filename);
 
 int main(const int argc, char* argv[]) {
     SVList list = SVList_new();
@@ -23,7 +23,7 @@ int main(const int argc, char* argv[]) {
 
     SVList_free(&list);
 
-    const char* raw_source_filename = "/home/frantisek/Projects/KlepCompiler/c.klep";
+    const char* raw_source_filename = "/home/frantisek/Projects/KlepCompiler/d.klep";
     const SV source_filename = SV_from_str(raw_source_filename);
 
     FILE* source_file = fopen(raw_source_filename, "rb");
@@ -62,13 +62,13 @@ int main(const int argc, char* argv[]) {
 
     printf("[info] file loaded\n");
 
-    compile(&test_source, &source_filename);
+    compile(test_source, source_filename);
 
     free(raw_source);
     return 0;
 }
 
-void compile(const SV* restrict source, const SV* restrict source_filename) {
+void compile(const SV source, const SV source_filename) {
     SVList tokens = p_tokenize(source);
 
     // for (SVListView tokens_iter = SVList_to_view(&tokens); SVListView_has_next(&tokens_iter) ;) {
@@ -76,7 +76,17 @@ void compile(const SV* restrict source, const SV* restrict source_filename) {
     //     printf("'"SV_format"'\n", SV_p_args(item));
     // }
 
-    parse(&tokens, source, source_filename);
+    const TargetInfo target_info = (TargetInfo) {
+        .ptr_size = 4,
+        .f64_align = 4
+    };
+
+    const SourceInfo source_info = (SourceInfo) {
+        .source = source,
+        .source_filename = source_filename
+    };
+
+    parse(&tokens, source_info, target_info);
 
 
     SVList_free(&tokens);

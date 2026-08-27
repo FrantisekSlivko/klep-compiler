@@ -9,7 +9,7 @@ void print_IR_typeuse(const IR_typeuse* restrict ty, khash_t(sv_u64_map)* restri
         printf(SV_format, SV_v_args(k));
         return;
     }
-    const SV type_name = SV_from_identifiermap_lookup(identifier_map, ty->info.name);
+    const SV type_name = SV_from_identifiermap_lookup(identifier_map, ty->info.named.name);
     printf(SV_format, SV_v_args(type_name));
     switch (ty->tt_ty) {
         case IR_TY_Primitive:
@@ -158,6 +158,10 @@ void print_IR_instr(const IR_instr* restrict instr, khash_t(sv_u64_map)* restric
 
         case IR_INST_TY__OP_CMP_EQ: {
             printf("%%%lu = CMP_EQ %%%lu, %%%lu", instr->dest.val, instr->p1.src1.val, instr->p2.src2.val);
+            break;
+        }
+        case IR_INST_TY__OP_CMP_NOT_EQ: {
+            printf("%%%lu = CMP_NOT_EQ %%%lu, %%%lu", instr->dest.val, instr->p1.src1.val, instr->p2.src2.val);
             break;
         }
         case IR_INST_TY__OP_CMP_LESS: {

@@ -5,7 +5,7 @@
 #include "string_view.h"
 
 bool is_operator(char c);
-SVList p_tokenize(const SV* sv);
+SVList p_tokenize(SV text);
 
 
 #endif //KLEPCOMPILER_TOKENIZER_H
