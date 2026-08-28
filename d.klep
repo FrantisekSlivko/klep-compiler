@@ -50,21 +50,32 @@ Int32 while_else_returns(Int32 x) {
 }
 
 
+generic struct Pair<A, B> {
+    A a;
+    B b;
+}
+
+generic struct ListViewer<L> {
+    Ref<List<L>> list;
+    Uint32 position;
+}
+
 generic enum Option<T> {
     Some(T),
-    None,
+    None
 }
+
+generic enum Result<T, E> {
+    Ok(T),
+    Err(E)
+}
+
 
 generic struct Double<A, B> {
     A a;
     B b;
 }
 
-// struct option_use {
-//     Box<option_use> a;
-//     Option<Box<option_use>> b;
-//     Option<option_use> c;
-// }
 
 struct struct_use {
     Double<Int32, Int8> v1;
@@ -74,4 +85,6 @@ struct struct_use {
 struct enum_use {
     Option<Int32> v1;
     Option<List<Box<enum_use>>> v2;
+    Result<List<Char>, Int32> v3;
 }
+

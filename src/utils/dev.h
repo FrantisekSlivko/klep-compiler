@@ -19,5 +19,9 @@
     exit(3);                                                                          \
 } while (0);
 
+#define UNREACHABLE(fmt, ...) do {                                                   \
+fprintf(stderr, "[UNREACHABLE at "__FILE__ ":" LINE_STR ": ] " fmt "\n" __VA_OPT__(,) __VA_ARGS__); \
+exit(3);                                                                          \
+} while (0);
 
 #endif //KLEPCOMPILER_DEV_H

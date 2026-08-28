@@ -54,18 +54,6 @@ void print_TC_typeid(const TC_typeid* restrict ty, khash_t(sv_u64_map)* restrict
             putc('>', stdout);
             break;
         }
-        // case TC_TY_Generic: {
-        //     const SV name = SV_from_identifiermap_lookup(identifier_map, ty->info.generic.generics_name);
-        //     printf(SV_format"<", SV_v_args(name));
-        //     for (size_t n=0; n < ty->info.generic.contained_len; n++) {
-        //         print_TC_typeid(&ty->info.generic.contained[n], identifier_map, tt);
-        //         if (n+1 != ty->info.generic.contained_len) {
-        //             printf(", ");
-        //         }
-        //     }
-        //     putc('>', stdout);
-        //     break;
-        // }
     }
 }
 
@@ -165,7 +153,7 @@ uint32_t TC_Primitive_TY_size(const TC_Primitive_TY pt) {
             return 1;
         }
     }
-    INTERNAL_ERROR("invalid control path for TC_Primitive_TY sizeof | %u", (uint32_t)pt)
+    UNREACHABLE()
 }
 
 uint32_t TC_Primitive_TY_to_u32(const TC_Primitive_TY pt) {
@@ -208,7 +196,7 @@ SV TC_Primitive_TY_to_SV(const TC_Primitive_TY pt) {
             return SV_from_str_len("Char", 4);
         }
     }
-    return SV_from_str("UNKNOWN");
+    UNREACHABLE()
 }
 
 
@@ -231,287 +219,10 @@ bool CMP_TC_typeid(const TC_typeid* restrict a, const TC_typeid* restrict b) {
         case TC_TY_Box: {
             return CMP_TC_typeid(a->info.contained, b->info.contained);
         }
-        // case TC_TY_Generic: {
-        //     if (a->info.generic.generics_name != b->info.generic.generics_name) return false;
-        //     if (a->info.generic.contained_len != b->info.generic.contained_len) return false;
-        //     for (size_t n=0; n<a->info.generic.contained_len; n++) {
-        //         const TC_typeid* n_a = &a->info.generic.contained[n];
-        //         const TC_typeid* n_b = &b->info.generic.contained[n];
-        //         if (!CMP_TC_typeid(n_a, n_b)) {
-        //             return false;
-        //         }
-        //     }
-        //     return true;
-        // }
     }
-    abort();
+    UNREACHABLE();
 }
 
-/*
-
-STRATEGY
-1st pass -> structs + enums -> List<(Name, Kind, index_into_out)>
- + expand out_enums+out_structs to fit the indexes, but do not populate them
-
-2nd pass = resolution
-
-
-
- */
-
-
-// /// either find the type and return ref to where the type info is stored,
-// /// or create a placeholder to be filled later and return ref to that
-// TC_typeid get_type(const khash_t(sv_u64_map)* restrict identifier_map,
-//     TC_structdef_LIST* restrict structs,
-//     TC_enumdef_LIST* restrict enums,
-//     /// for normal enums and structs
-//     Identifier_LIST* restrict incomplete_type_names,
-//
-//     IR_generic_structdef_LIST* restrict generic_structs,
-//     IR_generic_enumdef_LIST* restrict generic_enums,
-//
-//     // TC_generic_materialization_indexpair_LIST* restrict generic_materializations,
-//
-//     // TC_known_name_enumstruct_type_LIST* restrict known_structs,
-//     // TC_known_name_enumstruct_type_LIST* restrict known_enums,
-//
-//     const IR_typeuse* restrict type
-// ) {
-//     switch (type->tt_ty) {
-//         case IR_TY_Primitive: {
-//             return (TC_typeid){
-//                 .ty = TC_TY_Primitive,
-//                 .info.primitive = type->info.primitive
-//             };
-//         }
-//         case IR_TY_Named: {
-//             // hmm, maybe make a separate index for named normal struct -> index in structs
-//             // and put materialized things there, but wait, now I cannot cache materialized types??
-//
-//             // structs and enums should remain as a list for computed types,
-//             // but search by name and by materialization of generics should be another two indexes
-//
-//             // search existing ones if not found, make an incomplete one
-//             for (size_t n = 0; n < known_structs->len; n++) {
-//                 if (type->info.name == known_structs->array[n].name) {
-//                     return (TC_typeid){
-//                         .ty = TC_TY_Struct,
-//                         .info.type_id = known_structs->array[n].index
-//                     };
-//                 }
-//             }
-//             for (size_t n = 0; n < known_enums->len; n++) {
-//                 if (type->info.name == known_enums->array[n].name) {
-//                     return (TC_typeid) {
-//                         .ty = TC_TY_Enum,
-//                         .info.type_id = known_enums->array[n].index
-//                     };
-//                 }
-//             }
-//             // TC_structdef_LIST_push(structs, (TC_structdef){.name = type->info.name});
-//             // bool found = false;
-//             // for (size_t n = 0; n < incomplete_structs_indexes->len; n++) {
-//             //     if (structs->array[incomplete_structs_indexes->array[n]].name == type->info.name) {
-//             //         found = true;
-//             //         break;
-//             //     }
-//             // }
-//
-//             // search in incomplete
-//             for (size_t n = 0; n < incomplete_type_names->len; n++) {
-//                 if (incomplete_type_names->array[n] == type->info.name) {
-//                     // found
-//                     return (TC_typeid) {
-//                         .ty = TC_TY_Indirect_Named_Type,
-//                         .info.indirect = {
-//                             type->info.name,
-//                             (uint32_t)n
-//                         }
-//                     };
-//                 }
-//             }
-//
-//             const uint32_t nth = (uint32_t)incomplete_type_names->len;
-//             Identifier_LIST_push(incomplete_type_names, type->info.name);
-//
-//             // const size_t id = structs->len - 1;
-//             // if (!found) {
-//                 // size_t_LIST_push(incomplete_structs_indexes, id);
-//             // }
-//             // return (TC_typeid){
-//                 // .ty = TC_TY_Struct,
-//                 // .info.type_id = id,
-//             // };
-//             return (TC_typeid) {
-//                 .ty = TC_TY_Indirect_Named_Type,
-//                 .info.indirect = {
-//                     type->info.name,
-//                     nth
-//                 }
-//             };
-//         }
-//         case IR_TY_Ref:
-//         case IR_TY_Array:
-//         case IR_TY_Box:
-//         case IR_TY_List: {
-//             TC_typeid* contained = malloc(sizeof(TC_typeid));
-//             *contained = get_type(identifier_map, structs, enums, incomplete_type_names, type->contained);
-//
-//             free(type->contained);
-//
-//             TC_type_ty ty;
-//             switch (type->tt_ty) {
-//                 case IR_TY_Ref: {
-//                     ty = TC_TY_Ref;
-//                     break;
-//                 }
-//                 case IR_TY_Array: {
-//                     ty = TC_TY_Array;
-//                     break;
-//                 }
-//                 case IR_TY_List: {
-//                     ty = TC_TY_List;
-//                     break;
-//                 }
-//                 case IR_TY_Box: {
-//                     ty = TC_TY_Box;
-//                     break;
-//                 }
-//                 default: {
-//                     fprintf(stderr, "[internal] whut? what happened to control flow? | u402\n");
-//                     exit(3);
-//                 }
-//             }
-//
-//             return (TC_typeid){
-//                 .ty = ty,
-//                 .info.contained = contained
-//             };
-//         }
-//         case IR_TY_Generic: {
-//             // fprintf(stderr, "[WARNING] IR_Type to TC_type for GENERICS unimplemented\n");
-//
-//             TC_typeid* contained = malloc(sizeof(TC_typeid)*type->contained_len);
-//             for (size_t n = 0; n < type->contained_len; n++) {
-//                 const TC_typeid tc = get_type(identifier_map, structs, enums, incomplete_structs_indexes, &type->contained[n]);
-//                 contained[n] = tc;
-//             }
-//
-//             return (TC_typeid) {
-//                 .ty = TC_TY_Generic,
-//                 .info.generic = {
-//                     .contained = contained,
-//                     .contained_len = type->contained_len,
-//                     .generics_name = type->info.name,
-//                 },
-//             };
-//         }
-//     }
-//
-//     // return ();
-//     fprintf(stderr, "[internal] whut? what happened to control flow? | u403\n");
-//     exit(3);
-// }
-//
-//
-// // typedef enum { UNVISITED, IN_STACK, DONE } topo_state;
-// typedef enum { UNVISITED, IN_STACK, DONE, ERROR } topo_state;
-//
-// void dfs(const uint32_t idx, const TC_structdef_LIST* restrict structs,
-//          topo_state* restrict state, uint32_t* restrict order, uint32_t* restrict order_len,
-//          const khash_t(sv_u64_map)* restrict identifier_map, const SourceInfo* restrict source_info)
-// {
-//     if (state[idx] == DONE || state[idx] == ERROR) return;
-//     if (state[idx] == IN_STACK) {
-//         // state[idx] = ERROR; return;
-//         const SV* name = &structs->array[idx].raw_name;
-//         const SV msg = SV_from_str("owned cycles are forbidden, use Ref<T> if you need to construct cycle in runtime");
-//         syntax_error(&source_info->source, &source_info->source_filename, name, &msg);
-//         // fprintf(stderr, "error: cyclic struct '"SV_format"'\n", SV_v_args(name));
-//         // abort();
-//         exit(1);
-//     }
-//
-//     state[idx] = IN_STACK;
-//     const TC_structdef* s = &structs->array[idx];
-//
-//     for (uint32_t i = 0; i < s->fields.len; i++) {
-//         const TC_typeid* ft = &s->fields.array[i].type;
-//         if (ft->ty == TC_TY_Struct) {
-//             dfs(ft->info.type_id, structs, state, order, order_len, identifier_map, source_info);
-//             if (state[ft->info.type_id] == ERROR) {
-//                 state[idx] = ERROR; // propagate
-//                 return;
-//             }
-//         }
-//     }
-//
-//     state[idx] = DONE;
-//     order[(*order_len)++] = idx;
-// }
-//
-// uint32_t size_of(const TC_typeid* restrict t, const TC_struct_layout* restrict layouts, const uint32_t ptr_size) {
-//     switch (t->ty) {
-//         case TC_TY_Primitive: return TC_Primitive_TY_size(t->info.primitive);
-//         case TC_TY_Struct:    return layouts[t->info.type_id].size;
-//
-//         case TC_TY_Ref:
-//         case TC_TY_Box:       return ptr_size;
-//
-//         case TC_TY_Array:     return ptr_size * 2;
-//         case TC_TY_List:      return ptr_size * 3;
-//         case TC_TY_Generic: {
-//             UNIMPLEMENTED("generics size")
-//             return -1;
-//         }
-//
-//     }
-//     abort();
-// }
-//
-// uint32_t align_of(const TC_typeid* restrict t, const TC_struct_layout* restrict layouts, const uint32_t ptr_size) {
-//     switch (t->ty) {
-//         case TC_TY_Primitive: {
-//             return TC_Primitive_TY_size(t->info.primitive); // holds for standard primitives
-//         }
-//         case TC_TY_Struct: {
-//             return layouts[t->info.type_id].align;
-//         }
-//         case TC_TY_Ref:
-//         case TC_TY_Array:
-//         case TC_TY_List:
-//         case TC_TY_Box: {
-//             return ptr_size;
-//         }
-//         case TC_TY_Generic:
-//             UNIMPLEMENTED("generics align")
-//             return -1;
-//     }
-//     abort();
-// }
-//
-// void compute_layout(const uint32_t idx, const TC_structdef_LIST* restrict structs, TC_struct_layout* restrict layouts, const uint32_t ptr_size) {
-//     const TC_structdef* s = &structs->array[idx];
-//     TC_struct_layout* L = &layouts[idx];
-//     L->field_offsets = malloc(s->fields.len * sizeof(uint32_t));
-//
-//     uint32_t offset = 0, max_align = 1;
-//
-//     for (uint32_t i = 0; i < s->fields.len; i++) {
-//         const TC_typeid* ft = &s->fields.array[i].type;
-//         const uint32_t fa = align_of(ft, layouts, ptr_size);
-//         const uint32_t fs = size_of(ft, layouts, ptr_size);
-//
-//         offset = (offset + fa - 1) & ~(fa - 1); // align up
-//         L->field_offsets[i] = offset;
-//         offset += fs;
-//         if (fa > max_align) max_align = fa;
-//     }
-//
-//     L->align = max_align;
-//     L->size  = (offset + max_align - 1) & ~(max_align - 1); // tail padding
-// }
 
 /// returns TRUE if a is equal b
 bool CMP_IR_typeuse(const IR_typeuse* restrict a, const IR_typeuse* restrict b) {
@@ -539,7 +250,7 @@ bool CMP_IR_typeuse(const IR_typeuse* restrict a, const IR_typeuse* restrict b) 
             return true;
         }
     }
-    INTERNAL_ERROR("should be unreachable")
+    UNREACHABLE();
 }
 
 IR_typeuse substitute_typeuse(
@@ -554,7 +265,6 @@ IR_typeuse substitute_typeuse(
         case IR_TY_Named: {
             for (size_t g = 0; g < generic_args->len; g++) {
                 if (input->info.named.name == generic_args->array[g]) {
-                    // printf("NKL %i\n", args[g].tt_ty);
                     return args[g];
                 }
             }
@@ -596,7 +306,6 @@ IR_typeuse substitute_typeuse(
                 .contained_len = input->contained_len,
                 .contained = new_contained,
             };
-            // UNIMPLEMENTED("substitute_typeuse for IR_TY_Generic")
         }
     }
 
@@ -671,7 +380,7 @@ TC_typeid resolve_type(const IR_typeuse* restrict type,
                     break;
                 }
                 default: {
-                    INTERNAL_ERROR("whut? what happened to control flow? | u402")
+                    UNREACHABLE();
                 }
             }
 
@@ -686,7 +395,7 @@ TC_typeid resolve_type(const IR_typeuse* restrict type,
             for (size_t n=0; n<materialized_generics->len; n++) {
                 const TC_materialized_generic_index_record mr = materialized_generics->array[n];
                 if (mr.generic.tt_ty != IR_TY_Generic) {
-                    INTERNAL_ERROR("should never happen | u403")
+                    INTERNAL_ERROR("should never happen | u403");
                 }
                 const IR_typeuse tu = mr.generic;
                 if (tu.info.named.name != type->info.named.name) {
@@ -724,9 +433,6 @@ TC_typeid resolve_type(const IR_typeuse* restrict type,
                 };
             }
 
-            // materialize if it is existing generic
-            // 1. check if generic by that name exists
-            // 2. materialize
 
             // MATERIALIZE ENUM
             for (size_t k=0; k<table->generic_enums.len; k++) {
@@ -767,7 +473,7 @@ TC_typeid resolve_type(const IR_typeuse* restrict type,
                     ged.name,
                     ged.raw_name,
                     new_variants,
-                    0, // TODO: CALC SIZE
+                    0,
                     0,
                     0
                 };
@@ -819,7 +525,7 @@ TC_typeid resolve_type(const IR_typeuse* restrict type,
                     ges.name,
                     ges.raw_name,
                     new_fields,
-                    (TC_struct_layout) { // TODO: calc
+                    (TC_struct_layout) {
                         0,
                         0,
                         NULL
@@ -845,33 +551,11 @@ TC_typeid resolve_type(const IR_typeuse* restrict type,
             syntax_error(&source_info->source, &source_info->source_filename, &type->info.named.raw_name, &msg);
             exit(1);
 
-
         }
     }
 
 }
 
-
-/*
-
-calc_size(typeid, out_structs, out_enums, target_info, in_progress[])
-    if already sized → return cached
-    if in_progress[typeid] → error: direct recursive type (not through pointer)
-
-    mark in_progress
-
-    match typeid.ty:
-        Primitive → from target_info
-        Ref | Box → target_info.ptr_size
-        Array     → target_info.ptr_size * 2  (ptr + len, or however you model it)
-        List      → same
-        Struct    → sum of calc_size(field) for each field + alignment padding
-        Enum      → discriminant_size + max(calc_size(variant values...))
-
-    unmark in_progress
-    write back size
-    return size
- */
 
 typedef struct { size_t size; size_t align; } SizeAlign;
 
@@ -883,8 +567,6 @@ SizeAlign calc_type_size(
    size_t_LIST* restrict in_progress_structs,
    size_t_LIST* restrict in_progress_enums,
 
-    // const TC_name_index_record_LIST* restrict name_index,
-    // TC_materialized_generic_index_record_LIST* restrict materialized_generics
     const TargetInfo* restrict target_info,
     const SourceInfo* restrict source_info
 ) {
@@ -935,9 +617,6 @@ SizeAlign calc_type_size(
 
                 const uint32_t fa = sa.align;
                 const uint32_t fs = sa.size;
-
-                // const uint32_t fa = align_of(ft, layouts, ptr_size);
-                // const uint32_t fs = size_of(ft, layouts, ptr_size);
 
                 offset = (offset + fa - 1) & ~(fa - 1); // align up
                 field_offsets[i] = offset;
@@ -1031,9 +710,6 @@ TC_TypeTable close_type_table(const IR_incomplete_TypeTable* restrict table,
                               const TargetInfo* restrict target_info,
                               const SourceInfo* restrict source_info) {
 
-    // uint32_t id_counter_for_structs = 0;
-    // uint32_t id_counter_for_enums = 0;
-
     TC_name_index_record_LIST name_index = TC_name_index_record_LIST_new_with_capacity(table->enums.len + table->structs.len);
 
     for (size_t n=0; n<table->enums.len; n++) {
@@ -1079,9 +755,6 @@ TC_TypeTable close_type_table(const IR_incomplete_TypeTable* restrict table,
 
     TC_materialized_generic_index_record_LIST materialized_generics = TC_materialized_generic_index_record_LIST_new();
 
-    // TC_materialized_generic_structdef_LIST materialized_generic_structs = TC_materialized_generic_structdef_LIST_new();
-    // TC_materialized_generic_enumdef_LIST materialized_generic_enums = TC_materialized_generic_enumdef_LIST_new();
-    // TODO: make index like the one with names, but for generics
 
     {
         for (size_t n=0; n<table->enums.len; n++) {
@@ -1125,7 +798,7 @@ TC_TypeTable close_type_table(const IR_incomplete_TypeTable* restrict table,
                 ed.name,
                 ed.raw_name,
                 new_variants,
-                0, // TODO: CALC SIZE (variant count -> next 2^n + largest value of variants)
+                0,
                 0,
                 0
             };
@@ -1160,7 +833,7 @@ TC_TypeTable close_type_table(const IR_incomplete_TypeTable* restrict table,
                 sd.name,
                 sd.raw_name,
                 new_fields,
-                (TC_struct_layout) { // TODO: CALC
+                (TC_struct_layout) {
                     0,
                     0,
                     NULL
@@ -1200,145 +873,6 @@ TC_TypeTable close_type_table(const IR_incomplete_TypeTable* restrict table,
         out_enums,
         materialized_generics
     };
-
-    // exit(255);
-    //
-    //
-    //
-    //
-    // /// list of indexes to out_structs
-    // /// remake into: list of incompleate names -> struct or enum type
-    // // size_t_LIST incomplete_structs_indexes = size_t_LIST_new();
-    //
-    // /// uses uint64_t::MAX -> UINT64_MAX for deleted values
-    // Identifier_LIST incomplete_type_names = Identifier_LIST_new();
-    //
-    // for (size_t n = 0; n < table->structs.len; n++) {
-    //     const IR_structdef sd = table->structs.array[n];
-    //     TC_field_LIST fields = TC_field_LIST_new();
-    //     for (size_t f = 0; f < sd.fields.len; f++) {
-    //         const IR_field field = sd.fields.array[f];
-    //         const TC_typeid type = get_type(identifier_map, &out_structs, &out_enums, &incomplete_type_names, &field.type);
-    //         TC_field_LIST_push(&fields, (TC_field){
-    //                                .name = field.name,
-    //                                .type = type
-    //                            });
-    //     }
-    //     // check if an incomplete one with this name exists, if yes, replace it, if not push
-    //     bool found = false;
-    //     for (size_t k = 0; k < incomplete_type_names.len; k++) {
-    //         const Identifier name = incomplete_type_names.array[k];
-    //         if (name == sd.name) {
-    //             found = true;
-    //             incomplete_type_names.array[k] = UINT64_MAX;
-    //
-    //             bool found_struct = false;
-    //             for (size_t j = 0; j < out_structs.len; j++) {
-    //                 if (out_structs.array[j].name == name) {
-    //                     out_structs.array[j].fields = fields;
-    //                     out_structs.array[j].raw_name = sd.raw_name;
-    //                     found_struct = true;
-    //                     break;
-    //                 }
-    //             }
-    //             if (!found_struct) {
-    //                 const SV name_2 = SV_from_identifiermap_lookup(identifier_map, name);
-    //                 fprintf(stderr, "[internal error] ctt-ff1 '"SV_format"'", SV_v_args(name_2));
-    //                 exit(3);
-    //             }
-    //             break;
-    //         }
-    //     }
-    //
-    //
-    //     // size_t remove_index = 0;
-    //     // for (size_t k = 0; k < incomplete_structs_indexes.len; k++) {
-    //     //     if (out_structs.array[incomplete_structs_indexes.array[k]].name == sd.name) {
-    //     //         found = true;
-    //     //         out_structs.array[incomplete_structs_indexes.array[k]].fields = fields;
-    //     //         out_structs.array[incomplete_structs_indexes.array[k]].raw_name = sd.raw_name;
-    //     //         remove_index = k;
-    //     //         break;
-    //     //     }
-    //     // }
-    //     if (found) {
-    //         // // remove and restructure incomplete_structs_indexes
-    //         // memmove(
-    //         //     &incomplete_structs_indexes.array[remove_index],
-    //         //     &incomplete_structs_indexes.array[remove_index + 1],
-    //         //     (incomplete_structs_indexes.len - remove_index - 1) * sizeof(incomplete_structs_indexes.array[0])
-    //         // );
-    //         // incomplete_structs_indexes.len--;
-    //     } else {
-    //         TC_structdef_LIST_push(&out_structs, (TC_structdef){
-    //             .name = sd.name,
-    //             .raw_name = sd.raw_name,
-    //             .fields = fields,
-    //         });
-    //     }
-    // }
-    //
-    // // for (size_t n=0; n<incomplete_structs_indexes.len; n++) {
-    // //     incomplete_structs_indexes.array[n]
-    // // }
-    // bool completeness_failed = false;
-    // for (size_t n = 0; n < incomplete_type_names.len; n++) {
-    //     if (incomplete_type_names.array[n] != UINT64_MAX) {
-    //         const SV v = SV_from_identifiermap_lookup(identifier_map, incomplete_type_names.array[n]);
-    //         fprintf(stderr, "incomplete type: '"SV_format"'", SV_v_args(v));
-    //         completeness_failed = true;
-    //     }
-    // }
-    // if (completeness_failed) {
-    //     exit(1);
-    // }
-    // // if (incomplete_structs_indexes.len != 0) {
-    // //     for (size_t n = 0; n < incomplete_structs_indexes.len; n++) {
-    // //         const Identifier name = out_structs.array[incomplete_structs_indexes.array[n]].name;
-    // //         const SV v = SV_from_identifiermap_lookup(identifier_map, name);
-    // //         fprintf(stderr, "incomplete type: '"SV_format"'", SV_v_args(v));
-    // //     }
-    // //
-    // //     exit(1);
-    // // }
-    //
-    // TC_struct_layout* struct_layouts = malloc(sizeof(TC_struct_layout)*out_structs.len);
-    //
-    // {
-    //     topo_state* state = calloc(out_structs.len, sizeof(topo_state));
-    //     uint32_t* order   = malloc(out_structs.len * sizeof(uint32_t));
-    //     uint32_t  order_len = 0;
-    //
-    //     for (uint32_t i = 0; i < out_structs.len; i++)
-    //         dfs(i, &out_structs, state, order, &order_len, identifier_map, source_info);
-    //
-    //     // check for cycles before doing any layout
-    //     for (uint32_t i = 0; i < out_structs.len; i++) {
-    //         if (state[i] == ERROR) {
-    //             fprintf(stderr, "cycle detected, use Box<T> if needed\n");
-    //             // return;
-    //             exit(1);
-    //         }
-    //     }
-    //
-    //     // TC_struct_layout* struct_layouts = malloc(sizeof(TC_struct_layout) * out_structs.len);
-    //     for (uint32_t i = 0; i < order_len; i++)
-    //         compute_layout(order[i], &out_structs, struct_layouts, target_info->ptr_size);
-    //
-    //     free(state);
-    //     free(order);
-    // }
-    //
-    // size_t_LIST_shrink(&enum_sizes);
-    //
-    // return (TC_TypeTable){
-    //     out_structs,
-    //     struct_layouts,
-    //     out_enums,
-    //     enum_sizes.array,
-    //     materialized_generic_structs,
-    //     materialized_generic_enums,
-    // };
 }
 
 /// typechecking pass

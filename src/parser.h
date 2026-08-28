@@ -51,6 +51,5 @@ TC_TypeTable parse(SVList* restrict tokens,
     khash_t(sv_u64_map)* restrict identifier_map,
     IR_func_LIST* restrict functions);
 
-uint64_t* find_identifier_from_sv(const khash_t(sv_u64_map)* restrict identifier_map, Token restrict t);
 
 #endif //KLEPCOMPILER_PARSER_H

@@ -65,11 +65,6 @@ void P_get_code_section(Parser* p);
 
 // -------------------------------------------
 
-/*
-expected_token_error(p->source, p->source_filename, P_peek_token(p), "Identifier");
-const SV msg = SV_from_str("hi");
-syntax_error(p->source, p->source_filename, P_peek_token(p), &msg);
-*/
 
 /// used for expected errors
 typedef enum {
@@ -89,49 +84,22 @@ typedef enum {
 } TokenType;
 
 char* TT_to_expected(const TokenType t) {
-    char* expected = 0;
     switch (t) {
-        case TT_Identifier:
-            expected = "Identifier";
-            break;
-        case TT_Type:
-            expected = "Type";
-            break;
-        case TT_StartBracket:
-            expected = "(";
-            break;
-        case TT_EndBracket:
-            expected = ")";
-            break;
-        case TT_Comma:
-            expected = ",";
-            break;
-        case TT_StartCurlyBracket:
-            expected = "{";
-            break;
-        case TT_EndCurlyBracket:
-            expected = "}";
-            break;
-        case TT_Less:
-            expected = "<";
-            break;
-        case TT_Greater:
-            expected = ">";
-            break;
-        case TT_Semicolon:
-            expected = ";";
-            break;
-        case TT_Equal:
-            expected = "=";
-            break;
-        case TT_StartSquareBracket:
-            expected = "[";
-            break;
-        case TT_EndSquareBracket:
-            expected = "]";
-            break;
+        case TT_Identifier:           return "Identifier";
+        case TT_Type:                 return "Type";
+        case TT_StartBracket:         return "(";
+        case TT_EndBracket:           return ")";
+        case TT_Comma:                return ",";
+        case TT_StartCurlyBracket:    return "{";
+        case TT_EndCurlyBracket:      return "}";
+        case TT_Less:                 return "<";
+        case TT_Greater:              return ">";
+        case TT_Semicolon:            return ";";
+        case TT_Equal:                return "=";
+        case TT_StartSquareBracket:   return "[";
+        case TT_EndSquareBracket:     return "]";
     }
-    return expected;
+    UNREACHABLE();
 }
 
 static inline void P_syntax_error(const Parser* restrict p, const Token restrict t, SV msg) {
@@ -184,13 +152,6 @@ Identifier P_to_identifier(Parser* restrict p, const Token restrict t) {
     return id;
 }
 
-Identifier* find_identifier_from_sv(const khash_t(sv_u64_map)* restrict identifier_map, const Token restrict t) {
-    const khiter_t kf = kh_get(sv_u64_map, identifier_map, *t);
-    if (kf != kh_end(identifier_map)) {
-        return &kh_value(identifier_map, kf); // found
-    }
-    return NULL;
-}
 
 SV SV_from_identifiermap_lookup(const khash_t(sv_u64_map)* identifier_map, const uint64_t identifier) {
     for (khint_t k = kh_begin(identifier_map); k != kh_end(identifier_map); ++k) {
@@ -204,7 +165,7 @@ SV SV_from_identifiermap_lookup(const khash_t(sv_u64_map)* identifier_map, const
 
         return key;
     }
-    INTERNAL_ERROR("invalid Identifier lookup")
+    UNREACHABLE("Identifier lookup");
 }
 
 
@@ -292,7 +253,6 @@ IR_typeuse P_get_typeuse(Parser* p) {
             }
         }
 
-        // IR_typeuse* res = realloc(irts.array, irts.len*sizeof(IR_typeuse));
         IR_typeuse_LIST_shrink(&irts);
 
         return (IR_typeuse) {
@@ -388,7 +348,6 @@ IR_temporal P_new_temporal(Parser* p) {
 }
 
 bool EX_is_OP(const Token op) {
-    // printf("OP is '"SV_format"'\n", SV_p_args(op));
     if (Token_cmp(op, "and")) return true;
     if (op->len != 1 && op->len != 2) {
         return false;
@@ -408,7 +367,6 @@ bool EX_is_OP(const Token op) {
         }
     }
 
-    // if (op->len == 2) {
     const char c1 = op->start[0];
     const char c2 = op->start[1];
     return
@@ -417,8 +375,7 @@ bool EX_is_OP(const Token op) {
             (c1 == '>' && c2 == '=') ||
             (c1 == '!' && c2 == '=') ||
             (c1 == 'o' && c2 == 'r');
-    // }
-    // return false;
+    UNREACHABLE()
 }
 
 P_OP EX_token_to_op(const Token op) {
@@ -463,7 +420,7 @@ P_OP EX_token_to_op(const Token op) {
             return P_OP__OR;
         }
     }
-    INTERNAL_ERROR("invalid OP '"SV_format"'", SV_p_args(op))
+    INTERNAL_ERROR("invalid OP '" SV_format "'", SV_p_args(op))
 }
 
 uint8_t EX_precedence(const P_OP op) {
@@ -494,7 +451,8 @@ uint8_t EX_precedence(const P_OP op) {
         case P_OP__POW:
             return 40;
     }
-    INTERNAL_ERROR("invalid EX_precedence control flow ('%u')", op)
+    UNREACHABLE()
+    // INTERNAL_ERROR("invalid EX_precedence control flow ('%u')", op)
 }
 
 bool EX_is_op_right_assoc(const P_OP op) {
@@ -1046,12 +1004,6 @@ void P_get_var_dec_stmt(Parser* p) {
 
     // var declr
 
-    // use bindings instead
-    // P_emit(p, (IR_instr) {
-    //     .ty = IR_INST_TY__STORE_VAR,
-    //     .dest = (IR_temporal) { .val = name },
-    //     .p1 = { .src1 = rs },
-    // });
     IR_SSA_binding_LIST* binds = P_get_current_block_bindings(p);
     bool bind_find = false;
     for (size_t n = 0; n < binds->len; n++) {
@@ -1124,7 +1076,6 @@ IR_SSA_binding_LIST P_PHI_CONDITIONAL_BRANCHING_MERGER(Parser* restrict p, const
     return out;
 }
 
-// todo: make PHI correct in case of terminated blocks
 void P_get_if_stmt(Parser* p) {
     const Token if_kw = P_next_token(p);
     if (!Token_cmp(if_kw, "if")) {
@@ -1135,7 +1086,6 @@ void P_get_if_stmt(Parser* p) {
     const size_t block_with_cmp = P_get_current_block_index(p);
     const IR_SSA_binding_LIST cmp_bindings = *P_get_current_block_bindings(p);
 
-    // P_append_block(p);
     P_append_block_with_bindings(p, IR_SSA_bindings_deep_clone(&cmp_bindings));
     const size_t if_section_start_block = P_get_current_block_index(p);
     P_get_code_section(p);
@@ -1151,17 +1101,11 @@ void P_get_if_stmt(Parser* p) {
         const Token nx = P_peek_token(p);
         if (!Token_cmp(nx, "else")) {
             P_append_block(p);
-            // // P_append_block_with_bindings(p, IR_SSA_bindings_deep_clone(&cmp_bindings));
+
             else_section_start_block = P_get_current_block_index(p);
             else_section_end_block = P_get_current_block_index(p);
             after_block = P_get_current_block_index(p);
-            //
-            // // PHI MERGER if+cmp blocks
-            // const IR_SSA_binding_LIST res = P_PHI_CONDITIONAL_BRANCHING_MERGER(
-            //     p, &cmp_bindings, block_with_cmp, &if_bindings, if_section_end_block);
-            // IR_SSA_binding_LIST* cur = P_get_current_block_bindings(p);
-            // IR_SSA_binding_LIST_free(cur);
-            // *cur = res;
+
 
             IR_SSA_binding_LIST* cur = P_get_current_block_bindings(p);
             IR_SSA_binding_LIST_free(cur);
@@ -1180,32 +1124,20 @@ void P_get_if_stmt(Parser* p) {
         P_require_having_next_token(p, TT_StartCurlyBracket);
         const Token nx2 = P_peek_token(p);
         if (Token_cmp(nx2, "{")) {
-            // // P_append_block(p);
             P_append_block_with_bindings(p, IR_SSA_bindings_deep_clone(&cmp_bindings));
             else_section_start_block = P_get_current_block_index(p);
             P_get_code_section(p);
             else_section_end_block = P_get_current_block_index(p);
-            //
+
             const IR_SSA_binding_LIST else_bindings = *P_get_current_block_bindings(p);
-            //
-            // // if (!P_emit_block_is_empty(p)) {
+
             P_append_block(p);
-            // // }
+
             after_block = P_get_current_block_index(p);
-            //
-            // // todo: unsable
-            // // todo: WHUT? fix // todo: PHI MERGER
-            // const IR_SSA_binding_LIST res = P_PHI_CONDITIONAL_BRANCHING_MERGER(
-            //     p, &if_bindings, if_section_end_block, &else_bindings, else_section_end_block);
-            // IR_SSA_binding_LIST* cur = P_get_current_block_bindings(p);
-            // IR_SSA_binding_LIST_free(cur);
-            // *cur = res;
 
             const bool if_term  = P_block_is_terminated(p, if_section_end_block);
             const bool els_term = P_block_is_terminated(p, else_section_end_block);
 
-            // P_append_block(p);
-            // after_block = P_get_current_block_index(p);
 
             IR_SSA_binding_LIST* cur = P_get_current_block_bindings(p);
             IR_SSA_binding_LIST_free(cur);
@@ -1217,12 +1149,9 @@ void P_get_if_stmt(Parser* p) {
                 *cur = IR_SSA_bindings_deep_clone(&if_bindings);
             } else if (!els_term) {
                 *cur = IR_SSA_bindings_deep_clone(&else_bindings);
-            } else {
-
             }
             // both terminated: merge block is unreachable, leave bindings empty
         } else if (Token_cmp(nx2, "if")) {
-            // P_append_block(p);
             P_append_block_with_bindings(p, IR_SSA_bindings_deep_clone(&cmp_bindings));
             else_section_start_block = P_get_current_block_index(p);
 
@@ -1234,17 +1163,13 @@ void P_get_if_stmt(Parser* p) {
             const bool if_term  = P_block_is_terminated(p, if_section_end_block);
             const bool els_term = P_block_is_terminated(p, else_section_end_block);
 
-            // if (!P_emit_block_is_empty(p)) {
             P_append_block(p);
-            // }
+
             after_block = P_get_current_block_index(p);
 
-            // // todo: WHUT? fix // todo: PHI MERGER
-            // const IR_SSA_binding_LIST res = P_PHI_CONDITIONAL_BRANCHING_MERGER(
-            //     p, &if_bindings, if_section_end_block, &else_bindings, else_section_end_block);
             IR_SSA_binding_LIST* cur = P_get_current_block_bindings(p);
             IR_SSA_binding_LIST_free(cur);
-            // *cur = res;
+
             if (!if_term && !els_term) {
                 *cur = P_PHI_CONDITIONAL_BRANCHING_MERGER(
                     p, &if_bindings, if_section_end_block, &else_bindings, else_section_end_block);
@@ -1253,18 +1178,14 @@ void P_get_if_stmt(Parser* p) {
             } else if (!els_term) {
                 *cur = IR_SSA_bindings_deep_clone(&else_bindings);
             }
+
             // both terminated: merge block unreachable
         } else {
-            // error
             P_syntax_error(p, nx2, SV_from_str("expected 'if' or '{'"));
             exit(1);
         }
     } else {
-        /*// P_append_block(p);
-        P_append_block_with_bindings(p, IR_SSA_bindings_deep_clone(&cmp_bindings));
-        else_section_start_block = P_emit_pos_get(p);
-        else_section_end_block = P_emit_pos_get(p);
-        after_block = P_emit_pos_get(p);*/
+
         expected_token_error(&p->source, &p->source_filename, &p->positioner.ref->array[p->positioner.ref->len - 1],
                              "function end");
         exit(1);
@@ -1401,7 +1322,6 @@ void P_get_while_stmt(Parser* p) {
                                     break;
                                 }
                                 case IR_INST_TY__CONST_INT:
-                                    break;
                                 case IR_INST_TY__CONST_FLOAT:
                                     break;
                                 case IR_INST_TY__MAKE_ARRAY: {
@@ -1447,7 +1367,6 @@ void P_get_while_stmt(Parser* p) {
                                     }
                                     break;
                                 case IR_INST_TY__JUMP:
-                                    break;
                                 case IR_INST_TY__RETURN_VOID:
                                     break;
                                 case IR_INST_TY__RETURN:
@@ -1488,7 +1407,6 @@ void P_get_while_stmt(Parser* p) {
                             }
                         }
                     }
-                    //
                 } else {
                     // emit phi as normal
                     IR_temporal_block_phi_record_LIST* args = malloc(sizeof(IR_temporal_block_phi_record_LIST));
@@ -1624,11 +1542,6 @@ void P_get_assignment(Parser* p) {
                    .p1.src1 = out_val,
                });
     } else {
-        // P_emit(p, (IR_instr) {
-        //     .ty = IR_INST_TY__STORE_VAR,
-        //     .dest = (IR_temporal) { .val = name },
-        //     .p1.src1 = out_val,
-        // });
         IR_SSA_binding_LIST* binds = P_get_current_block_bindings(p);
         bool found = false;
         for (size_t n = 0; n < binds->len; n++) {
@@ -1780,16 +1693,6 @@ void P_get_code_section(Parser* p) {
     P_require_next_be(p, TT_EndCurlyBracket, SV_from_str_len("}", 1));
 }
 
-// IR_block_LIST P_get_isolated_function_code_section(Parser* p) {
-//     IR_block_LIST* original_blocks = p->func_scope_blocks;
-//     IR_block_LIST blocks = IR_block_LIST_new();
-//     p->func_scope_blocks = &blocks;
-//
-//     P_get_code_section(p);
-//
-//     p->func_scope_blocks = original_blocks;
-//     return blocks;
-// }
 
 // -------------------------------------------
 
@@ -1903,8 +1806,9 @@ void P_get_top_fn(Parser* p) {
 
     P_require_next_be(p, TT_EndBracket, SV_from_str_len(")", 1));
 
-    // const IR_block_LIST blocks = P_get_isolated_function_code_section(p);
+
     // -------------------------------------------------------------
+
     IR_block_LIST* original_blocks = p->func_scope_blocks;
     IR_block_LIST blocks = IR_block_LIST_new();
     p->func_scope_blocks = &blocks;
@@ -1922,6 +1826,7 @@ void P_get_top_fn(Parser* p) {
     P_get_code_section(p);
 
     p->func_scope_blocks = original_blocks;
+
     // -------------------------------------------------------------
 
     IR_func_LIST_push(&p->functions, (IR_func){
@@ -1979,9 +1884,7 @@ void P_get_enum_variants_defs(Parser* restrict p, IR_enumdef_variant_LIST* restr
                 }
             }
 
-            // IR_typeuse* res = realloc(irts.array, irts.len*sizeof(IR_typeuse));
             IR_typeuse_LIST_shrink(&irts);
-            // P_require_next_be(p, TT_EndBracket, SV_from_str_len(")", 1));
 
             IR_enumdef_variant_LIST_push(variants, (IR_enumdef_variant) {
                 .name = variant_name,
@@ -2000,7 +1903,6 @@ void P_get_enum_variants_defs(Parser* restrict p, IR_enumdef_variant_LIST* restr
             exit(1);
 
         } else {
-            // error
             P_syntax_error(p, comma_or_vals, SV_from_str("expected either ',', '(' or '}'"));
             exit(1);
         }
