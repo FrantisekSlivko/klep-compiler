@@ -26,7 +26,7 @@ void print_TC_typeid(const TC_typeid* restrict ty, khash_t(sv_u64_map)* restrict
         }
         case TC_TY_Enum: {
             const SV name = SV_from_identifiermap_lookup(identifier_map, tt->enums.array[ty->info.type_id].name);
-            printf(SV_format, SV_v_args(name));
+            printf(SV_format"{%u}", SV_v_args(name), ty->info.type_id);
             break;
         }
         case TC_TY_Ref: {
@@ -54,18 +54,18 @@ void print_TC_typeid(const TC_typeid* restrict ty, khash_t(sv_u64_map)* restrict
             putc('>', stdout);
             break;
         }
-        case TC_TY_Generic: {
-            const SV name = SV_from_identifiermap_lookup(identifier_map, ty->info.generic.generics_name);
-            printf(SV_format"<", SV_v_args(name));
-            for (size_t n=0; n < ty->info.generic.contained_len; n++) {
-                print_TC_typeid(&ty->info.generic.contained[n], identifier_map, tt);
-                if (n+1 != ty->info.generic.contained_len) {
-                    printf(", ");
-                }
-            }
-            putc('>', stdout);
-            break;
-        }
+        // case TC_TY_Generic: {
+        //     const SV name = SV_from_identifiermap_lookup(identifier_map, ty->info.generic.generics_name);
+        //     printf(SV_format"<", SV_v_args(name));
+        //     for (size_t n=0; n < ty->info.generic.contained_len; n++) {
+        //         print_TC_typeid(&ty->info.generic.contained[n], identifier_map, tt);
+        //         if (n+1 != ty->info.generic.contained_len) {
+        //             printf(", ");
+        //         }
+        //     }
+        //     putc('>', stdout);
+        //     break;
+        // }
     }
 }
 
@@ -129,7 +129,7 @@ bool TC_Primitive_TY_from_SV(const SV* sv, TC_Primitive_TY* restrict out) {
     return false;
 }
 
-uint8_t TC_Primitive_TY_size(const TC_Primitive_TY pt) {
+uint32_t TC_Primitive_TY_size(const TC_Primitive_TY pt) {
     switch (pt) {
         case TC_Primitive__Int8: {
             return 1;
@@ -231,18 +231,18 @@ bool CMP_TC_typeid(const TC_typeid* restrict a, const TC_typeid* restrict b) {
         case TC_TY_Box: {
             return CMP_TC_typeid(a->info.contained, b->info.contained);
         }
-        case TC_TY_Generic: {
-            if (a->info.generic.generics_name != b->info.generic.generics_name) return false;
-            if (a->info.generic.contained_len != b->info.generic.contained_len) return false;
-            for (size_t n=0; n<a->info.generic.contained_len; n++) {
-                const TC_typeid* n_a = &a->info.generic.contained[n];
-                const TC_typeid* n_b = &b->info.generic.contained[n];
-                if (!CMP_TC_typeid(n_a, n_b)) {
-                    return false;
-                }
-            }
-            return true;
-        }
+        // case TC_TY_Generic: {
+        //     if (a->info.generic.generics_name != b->info.generic.generics_name) return false;
+        //     if (a->info.generic.contained_len != b->info.generic.contained_len) return false;
+        //     for (size_t n=0; n<a->info.generic.contained_len; n++) {
+        //         const TC_typeid* n_a = &a->info.generic.contained[n];
+        //         const TC_typeid* n_b = &b->info.generic.contained[n];
+        //         if (!CMP_TC_typeid(n_a, n_b)) {
+        //             return false;
+        //         }
+        //     }
+        //     return true;
+        // }
     }
     abort();
 }
@@ -554,7 +554,7 @@ IR_typeuse substitute_typeuse(
         case IR_TY_Named: {
             for (size_t g = 0; g < generic_args->len; g++) {
                 if (input->info.named.name == generic_args->array[g]) {
-                    printf("NKL %i\n", args[g].tt_ty);
+                    // printf("NKL %i\n", args[g].tt_ty);
                     return args[g];
                 }
             }
@@ -767,7 +767,9 @@ TC_typeid resolve_type(const IR_typeuse* restrict type,
                     ged.name,
                     ged.raw_name,
                     new_variants,
-                    0 // TODO: CALC SIZE
+                    0, // TODO: CALC SIZE
+                    0,
+                    0
                 };
 
                 const size_t nth = out_enums->len;
@@ -848,6 +850,181 @@ TC_typeid resolve_type(const IR_typeuse* restrict type,
     }
 
 }
+
+
+/*
+
+calc_size(typeid, out_structs, out_enums, target_info, in_progress[])
+    if already sized → return cached
+    if in_progress[typeid] → error: direct recursive type (not through pointer)
+
+    mark in_progress
+
+    match typeid.ty:
+        Primitive → from target_info
+        Ref | Box → target_info.ptr_size
+        Array     → target_info.ptr_size * 2  (ptr + len, or however you model it)
+        List      → same
+        Struct    → sum of calc_size(field) for each field + alignment padding
+        Enum      → discriminant_size + max(calc_size(variant values...))
+
+    unmark in_progress
+    write back size
+    return size
+ */
+
+typedef struct { size_t size; size_t align; } SizeAlign;
+
+SizeAlign calc_type_size(
+    const TC_typeid* restrict type,
+    const TC_structdef_LIST* restrict out_structs,
+    const TC_enumdef_LIST* restrict out_enums,
+
+   size_t_LIST* restrict in_progress_structs,
+   size_t_LIST* restrict in_progress_enums,
+
+    // const TC_name_index_record_LIST* restrict name_index,
+    // TC_materialized_generic_index_record_LIST* restrict materialized_generics
+    const TargetInfo* restrict target_info,
+    const SourceInfo* restrict source_info
+) {
+    switch (type->ty) {
+        case TC_TY_Primitive: {
+            return (SizeAlign) { TC_Primitive_TY_size(type->info.primitive), TC_Primitive_TY_size(type->info.primitive)};
+        }
+        case TC_TY_Array: {
+            return (SizeAlign) { target_info->ptr_size * 2, target_info->ptr_size }; // { ptr; len; }
+        }
+        case TC_TY_List: {
+            return (SizeAlign) {target_info->ptr_size * 3, target_info->ptr_size }; // { ptr; len; cap; }
+        }
+        case TC_TY_Ref:
+        case TC_TY_Box: {
+            return (SizeAlign) {target_info->ptr_size, target_info->ptr_size };
+        }
+        case TC_TY_Struct: {
+            TC_structdef* item = &out_structs->array[type->info.type_id];
+
+            // already calculated
+            if (item->layout.size != 0) {
+                return (SizeAlign) { item->layout.size, item->layout.align };
+            }
+
+            for (size_t n=0; n < in_progress_structs->len; n++) {
+                if (in_progress_structs->array[n] == type->info.type_id) { // cycle detected
+                    const SV msg = SV_from_str("owned cycles are forbidden, use Box<T> if you need to construct cycle in runtime");
+                    syntax_error(&source_info->source, &source_info->source_filename, &item->raw_name, &msg);
+                    exit(1);
+                }
+            }
+
+            // calc
+            size_t_LIST_push(in_progress_structs, type->info.type_id); // mark as in_progress
+            const size_t this_in_progress_nth = in_progress_structs->len-1;
+
+            uint32_t* field_offsets = malloc(sizeof(uint32_t)*item->fields.len);
+
+
+            uint32_t offset = 0;
+            uint32_t max_align = 1;
+
+            for (uint32_t i = 0; i < item->fields.len; i++) {
+                const TC_typeid* ft = &item->fields.array[i].type;
+
+                const SizeAlign sa = calc_type_size(ft, out_structs, out_enums, in_progress_structs, in_progress_enums, target_info, source_info);
+
+                const uint32_t fa = sa.align;
+                const uint32_t fs = sa.size;
+
+                // const uint32_t fa = align_of(ft, layouts, ptr_size);
+                // const uint32_t fs = size_of(ft, layouts, ptr_size);
+
+                offset = (offset + fa - 1) & ~(fa - 1); // align up
+                field_offsets[i] = offset;
+                offset += fs;
+                if (fa > max_align) max_align = fa;
+            }
+
+            const TC_struct_layout sl = (TC_struct_layout) {
+                (offset + max_align - 1) & ~(max_align - 1), // tail padding,
+                max_align,
+                field_offsets
+            };
+            item->layout = sl; // write to the struct
+
+            // done
+            in_progress_structs->array[this_in_progress_nth] = SIZE_MAX;
+
+            return (SizeAlign){ item->layout.size, item->layout.align };
+        }
+        case TC_TY_Enum: {
+            TC_enumdef* item = &out_enums->array[type->info.type_id];
+
+            if (item->size != 0) {
+                return (SizeAlign){ item->size, item->align };
+            }
+
+            for (size_t n = 0; n < in_progress_enums->len; n++) {
+                if (in_progress_enums->array[n] == type->info.type_id) {
+                    const SV msg = SV_from_str("owned cycles are forbidden, use Box<T> if you need to construct cycle in runtime");
+                    syntax_error(&source_info->source, &source_info->source_filename, &item->raw_name, &msg);
+                    exit(1);
+                }
+            }
+
+            size_t_LIST_push(in_progress_enums, type->info.type_id);
+            const size_t this_in_progress_nth = in_progress_enums->len - 1;
+
+            // discriminant is a primitive integer, align == size
+            size_t disc_size;
+            if      (item->variants.len <= 0xFF)       disc_size = 1;
+            else if (item->variants.len <= 0xFFFF)     disc_size = 2;
+            else if (item->variants.len <= 0xFFFFFFFF) disc_size = 4;
+            else                                        disc_size = 8;
+
+            size_t max_payload_size  = 0;
+            size_t max_payload_align = 1;
+
+            for (size_t v = 0; v < item->variants.len; v++) {
+                const TC_enumdef_variant* variant = &item->variants.array[v];
+
+                size_t payload_size  = 0;
+                size_t variant_align = 1;
+
+                for (size_t f = 0; f < variant->values_len; f++) {
+                    const SizeAlign sa = calc_type_size(
+                        &variant->values[f],
+                        out_structs, out_enums,
+                        in_progress_structs, in_progress_enums,
+                        target_info, source_info
+                    );
+                    payload_size = (payload_size + sa.align - 1) & ~(sa.align - 1);
+                    payload_size += sa.size;
+                    if (sa.align > variant_align) variant_align = sa.align;
+                }
+
+                // round variant payload up to its own alignment
+                payload_size = (payload_size + variant_align - 1) & ~(variant_align - 1);
+
+                if (payload_size  > max_payload_size)  max_payload_size  = payload_size;
+                if (variant_align > max_payload_align) max_payload_align = variant_align;
+            }
+
+            const size_t total_align   = disc_size > max_payload_align ? disc_size : max_payload_align;
+            const size_t payload_start = (disc_size + max_payload_align - 1) & ~(max_payload_align - 1);
+            const size_t raw_size      = payload_start + max_payload_size;
+            const size_t total_size    = (raw_size + total_align - 1) & ~(total_align - 1);
+
+            item->size  = total_size;
+            item->align = total_align;
+
+            in_progress_enums->array[this_in_progress_nth] = SIZE_MAX;
+
+            return (SizeAlign){ total_size, total_align };
+        }
+    }
+}
+
 
 TC_TypeTable close_type_table(const IR_incomplete_TypeTable* restrict table,
                               const khash_t(sv_u64_map)* restrict identifier_map,
@@ -948,7 +1125,9 @@ TC_TypeTable close_type_table(const IR_incomplete_TypeTable* restrict table,
                 ed.name,
                 ed.raw_name,
                 new_variants,
-                0 // TODO: CALC SIZE (variant count -> next 2^n + largest value of variants)
+                0, // TODO: CALC SIZE (variant count -> next 2^n + largest value of variants)
+                0,
+                0
             };
         }
 
@@ -989,6 +1168,30 @@ TC_TypeTable close_type_table(const IR_incomplete_TypeTable* restrict table,
             };
 
         }
+    }
+
+    // either go through all types and calc size, or fix sizes in the materialization
+    size_t_LIST in_progress_structs = size_t_LIST_new();
+    size_t_LIST in_progress_enums = size_t_LIST_new();
+
+    for (size_t n=0; n < out_structs.len; n++) {
+        calc_type_size(&(TC_typeid) {
+            .ty = TC_TY_Struct,
+            .info.type_id = n
+        }, &out_structs, &out_enums, &in_progress_structs, &in_progress_enums, target_info, source_info);
+
+        in_progress_structs.len = 0;
+        in_progress_enums.len = 0;
+    }
+
+    for (size_t n=0; n < out_enums.len; n++) {
+        calc_type_size(&(TC_typeid) {
+            .ty = TC_TY_Enum,
+            .info.type_id = n
+        }, &out_structs, &out_enums, &in_progress_structs, &in_progress_enums, target_info, source_info);
+
+        in_progress_structs.len = 0;
+        in_progress_enums.len = 0;
     }
 
 

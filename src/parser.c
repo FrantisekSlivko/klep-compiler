@@ -2149,17 +2149,19 @@ void P_get_top(Parser* p) {
 }
 
 
-void parse(
+TC_TypeTable parse(
     SVList* restrict tokens,
     const SourceInfo source_info,
-    const TargetInfo target_info
+    const TargetInfo target_info,
+    khash_t(sv_u64_map)* restrict identifier_map,
+    IR_func_LIST* restrict functions
 ) {
     Parser p = (Parser){
         .positioner = SVList_to_view(tokens),
         .source = source_info.source,
         .source_filename = source_info.source_filename,
         .functions = IR_func_LIST_new(),
-        .identifier_map = kh_init(sv_u64_map),
+        .identifier_map = identifier_map,
         .identifier_map_cnt = 1,
         .type_table = (IR_incomplete_TypeTable) {
             IR_structdef_LIST_new(),
@@ -2171,137 +2173,77 @@ void parse(
 
 
 
-
     // ---------------------------------------------------------------------------------
 
     while (P_has_next(&p)) {
         P_get_top(&p);
     }
 
-    // ---------------------------------------------------------------------------------
-
-    printf("FUNCTIONS:\n");
-    for (size_t f = 0; f < p.functions.len; f++) {
-        const Identifier fn_name = p.functions.array[f].fn_name;
-
-        const SV real_fn_name = SV_from_identifiermap_lookup(p.identifier_map, fn_name);
-
-        printf("FUNC <"SV_format"> {\n", SV_v_args(real_fn_name));
-
-        for (size_t b = 0; b < p.functions.array[f].blocks.len; b++) {
-            const IR_block* block = &p.functions.array[f].blocks.array[b];
-            printf("  block %lu,\n", b);
-            printf("    binds: { ");
-            for (size_t n = 0; n < block->bindings.len; n++) {
-                const IR_SSA_binding bind = block->bindings.array[n];
-                const SV var = SV_from_identifiermap_lookup(p.identifier_map, bind.variable);
-                printf("'"SV_format"' %%%lu", SV_v_args(var), bind.bind.val);
-                if (n + 1 != block->bindings.len) {
-                    printf(", ");
-                }
-            }
-            printf(" }\n");
-
-
-            for (size_t i = 0; i < block->instructions.len; i++) {
-                printf("    ");
-                print_IR_instr(&block->instructions.array[i], p.identifier_map);
-                printf("\n");
-            }
-            printf("  }\n");
-        }
-        printf("}\n");
-    }
 
     // ---------------------------------------------------------------------------------
 
 
-    printf("GENERICS:\n");
-    printf("  STRUCTS:\n");
-    for (size_t n=0; n<p.type_table.generic_structs.len; n++) {
-        const IR_generic_structdef sd = p.type_table.generic_structs.array[n];
-        const SV name = SV_from_identifiermap_lookup(p.identifier_map, sd.name);
-        printf("    '"SV_format"'<", SV_v_args(name));
-        for (size_t k=0;k<sd.generic_args.len;k++) {
-            const SV generic_arg = SV_from_identifiermap_lookup(p.identifier_map, sd.generic_args.array[k]);
-            printf(SV_format, SV_v_args(generic_arg));
-            if (k+1 != sd.generic_args.len)
-                printf(", ");
-        }
-        printf("> {\n");
-        for (size_t j=0; j < sd.fields.len; j++) {
-            const IR_field f = sd.fields.array[j];
-            const SV field_name = SV_from_identifiermap_lookup(p.identifier_map, f.name);
-            printf("      ");
-            print_IR_typeuse(&f.type, p.identifier_map);
-            printf(" "SV_format";\n", SV_v_args(field_name));
-        }
-        printf("    }\n");
-    }
-    printf("  ENUMS:\n");
-    for (size_t n=0; n<p.type_table.generic_enums.len; n++) {
-        const IR_generic_enumdef ed = p.type_table.generic_enums.array[n];
-        const SV name = SV_from_identifiermap_lookup(p.identifier_map, ed.name);
-        printf("    '"SV_format"'<", SV_v_args(name));
-        for (size_t k=0;k<ed.generic_args.len;k++) {
-            const SV generic_arg = SV_from_identifiermap_lookup(p.identifier_map, ed.generic_args.array[k]);
-            printf(SV_format, SV_v_args(generic_arg));
-            if (k+1 != ed.generic_args.len)
-                printf(", ");
-        }
-        printf("> {\n");
-        for (size_t j=0; j < ed.variants.len; j++) {
-            const IR_enumdef_variant v = ed.variants.array[j];
-            const SV v_name = SV_from_identifiermap_lookup(p.identifier_map, v.name);
-            printf("      "SV_format, SV_v_args(v_name));
-            if (v.values_len != 0) {
-                printf("(");
-                for (size_t h=0; h<v.values_len; h++) {
-                    print_IR_typeuse(&v.values[h], p.identifier_map);
-                    if (h + 1 != v.values_len) {
-                        printf(", ");
-                    }
-                }
-                printf(")");
-            }
-            if (j + 1 != ed.variants.len) {
-                printf(",");
-            }
-            printf("\n");
-        }
-        printf("    }\n");
-    }
+    // printf("GENERICS:\n");
+    // printf("  STRUCTS:\n");
+    // for (size_t n=0; n<p.type_table.generic_structs.len; n++) {
+    //     const IR_generic_structdef sd = p.type_table.generic_structs.array[n];
+    //     const SV name = SV_from_identifiermap_lookup(p.identifier_map, sd.name);
+    //     printf("    '"SV_format"'<", SV_v_args(name));
+    //     for (size_t k=0;k<sd.generic_args.len;k++) {
+    //         const SV generic_arg = SV_from_identifiermap_lookup(p.identifier_map, sd.generic_args.array[k]);
+    //         printf(SV_format, SV_v_args(generic_arg));
+    //         if (k+1 != sd.generic_args.len)
+    //             printf(", ");
+    //     }
+    //     printf("> {\n");
+    //     for (size_t j=0; j < sd.fields.len; j++) {
+    //         const IR_field f = sd.fields.array[j];
+    //         const SV field_name = SV_from_identifiermap_lookup(p.identifier_map, f.name);
+    //         printf("      ");
+    //         print_IR_typeuse(&f.type, p.identifier_map);
+    //         printf(" "SV_format";\n", SV_v_args(field_name));
+    //     }
+    //     printf("    }\n");
+    // }
+    // printf("  ENUMS:\n");
+    // for (size_t n=0; n<p.type_table.generic_enums.len; n++) {
+    //     const IR_generic_enumdef ed = p.type_table.generic_enums.array[n];
+    //     const SV name = SV_from_identifiermap_lookup(p.identifier_map, ed.name);
+    //     printf("    '"SV_format"'<", SV_v_args(name));
+    //     for (size_t k=0;k<ed.generic_args.len;k++) {
+    //         const SV generic_arg = SV_from_identifiermap_lookup(p.identifier_map, ed.generic_args.array[k]);
+    //         printf(SV_format, SV_v_args(generic_arg));
+    //         if (k+1 != ed.generic_args.len)
+    //             printf(", ");
+    //     }
+    //     printf("> {\n");
+    //     for (size_t j=0; j < ed.variants.len; j++) {
+    //         const IR_enumdef_variant v = ed.variants.array[j];
+    //         const SV v_name = SV_from_identifiermap_lookup(p.identifier_map, v.name);
+    //         printf("      "SV_format, SV_v_args(v_name));
+    //         if (v.values_len != 0) {
+    //             printf("(");
+    //             for (size_t h=0; h<v.values_len; h++) {
+    //                 print_IR_typeuse(&v.values[h], p.identifier_map);
+    //                 if (h + 1 != v.values_len) {
+    //                     printf(", ");
+    //                 }
+    //             }
+    //             printf(")");
+    //         }
+    //         if (j + 1 != ed.variants.len) {
+    //             printf(",");
+    //         }
+    //         printf("\n");
+    //     }
+    //     printf("    }\n");
+    // }
 
 
     // ---------------------------------------------------------------------------------
-
 
     const TC_TypeTable nct = close_type_table(&p.type_table, p.identifier_map, &target_info, &source_info);
 
-
-    // ---------------------------------------------------------------------------------
-
-    printf("[info] ptr_align = %u\n", target_info.ptr_size);
-    printf("STRUCTS:\n");
-    for (size_t n=0; n<nct.structs.len; n++) {
-        TC_structdef sd = nct.structs.array[n];
-        TC_struct_layout sl = sd.layout;
-
-        SV name = SV_from_identifiermap_lookup(p.identifier_map, sd.name);
-        printf("  STRUCT '"SV_format"'{%lu}, align=%u, size=%u: {\n", SV_v_args(name), n, sl.align, sl.size);
-        printf("    %%info [ len(fields) = %lu ]\n", sd.fields.len);
-        for (size_t k=0; k<sd.fields.len; k++) {
-            uint32_t offset = sl.field_offsets == (void*)nullptr ? 0 : sl.field_offsets[k];
-            TC_field f = sd.fields.array[k];
-
-            SV f_name = SV_from_identifiermap_lookup(p.identifier_map, f.name);
-
-            printf("    FIELD '"SV_format"', type='", SV_v_args(f_name));
-            print_TC_typeid(&f.type, p.identifier_map, &nct);
-            printf("', offset=%u\n", offset);
-        }
-        printf("  }\n");
-
-    }
-
+    *functions = p.functions;
+    return nct;
 }

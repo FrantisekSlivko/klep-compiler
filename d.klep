@@ -71,4 +71,7 @@ struct struct_use {
     Double<Double<Int64, Int32>, Int16> v2;
 }
 
-// Double<Int64, List<Double<Box<struct_use>, Box<struct_use>>>> v2;
+struct enum_use {
+    Option<Int32> v1;
+    Option<List<Box<enum_use>>> v2;
+}

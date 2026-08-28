@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include "ir_defs.h"
 
+#include "common_parser_typecheck.h"
 
 #include "ir.h"
 #include "list.h"
@@ -15,7 +16,7 @@ bool TC_Primitive_TY_from_SV(const SV* sv, TC_Primitive_TY* restrict out);
 uint32_t TC_Primitive_TY_to_u32(TC_Primitive_TY pt);
 SV TC_Primitive_TY_to_SV(TC_Primitive_TY pt);
 
-uint8_t TC_Primitive_TY_size(TC_Primitive_TY pt);
+uint32_t TC_Primitive_TY_size(TC_Primitive_TY pt);
 
 typedef enum {
     TC_TY_Primitive,
@@ -25,7 +26,7 @@ typedef enum {
     TC_TY_Array,
     TC_TY_List,
     TC_TY_Box,
-    TC_TY_Generic,
+    // TC_TY_Generic,
 } TC_type_ty;
 
 typedef struct TC_typeid {
@@ -83,9 +84,10 @@ init_prefixed_list_type(TC_enumdef_variant)
 typedef struct {
     Identifier name;
     SV raw_name;
-    // IR_enumdef_variant_LIST variants;
     TC_enumdef_variant_LIST variants;
-    size_t enum_size;
+    uint32_t size;
+    uint32_t discriminant_size;
+    uint32_t align;
 } TC_enumdef;
 
 init_prefixed_list_type(TC_enumdef)
@@ -128,7 +130,7 @@ typedef struct {
 init_prefixed_list_type(TC_materialized_generic_index_record)
 
 
-typedef struct {
+typedef struct TC_TypeTable {
     TC_structdef_LIST structs;
     // TC_struct_layout* struct_layouts;
 

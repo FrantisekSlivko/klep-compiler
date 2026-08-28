@@ -10,6 +10,8 @@
 
 #include "source_info.h"
 #include "target.h"
+#include "common_parser_typecheck.h"
+#include "typechecking.h"
 
 SV SV_from_identifiermap_lookup(const khash_t(sv_u64_map)* restrict identifier_map, uint64_t identifier);
 
@@ -42,7 +44,12 @@ init_list_type(P_OP, P_OP_LIST)
 
 typedef const SV* Token;
 
-void parse(SVList* restrict tokens, SourceInfo source_info, TargetInfo target_info);
+
+TC_TypeTable parse(SVList* restrict tokens,
+    SourceInfo source_info,
+    TargetInfo target_info,
+    khash_t(sv_u64_map)* restrict identifier_map,
+    IR_func_LIST* restrict functions);
 
 uint64_t* find_identifier_from_sv(const khash_t(sv_u64_map)* restrict identifier_map, Token restrict t);
 

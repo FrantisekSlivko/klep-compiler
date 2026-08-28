@@ -86,7 +86,90 @@ void compile(const SV source, const SV source_filename) {
         .source_filename = source_filename
     };
 
-    parse(&tokens, source_info, target_info);
+    // ---------------------------------------------------------------------------------
+
+    khash_t(sv_u64_map)* identifier_map = kh_init(sv_u64_map);
+    IR_func_LIST functions;
+    const TC_TypeTable nct = parse(&tokens, source_info, target_info, identifier_map, &functions);
+
+    // ---------------------------------------------------------------------------------
+
+    printf("FUNCTIONS:\n");
+    for (size_t f = 0; f < functions.len; f++) {
+        const Identifier fn_name = functions.array[f].fn_name;
+
+        const SV real_fn_name = SV_from_identifiermap_lookup(identifier_map, fn_name);
+
+        printf("FUNC <"SV_format"> {\n", SV_v_args(real_fn_name));
+
+        for (size_t b = 0; b < functions.array[f].blocks.len; b++) {
+            const IR_block* block = &functions.array[f].blocks.array[b];
+            printf("  block %lu,\n", b);
+            printf("    binds: { ");
+            for (size_t n = 0; n < block->bindings.len; n++) {
+                const IR_SSA_binding bind = block->bindings.array[n];
+                const SV var = SV_from_identifiermap_lookup(identifier_map, bind.variable);
+                printf("'"SV_format"' %%%lu", SV_v_args(var), bind.bind.val);
+                if (n + 1 != block->bindings.len) {
+                    printf(", ");
+                }
+            }
+            printf(" }\n");
+
+
+            for (size_t i = 0; i < block->instructions.len; i++) {
+                printf("    ");
+                print_IR_instr(&block->instructions.array[i], identifier_map);
+                printf("\n");
+            }
+            printf("  }\n");
+        }
+        printf("}\n");
+    }
+
+    printf("STRUCTS:\n");
+    for (size_t n=0; n<nct.structs.len; n++) {
+        TC_structdef sd = nct.structs.array[n];
+        TC_struct_layout sl = sd.layout;
+
+        SV name = sd.raw_name; // SV_from_identifiermap_lookup(p.identifier_map, sd.name);
+        printf("  STRUCT '"SV_format"'{%lu}, align=%u, size=%u: {\n", SV_v_args(name), n, sl.align, sl.size);
+        for (size_t k=0; k<sd.fields.len; k++) {
+            uint32_t offset = sl.field_offsets == (void*)nullptr ? 0 : sl.field_offsets[k];
+            TC_field f = sd.fields.array[k];
+
+            SV f_name = f.raw_name; // SV_from_identifiermap_lookup(p.identifier_map, f.name);
+
+            printf("    FIELD '"SV_format"', type='", SV_v_args(f_name));
+            print_TC_typeid(&f.type, identifier_map, &nct);
+            printf("', offset=%u\n", offset);
+        }
+        printf("  }\n");
+
+    }
+    printf("ENUMS:\n");
+    for (size_t n=0; n<nct.enums.len; n++) {
+        TC_enumdef ed = nct.enums.array[n];
+        printf("  ENUM '"SV_format"'{%lu}, align=%u, size=%u {\n", SV_v_args(ed.raw_name), n, ed.align, ed.size);
+        for (size_t v=0; v<ed.variants.len; v++) {
+            TC_enumdef_variant var = ed.variants.array[v];
+            printf("    "SV_format, SV_v_args(var.raw_name));
+            if (var.values_len > 0) {
+                printf("(");
+                for (size_t l=0; l<var.values_len; l++) {
+                    print_TC_typeid(&var.values[l], identifier_map, &nct);
+                    if (l+1 != var.values_len) {
+                        printf(", ");
+                    }
+                }
+                printf(")");
+            }
+            if (v + 1 != ed.variants.len)
+                printf(",");
+            printf("\n");
+        }
+        printf("  }\n");
+    }
 
 
     SVList_free(&tokens);
