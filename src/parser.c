@@ -8,7 +8,10 @@
 #include "ir.h"
 
 #include "khash.h"
-#include "typechecking.h"
+#include "typecompletion.h"
+
+
+#define P_require_semicolon() P_require_next_be(p, TT_Semicolon, SV_from_str_len(";", 1));
 
 typedef struct {
     Identifier name;
@@ -44,6 +47,7 @@ typedef struct {
     P_compilation_scope_LIST compilation_scope;
 
     IR_incomplete_TypeTable type_table;
+    CFFI_IR_extern_fn_LIST external_functions;
 } Parser;
 
 bool P_has_next(Parser* p) {
@@ -81,6 +85,7 @@ typedef enum {
     TT_Equal,
     TT_StartSquareBracket,
     TT_EndSquareBracket,
+    TT_Star,
 } TokenType;
 
 char* TT_to_expected(const TokenType t) {
@@ -98,6 +103,7 @@ char* TT_to_expected(const TokenType t) {
         case TT_Equal:                return "=";
         case TT_StartSquareBracket:   return "[";
         case TT_EndSquareBracket:     return "]";
+        case TT_Star:                 return "*";
     }
     UNREACHABLE();
 }
@@ -169,13 +175,13 @@ SV SV_from_identifiermap_lookup(const khash_t(sv_u64_map)* identifier_map, const
 }
 
 
-IR_typeuse P_get_typeuse(Parser* p);
+IR_typeuse P_get_typeuse(Parser* p, bool allow_void);
 
-IR_typeuse P_get_typeuse_intern_single_generic(Parser* p, const Token name, const IR_typeuse_type ty) {
+IR_typeuse P_get_typeuse_intern_single_generic(Parser* p, const Token name, const IR_typeuse_type ty, const bool allow_void) {
     P_require_next_be(p, TT_Less, SV_from_str_len("<", 1));
 
     IR_typeuse* irt = malloc(sizeof(IR_typeuse));
-    *irt = P_get_typeuse(p);
+    *irt = P_get_typeuse(p, allow_void);
 
     P_require_next_be(p, TT_Greater, SV_from_str_len(">", 1));
 
@@ -204,8 +210,16 @@ void default_type_name(const Token name, SV* restrict out) {
     *out = *name;
 }
 
-IR_typeuse P_get_typeuse(Parser* p) {
+IR_typeuse P_get_typeuse(Parser* p, const bool allow_void) {
     const Token name = P_next_token(p);
+
+    if (Token_cmp(name, "Void") || Token_cmp(name, "void")) {
+        if (!allow_void) {
+            P_syntax_error(p, name, SV_from_str("void as type not allowed here"));
+            exit(1);
+        }
+        return (IR_typeuse){ .tt_ty = IR_TY_Void };
+    }
 
     SV defaulted_type_name;
     default_type_name(name, &defaulted_type_name);
@@ -220,19 +234,23 @@ IR_typeuse P_get_typeuse(Parser* p) {
 
 
     if (Token_cmp(name, "Ref")) {
-        return P_get_typeuse_intern_single_generic(p, name, IR_TY_Ref);
+        return P_get_typeuse_intern_single_generic(p, name, IR_TY_Ref, false);
     }
 
     if (Token_cmp(name, "Array")) {
-        return P_get_typeuse_intern_single_generic(p, name, IR_TY_Array);
+        return P_get_typeuse_intern_single_generic(p, name, IR_TY_Array, false);
     }
 
     if (Token_cmp(name, "List")) {
-        return P_get_typeuse_intern_single_generic(p, name, IR_TY_List);
+        return P_get_typeuse_intern_single_generic(p, name, IR_TY_List, false);
     }
 
     if (Token_cmp(name, "Box")) {
-        return P_get_typeuse_intern_single_generic(p, name, IR_TY_Box);
+        return P_get_typeuse_intern_single_generic(p, name, IR_TY_Box, false);
+    }
+
+    if (Token_cmp(name, "Slice")) {
+        return P_get_typeuse_intern_single_generic(p, name, IR_TY_Slice, false);
     }
 
     if (P_has_next(p) && Token_cmp(P_peek_token(p), "<")) {
@@ -241,7 +259,7 @@ IR_typeuse P_get_typeuse(Parser* p) {
         IR_typeuse_LIST irts = IR_typeuse_LIST_new();
 
         while (1) {
-            IR_typeuse_LIST_push(&irts, P_get_typeuse(p));
+            IR_typeuse_LIST_push(&irts, P_get_typeuse(p, allow_void));
             P_require_having_next_token(p, TT_Comma);
             const Token t = P_next_token(p);
             if (Token_cmp(t, ">")) {
@@ -452,7 +470,6 @@ uint8_t EX_precedence(const P_OP op) {
             return 40;
     }
     UNREACHABLE()
-    // INTERNAL_ERROR("invalid EX_precedence control flow ('%u')", op)
 }
 
 bool EX_is_op_right_assoc(const P_OP op) {
@@ -962,7 +979,7 @@ IR_temporal P_get_expr(Parser* p) {
 
 void P_get_var_dec_stmt(Parser* p) {
     IR_typeuse* ty = malloc(sizeof(IR_typeuse));
-    *ty = P_get_typeuse(p);
+    *ty = P_get_typeuse(p, false);
 
     P_require_having_next_token(p, TT_Identifier);
     const size_t name_token_pos = p->positioner.pos;
@@ -993,14 +1010,28 @@ void P_get_var_dec_stmt(Parser* p) {
 
     P_require_next_be(p, TT_Equal, SV_from_str_len("=", 1));
 
+    // P_emit(p, (IR_instr){
+    //     .ty = IR_INST_TY__VAR_DECL,
+    //     .p1.name = name,
+    //     .p2.type = ty,
+    // });
+
+    // const size_t var_decl_block = p->func_scope_blocks->len - 1;
+    // const IR_block* last = &p->func_scope_blocks->array[var_decl_block];
+    // const size_t var_decl_nth = last->instructions.len - 1;
+
+    const IR_temporal rs = P_get_expr(p);
+
     P_emit(p, (IR_instr){
         .ty = IR_INST_TY__VAR_DECL,
         .p1.name = name,
         .p2.type = ty,
+        .dest.val = rs.val
     });
 
+    // // patch VAR_DECL.dest with RS
+    // p->func_scope_blocks->array[var_decl_block].instructions.array[var_decl_nth].dest.val = rs.val;
 
-    const IR_temporal rs = P_get_expr(p);
 
     // var declr
 
@@ -1014,13 +1045,12 @@ void P_get_var_dec_stmt(Parser* p) {
     }
     if (!bind_find) {
         IR_SSA_binding_LIST_push(binds, (IR_SSA_binding){
-                                     .variable = name,
-                                     .bind = rs
-                                 });
+            .variable = name,
+            .bind = rs
+        });
     }
 
-
-    P_require_next_be(p, TT_Semicolon, SV_from_str_len(";", 1));
+    P_require_semicolon();
 }
 
 bool P_block_is_terminated(const Parser* p, const size_t block_nth) {
@@ -1471,7 +1501,7 @@ void P_get_return_stmt(Parser* p) {
                .p1.src1 = ret,
            });
 
-    P_require_next_be(p, TT_Semicolon, SV_from_str_len(";", 1));
+    P_require_semicolon();
 }
 
 void P_get_assignment(Parser* p) {
@@ -1488,7 +1518,7 @@ void P_get_assignment(Parser* p) {
 
     const IR_temporal expr = P_get_expr(p);
 
-    P_require_next_be(p, TT_Semicolon, SV_from_str_len(";", 1));
+    P_require_semicolon();
 
     IR_temporal out_val = expr;
 
@@ -1605,7 +1635,7 @@ void P_get_function_call_stmt(Parser* p) {
         .p2.array = args,
     });
 
-    P_require_next_be(p, TT_Semicolon, SV_from_str_len(";", 1));
+    P_require_semicolon();
 
 }
 
@@ -1708,7 +1738,7 @@ void P_get_struct_field_list(Parser* restrict p, IR_field_LIST* restrict fields)
             P_next_token(p);
             break;
         }
-        const IR_typeuse ty = P_get_typeuse(p);
+        const IR_typeuse ty = P_get_typeuse(p, false);
         P_require_having_next_token(p, TT_Identifier);
         const Token raw_field_name = P_next_token(p);
         const Identifier field_name = P_to_identifier(p, raw_field_name);
@@ -1768,7 +1798,7 @@ void P_get_top_fn(Parser* p) {
     p->temporal_fn_cnt = 0;
     p->compilation_scope = P_compilation_scope_LIST_new();
 
-    const IR_typeuse fn_ret_t = P_get_typeuse(p);
+    const IR_typeuse fn_ret_t = P_get_typeuse(p, true);
 
     P_require_having_next_token(p, TT_Identifier);
     const Token raw_fn_name = P_next_token(p);
@@ -1783,7 +1813,7 @@ void P_get_top_fn(Parser* p) {
         if (Token_cmp(P_peek_token(p), ")")) {
             break;
         }
-        const IR_typeuse ty = P_get_typeuse(p);
+        const IR_typeuse ty = P_get_typeuse(p, false);
 
         P_require_having_next_token(p, TT_Identifier);
         const Token pre_name_token = &p->positioner.ref->array[p->positioner.pos - 1];
@@ -1833,7 +1863,8 @@ void P_get_top_fn(Parser* p) {
                           .fn_ret_t = fn_ret_t,
                           .blocks = blocks,
                           .args = args,
-                          .fn_name = fn_name
+                          .fn_name = fn_name,
+                          .highest_temporal_number = p->temporal_fn_cnt
                       });
     printf("[info] parsed function '"SV_format"'\n", SV_p_args(raw_fn_name));
 
@@ -1872,7 +1903,7 @@ void P_get_enum_variants_defs(Parser* restrict p, IR_enumdef_variant_LIST* restr
             IR_typeuse_LIST irts = IR_typeuse_LIST_new();
 
             while (1) {
-                IR_typeuse_LIST_push(&irts, P_get_typeuse(p));
+                IR_typeuse_LIST_push(&irts, P_get_typeuse(p, false));
                 P_require_having_next_token(p, TT_Comma);
                 const Token t = P_next_token(p);
                 if (Token_cmp(t, ")")) {
@@ -2027,6 +2058,256 @@ void P_get_top_generic_enum(Parser* p) {
     });
 }
 
+void P_get_top_extern_type(Parser* p) {
+    P_require_having_next_token(p, TT_Identifier);
+    const Token raw_type_name = P_next_token(p);
+    const Identifier type_name = P_to_identifier(p, raw_type_name);
+
+    Identifier_LIST_push(&p->type_table.extern_types, type_name);
+
+    P_require_semicolon();
+}
+
+void c_type_extension_void_fail(Parser* restrict p, const CFFI_c_typeuse* restrict in, const Token t) {
+    if (in->kind == CFFI_TY_VOID) {
+        P_syntax_error(p, t, SV_from_str("not allowed on void, use extern type if needed"));
+        exit(1);
+    }
+}
+
+/// returns TRUE on success (call until false)
+bool P_extend_c_typeuse(Parser* restrict p, const CFFI_c_typeuse in, CFFI_c_typeuse* restrict out) {
+
+    P_require_having_next_token(p, TT_Star);
+    const Token t = P_peek_token(p);
+    if (Token_cmp(t, "*")) {
+        c_type_extension_void_fail(p, &in, t);
+        P_next_token(p);
+        CFFI_c_typeuse* inner = malloc(sizeof(CFFI_c_typeuse));
+        *inner = in;
+        *out = (CFFI_c_typeuse) {
+            .kind = CFFI_TY_PTR,
+            .inner = inner
+        };
+        return true;
+    }
+
+    if (Token_cmp(t, "[")) {
+        c_type_extension_void_fail(p, &in, t);
+        P_next_token(p);
+        P_require_having_next_token(p, TT_EndSquareBracket);
+        const Token v = P_next_token(p);
+        if (Token_cmp(v, "]")) {
+            CFFI_c_typeuse* inner = malloc(sizeof(CFFI_c_typeuse));
+            *inner = in;
+            *out = (CFFI_c_typeuse) {
+                .kind = CFFI_TY_PTR,
+                .inner = inner
+            };
+            return true;
+        }
+
+        const int64_t array_len = EX_token_to_int(p, v);
+        P_require_next_be(p, TT_EndSquareBracket, SV_from_str_len("]", 1));
+
+        CFFI_c_typeuse* inner = malloc(sizeof(CFFI_c_typeuse));
+        *inner = in;
+        *out = (CFFI_c_typeuse) {
+            .kind = CFFI_TY_ARRAY,
+            .inner = inner,
+            .array_len = array_len
+        };
+        return true;
+
+    }
+
+    return false;
+}
+
+CFFI_c_typeuse P_get_c_typeuse(Parser* p, const bool allow_void) {
+    P_require_having_next_token(p, TT_Identifier);
+
+    const Token name = P_next_token(p);
+
+    SV defaulted_type_name;
+    default_type_name(name, &defaulted_type_name);
+
+    CFFI_c_typeuse in;
+
+    if (Token_cmp(&defaulted_type_name, "Void") || Token_cmp(&defaulted_type_name, "void")) {
+        if (!allow_void) {
+            P_syntax_error(p, name, SV_from_str("void as type not allowed here"));
+            exit(1);
+        }
+        in = (CFFI_c_typeuse) {
+            .kind = CFFI_TY_VOID
+        };
+        goto end;
+    }
+
+    TC_Primitive_TY tt;
+    if (TC_Primitive_TY_from_SV(&defaulted_type_name, &tt)) {
+        in = (CFFI_c_typeuse) {
+            .kind = CFFI_TY_PRIMITIVE,
+            .primitive = tt,
+        };
+
+        goto end;
+    }
+
+    const Identifier id_name = P_to_identifier(p, &defaulted_type_name);
+    in = (CFFI_c_typeuse) {
+        .kind = CFFI_TY_NAMED,
+        .named = id_name
+    };
+    goto end;
+
+    UNREACHABLE();
+
+    end: {
+        // wrapping
+        CFFI_c_typeuse out;
+        while (P_extend_c_typeuse(p, in, &out)) {
+            in = out;
+        }
+        return out;
+    }
+}
+
+/// returns true on success
+/// out is allocated by this function
+bool P_get_extern_fn_type_constructor(Parser* restrict p, Identifier_LIST* restrict out) {
+    P_require_having_next_token(p, TT_StartCurlyBracket);
+    const Token t = P_peek_token(p);
+    if (!Token_cmp(t, "{")) {
+        return false;
+    }
+    P_next_token(p);
+
+    Identifier_LIST ot = Identifier_LIST_new();
+
+    while (1) {
+        P_require_having_next_token(p, TT_EndCurlyBracket);
+        const Token t1 = P_next_token(p);
+        if (Token_cmp(t1, "}")) {
+            break;
+        }
+        const Identifier arg = P_to_identifier(p, t1);
+        Identifier_LIST_push(&ot, arg);
+
+        P_require_having_next_token(p, TT_EndCurlyBracket);
+        const Token t2 = P_next_token(p);
+        if (Token_cmp(t2, "}")) {
+            break;
+        }
+        if (!Token_cmp(t2, ",")) {
+            P_syntax_error(p, t2, SV_from_str("expected either ',' or ')'"));
+            exit(1);
+        }
+    }
+
+    *out = ot;
+    return true;
+}
+
+void P_get_top_extern_fn(Parser* p) {
+    const CFFI_c_typeuse c_ret_type = P_get_c_typeuse(p, true);
+    P_require_having_next_token(p, TT_Identifier);
+    const Token raw_c_fn_name = P_next_token(p);
+    const Identifier c_fn_name = P_to_identifier(p, raw_c_fn_name);
+
+    CFFI_c_fn_arg_LIST c_args = CFFI_c_fn_arg_LIST_new();
+
+    P_require_next_be(p, TT_StartBracket, SV_from_str_len("(", 1));
+
+    while(1) {
+        P_require_having_next_token(p, TT_EndBracket);
+        const Token f1 = P_peek_token(p);
+        if (Token_cmp(f1, ")")) {
+            P_next_token(p);
+            break;
+        }
+        const CFFI_c_typeuse t = P_get_c_typeuse(p, false);
+        P_require_having_next_token(p, TT_Identifier);
+        const Token raw_arg = P_next_token(p);
+        const Identifier arg = P_to_identifier(p, raw_arg);
+        CFFI_c_fn_arg_LIST_push(&c_args, (CFFI_c_fn_arg) {
+            t,
+            arg
+        });
+        P_require_having_next_token(p, TT_EndBracket);
+        const Token f2 = P_next_token(p);
+        if (Token_cmp(f2, ")")) {
+            break;
+        }
+        if (!Token_cmp(f2, ",")) {
+            P_syntax_error(p, f2, SV_from_str("expected either ')' or ','"));
+            exit(1);
+        }
+    }
+
+    // now we have args
+
+    P_require_next_be(p, TT_Identifier, SV_from_str_len("into", 4));
+
+    const IR_typeuse ret_type = P_get_typeuse(p, true);
+    Identifier_LIST ret_type_constructor;
+    const bool has_ret_type_constructor = P_get_extern_fn_type_constructor(p, &ret_type_constructor);
+
+    P_require_having_next_token(p, TT_Identifier);
+    const Token raw_fn_name = P_next_token(p);
+    const Identifier fn_name = P_to_identifier(p, raw_fn_name);
+
+    const CFFI_arg ret = (CFFI_arg) { ret_type,  fn_name, has_ret_type_constructor, ret_type_constructor };
+
+
+    P_require_next_be(p, TT_StartBracket, SV_from_str_len("(", 1));
+
+    CFFI_arg_LIST args = CFFI_arg_LIST_new();
+
+    while (1) {
+        P_require_having_next_token(p, TT_EndBracket);
+        const Token t = P_peek_token(p);
+        if (Token_cmp(t, ")")) {
+            P_next_token(p);
+            break;
+        }
+
+        const IR_typeuse type = P_get_typeuse(p, false);
+
+        P_require_having_next_token(p, TT_Identifier);
+        const Token raw_name = P_next_token(p);
+        const Identifier name = P_to_identifier(p, raw_name);
+
+        Identifier_LIST type_constructor;
+        const bool has_type_constructor = P_get_extern_fn_type_constructor(p, &type_constructor);
+
+        CFFI_arg_LIST_push(&args, (CFFI_arg) { type, name, has_type_constructor, type_constructor });
+
+        P_require_having_next_token(p, TT_EndBracket);
+        const Token t2 = P_next_token(p);
+        if (Token_cmp(t2, ")")) break;
+        if (!Token_cmp(t2, ",")) {
+            P_syntax_error(p, t2, SV_from_str("expected either ',' or '('"));
+            exit(1);
+        }
+    }
+
+    P_require_semicolon();
+
+    const CFFI_IR_extern_fn extern_fn = (CFFI_IR_extern_fn) {
+        c_ret_type,
+        c_fn_name,
+        c_args,
+
+        ret,
+        args,
+    };
+
+    CFFI_IR_extern_fn_LIST_push(&p->external_functions, extern_fn);
+
+}
+
 void P_get_top(Parser* p) {
     const Token t1 = P_peek_token(p);
     if (Token_cmp(t1, "struct")) {
@@ -2045,6 +2326,16 @@ void P_get_top(Parser* p) {
             P_syntax_error(p, t2, SV_from_str("expected either 'struct' or 'enum'"));
             exit(1);
         }
+    } else if (Token_cmp(t1, "extern")) {
+        P_next_token(p);
+        P_require_having_next_token(p, TT_Identifier);
+        const Token t2 = P_peek_token(p);
+        if (Token_cmp(t2, "type")) {
+            P_next_token(p);
+            P_get_top_extern_type(p);
+        } else {
+            P_get_top_extern_fn(p);
+        }
     } else {
         P_get_top_fn(p);
     }
@@ -2056,21 +2347,27 @@ TC_TypeTable parse(
     const SourceInfo source_info,
     const TargetInfo target_info,
     khash_t(sv_u64_map)* restrict identifier_map,
-    IR_func_LIST* restrict functions
+    IR_func_LIST* restrict functions,
+    CFFI_IR_extern_fn_LIST* restrict external_functions
 ) {
     Parser p = (Parser){
-        .positioner = SVList_to_view(tokens),
-        .source = source_info.source,
-        .source_filename = source_info.source_filename,
-        .functions = IR_func_LIST_new(),
-        .identifier_map = identifier_map,
-        .identifier_map_cnt = 1,
-        .type_table = (IR_incomplete_TypeTable) {
+        SVList_to_view(tokens),
+        source_info.source,
+        source_info.source_filename,
+        IR_func_LIST_new(),
+        identifier_map,
+        1,
+        NULL,
+        0,
+        (P_compilation_scope_LIST) {0},
+        (IR_incomplete_TypeTable) {
             IR_structdef_LIST_new(),
             IR_enumdef_LIST_new(),
             IR_generic_structdef_LIST_new(),
-            IR_generic_enumdef_LIST_new()
-        }
+            IR_generic_enumdef_LIST_new(),
+            Identifier_LIST_new(),
+        },
+        CFFI_IR_extern_fn_LIST_new()
     };
 
 
@@ -2147,5 +2444,7 @@ TC_TypeTable parse(
     const TC_TypeTable nct = close_type_table(&p.type_table, p.identifier_map, &target_info, &source_info);
 
     *functions = p.functions;
+    *external_functions = p.external_functions;
+
     return nct;
 }

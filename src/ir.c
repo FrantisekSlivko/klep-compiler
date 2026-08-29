@@ -1,12 +1,17 @@
 #include "ir.h"
 
 #include "utils/color.h"
+#include "utils/dev.h"
 
 
 void print_IR_typeuse(const IR_typeuse* restrict ty, khash_t(sv_u64_map)* restrict identifier_map) {
     if (ty->tt_ty == IR_TY_Primitive) {
         const SV k = TC_Primitive_TY_to_SV(ty->info.primitive);
         printf(SV_format, SV_v_args(k));
+        return;
+    }
+    if (ty->tt_ty == IR_TY_Void) {
+        printf("Void");
         return;
     }
     const SV type_name = SV_from_identifiermap_lookup(identifier_map, ty->info.named.name);
@@ -18,6 +23,7 @@ void print_IR_typeuse(const IR_typeuse* restrict ty, khash_t(sv_u64_map)* restri
         case IR_TY_Ref:
         case IR_TY_Array:
         case IR_TY_Box:
+        case IR_TY_Slice:
         case IR_TY_List: {
             putc('<', stdout);
             print_IR_typeuse(ty->contained, identifier_map);
@@ -32,6 +38,9 @@ void print_IR_typeuse(const IR_typeuse* restrict ty, khash_t(sv_u64_map)* restri
             }
             putc('>', stdout);
             break;
+        }
+        case IR_TY_Void: {
+            UNREACHABLE();
         }
     }
 }
@@ -57,24 +66,13 @@ void print_IR_instr(const IR_instr* restrict instr, khash_t(sv_u64_map)* restric
             break;
         }
 
-
-        // case IR_INST_TY__STORE_VAR: {
-        //     const SV var_name = SV_from_identifiermap_lookup(identifier_map, instr->dest.val);
-        //     printf("STORE_VAR $"SV_format", %%%lu", SV_v_args(var_name), instr->p1.src1.val);
-        //     break;
-        // }
         case IR_INST_TY__VAR_DECL: {
             const SV var_name = SV_from_identifiermap_lookup(identifier_map, instr->p1.name);
-            printf("VAR_DECL $"SV_format" {", SV_v_args(var_name));
+            printf("VAR_DECL $"SV_format" %%%lu {", SV_v_args(var_name), instr->dest.val);
             print_IR_typeuse(instr->p2.type, identifier_map);
             printf("}");
             break;
         }
-        // case IR_INST_TY__LOAD_VAR: {
-        //     const SV var_name = SV_from_identifiermap_lookup(identifier_map, instr->p1.name);
-        //     printf("%%%lu = LOAD_VAR $"SV_format"", instr->dest.val, SV_v_args(var_name));
-        //     break;
-        // }
 
 
 

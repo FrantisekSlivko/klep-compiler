@@ -1,579 +1,51 @@
 #include "typechecking.h"
+
 #include "error.h"
 #include "utils/dev.h"
 
-/*
- * this file contains two important passes: type completion and typechecking
- *
- * 1. the type completion is where struct layout and type size is calculated
- *    (! when generics are used, they are calculated per use case and cached)
- *
- *
- */
-
-
-void print_TC_typeid(const TC_typeid* restrict ty, khash_t(sv_u64_map)* restrict identifier_map, const TC_TypeTable* restrict tt) {
-    switch (ty->ty) {
-        case TC_TY_Primitive: {
-            const SV k = TC_Primitive_TY_to_SV(ty->info.primitive);
-            printf(SV_format, SV_v_args(k));
-            break;
-        }
-        case TC_TY_Struct: {
-            const SV name = SV_from_identifiermap_lookup(identifier_map, tt->structs.array[ty->info.type_id].name);
-            printf(SV_format"{%u}", SV_v_args(name), ty->info.type_id);
-            break;
-        }
-        case TC_TY_Enum: {
-            const SV name = SV_from_identifiermap_lookup(identifier_map, tt->enums.array[ty->info.type_id].name);
-            printf(SV_format"{%u}", SV_v_args(name), ty->info.type_id);
-            break;
-        }
-        case TC_TY_Ref: {
-            printf("Ref<");
-            print_TC_typeid(ty->info.contained, identifier_map, tt);
-            putc('>', stdout);
-            break;
-            break;
-        }
-        case TC_TY_Array: {
-            printf("Array<");
-            print_TC_typeid(ty->info.contained, identifier_map, tt);
-            putc('>', stdout);
-            break;
-        }
-        case TC_TY_List: {
-            printf("List<");
-            print_TC_typeid(ty->info.contained, identifier_map, tt);
-            putc('>', stdout);
-            break;
-        }
-        case TC_TY_Box: {
-            printf("Box<");
-            print_TC_typeid(ty->info.contained, identifier_map, tt);
-            putc('>', stdout);
-            break;
-        }
-    }
-}
-
-
-
-/// returns false on fail
-bool TC_Primitive_TY_from_u32(const uint32_t num, TC_Primitive_TY* restrict out) {
-    if (num >= 1 && num <= 11) {
-        *out = (TC_Primitive_TY)num;
-        return true;
-    }
-    return false;
-}
-
-/// returns false on fail
-bool TC_Primitive_TY_from_SV(const SV* sv, TC_Primitive_TY* restrict out) {
-    if (Token_cmp(sv, "Int8")) {
-        *out = TC_Primitive__Int8;
-        return true;
-    }
-    if (Token_cmp(sv, "Int16")) {
-        *out = TC_Primitive__Int16;
-        return true;
-    }
-    if (Token_cmp(sv, "Int32")) {
-        *out = TC_Primitive__Int32;
-        return true;
-    }
-    if (Token_cmp(sv, "Int64")) {
-        *out = TC_Primitive__Int64;
-        return true;
-    }
-    if (Token_cmp(sv, "Uint8")) {
-        *out = TC_Primitive__Uint8;
-        return true;
-    }
-    if (Token_cmp(sv, "Uint16")) {
-        *out = TC_Primitive__Uint16;
-        return true;
-    }
-    if (Token_cmp(sv, "Uint32")) {
-        *out = TC_Primitive__Uint32;
-        return true;
-    }
-    if (Token_cmp(sv, "Uint64")) {
-        *out = TC_Primitive__Uint64;
-        return true;
-    }
-    if (Token_cmp(sv, "Float32")) {
-        *out = TC_Primitive__Float32;
-        return true;
-    }
-    if (Token_cmp(sv, "Float64")) {
-        *out = TC_Primitive__Float64;
-        return true;
-    }
-    if (Token_cmp(sv, "Char")) {
-        *out = TC_Primitive__Char;
-        return true;
-    }
-    return false;
-}
-
-uint32_t TC_Primitive_TY_size(const TC_Primitive_TY pt) {
-    switch (pt) {
-        case TC_Primitive__Int8: {
-            return 1;
-        }
-        case TC_Primitive__Int16: {
-            return 2;
-        }
-        case TC_Primitive__Int32: {
-            return 4;
-        }
-        case TC_Primitive__Int64: {
-            return 8;
-        }
-        case TC_Primitive__Uint8: {
-            return 1;
-        }
-        case TC_Primitive__Uint16: {
-            return 2;
-        }
-        case TC_Primitive__Uint32: {
-            return 4;
-        }
-        case TC_Primitive__Uint64: {
-            return 8;
-        }
-        case TC_Primitive__Float32: {
-            return 4;
-        }
-        case TC_Primitive__Float64: {
-            return 8;
-        }
-        case TC_Primitive__Char: {
-            return 1;
-        }
-    }
-    UNREACHABLE()
-}
-
-uint32_t TC_Primitive_TY_to_u32(const TC_Primitive_TY pt) {
-    return (uint32_t)pt;
-}
-
-SV TC_Primitive_TY_to_SV(const TC_Primitive_TY pt) {
-    switch (pt) {
-        case TC_Primitive__Int8: {
-            return SV_from_str_len("Int8", 4);
-        }
-        case TC_Primitive__Int16: {
-            return SV_from_str_len("Int16", 5);
-        }
-        case TC_Primitive__Int32: {
-            return SV_from_str_len("Int32", 5);
-        }
-        case TC_Primitive__Int64: {
-            return SV_from_str_len("Int64", 5);
-        }
-        case TC_Primitive__Uint8: {
-            return SV_from_str_len("Uint8", 5);
-        }
-        case TC_Primitive__Uint16: {
-            return SV_from_str_len("Uint16", 6);
-        }
-        case TC_Primitive__Uint32: {
-            return SV_from_str_len("Uint32", 6);
-        }
-        case TC_Primitive__Uint64: {
-            return SV_from_str_len("Uint64", 6);
-        }
-        case TC_Primitive__Float32: {
-            return SV_from_str_len("Float32", 7);
-        }
-        case TC_Primitive__Float64: {
-            return SV_from_str_len("Float64", 7);
-        }
-        case TC_Primitive__Char: {
-            return SV_from_str_len("Char", 4);
-        }
-    }
-    UNREACHABLE()
-}
-
-
-init_list_type(size_t, size_t_LIST)
-
-/// returns TRUE if EQUAL
-bool CMP_TC_typeid(const TC_typeid* restrict a, const TC_typeid* restrict b) {
+bool CMP_tc_typeid(const TC_typeid* restrict a, const TC_typeid* restrict b) {
     if (a->ty != b->ty) return false;
     switch (a->ty) {
-        case TC_TY_Primitive: {
-            return a->info.primitive == b->info.primitive;
-        }
+        case TC_TY_Void: return true;
+        case TC_TY_Primitive: return a->info.primitive == b->info.primitive;
         case TC_TY_Struct:
-        case TC_TY_Enum: {
-            return a->info.type_id == b->info.type_id;
-        }
+        case TC_TY_Enum: return a->info.type_id == b->info.type_id;
         case TC_TY_Ref:
         case TC_TY_Array:
         case TC_TY_List:
-        case TC_TY_Box: {
-            return CMP_TC_typeid(a->info.contained, b->info.contained);
+        case TC_TY_Box:
+        case TC_TY_Slice: {
+            return CMP_tc_typeid(a->info.contained, b->info.contained);
         }
+        case TC_TY_External_Type: return a->info.external_type.name == b->info.external_type.name;
     }
-    UNREACHABLE();
+    UNREACHABLE()
 }
 
 
-/// returns TRUE if a is equal b
-bool CMP_IR_typeuse(const IR_typeuse* restrict a, const IR_typeuse* restrict b) {
-    if (a->tt_ty != b->tt_ty) return false;
-    switch (a->tt_ty) {
-        case IR_TY_Primitive: {
-            return a->info.primitive == b->info.primitive;
-        }
-        case IR_TY_Named: {
-            return a->info.named.name == b->info.named.name;
-        }
-        case IR_TY_Ref:
-        case IR_TY_Box:
-        case IR_TY_Array:
-        case IR_TY_List: {
-            return CMP_IR_typeuse(a->contained, b->contained);
-        }
-        case IR_TY_Generic: {
-            if (a->contained_len != b->contained_len) return false;
-            for(size_t n=0; n<a->contained_len; n++) {
-                if (!CMP_IR_typeuse(&a->contained[n], &b->contained[n])) {
-                    return false;
-                }
-            }
-            return true;
-        }
-    }
-    UNREACHABLE();
-}
-
-IR_typeuse substitute_typeuse(
-    const IR_typeuse* restrict input,
-    const Identifier_LIST* restrict generic_args,
-    const IR_typeuse* restrict args
-) {
-    switch (input->tt_ty) {
-        case IR_TY_Primitive: {
-            return *input;
-        }
-        case IR_TY_Named: {
-            for (size_t g = 0; g < generic_args->len; g++) {
-                if (input->info.named.name == generic_args->array[g]) {
-                    return args[g];
-                }
-            }
-
-            return *input;
-        }
-        case IR_TY_Ref:
-        case IR_TY_Box:
-        case IR_TY_Array:
-        case IR_TY_List: {
-
-            if (input->contained_len != 1) {
-                INTERNAL_ERROR("invalid contained length of builtin type")
-            }
-
-            IR_typeuse* new_contained = malloc(sizeof(IR_typeuse));
-            *new_contained = substitute_typeuse(input->contained, generic_args, args);
-            free(input->contained);
-
-            return (IR_typeuse) {
-                .tt_ty = input->tt_ty,
-                .info = input->info,
-                .contained_len = input->contained_len,
-                .contained = new_contained,
-            };
-        }
-        case IR_TY_Generic: {
-
-            IR_typeuse* new_contained = malloc(sizeof(IR_typeuse)*input->contained_len);
-            for(size_t n=0; n<input->contained_len; n++) {
-                new_contained[n] = substitute_typeuse(&input->contained[n], generic_args, args);
-            }
-
-            free(input->contained);
-
-            return (IR_typeuse) {
-                .tt_ty = IR_TY_Generic,
-                .info = input->info,
-                .contained_len = input->contained_len,
-                .contained = new_contained,
-            };
-        }
-    }
-
-}
-
-
-TC_typeid resolve_type(const IR_typeuse* restrict type,
-    const TC_name_index_record_LIST* restrict name_index,
-    const SourceInfo* restrict source_info,
-    TC_materialized_generic_index_record_LIST* restrict materialized_generics,
-    const IR_incomplete_TypeTable* restrict table,
-    TC_structdef_LIST* restrict out_structs,
-    TC_enumdef_LIST* restrict out_enums
-) {
-    switch (type->tt_ty) {
-        case IR_TY_Primitive: {
-            return (TC_typeid){
-                .ty = TC_TY_Primitive,
-                .info.primitive = type->info.primitive
-            };
-        }
-        case IR_TY_Named: {
-            for (size_t n=0; n<name_index->len; n++) {
-                if (name_index->array[n].name == type->info.named.name) {
-                    TC_type_ty ty = TC_TY_Struct;
-                    switch (name_index->array[n].kind) {
-                        case TC_NIRK_Enum: {
-                            ty = TC_TY_Enum;
-                            break;
-                        }
-                        case TC_NIRK_Struct: {
-                            ty = TC_TY_Struct;
-                            break;
-                        }
-                    }
-                    return (TC_typeid) {
-                        .ty = ty,
-                        .info.type_id = name_index->array[n].nth,
-                    };
-                }
-            }
-
-            const SV msg = SV_from_str("undeclared type");
-            syntax_error(&source_info->source, &source_info->source_filename, &type->info.named.raw_name, &msg);
-            exit(1);
-        }
-        case IR_TY_Ref:
-        case IR_TY_Array:
-        case IR_TY_Box:
-        case IR_TY_List: {
-            TC_typeid* contained = malloc(sizeof(TC_typeid));
-            *contained = resolve_type(type->contained, name_index, source_info, materialized_generics, table, out_structs, out_enums);
-
-            free(type->contained);
-
-            TC_type_ty ty;
-            switch (type->tt_ty) {
-                case IR_TY_Ref: {
-                    ty = TC_TY_Ref;
-                    break;
-                }
-                case IR_TY_Array: {
-                    ty = TC_TY_Array;
-                    break;
-                }
-                case IR_TY_List: {
-                    ty = TC_TY_List;
-                    break;
-                }
-                case IR_TY_Box: {
-                    ty = TC_TY_Box;
-                    break;
-                }
-                default: {
-                    UNREACHABLE();
-                }
-            }
-
-            return (TC_typeid){
-                .ty = ty,
-                .info.contained = contained
-            };
-        }
-        case IR_TY_Generic: {
-            // check if materialized:
-            // materialized_generics
-            for (size_t n=0; n<materialized_generics->len; n++) {
-                const TC_materialized_generic_index_record mr = materialized_generics->array[n];
-                if (mr.generic.tt_ty != IR_TY_Generic) {
-                    INTERNAL_ERROR("should never happen | u403");
-                }
-                const IR_typeuse tu = mr.generic;
-                if (tu.info.named.name != type->info.named.name) {
-                    continue;
-                }
-                if (tu.contained_len != type->contained_len) {
-                    continue;
-                }
-                bool ineq = false;
-                for (size_t j=0; j<tu.contained_len; j++) {
-                    if (!CMP_IR_typeuse(&tu.contained[j], &type->contained[j])) {
-                        ineq = true;
-                        break;
-                    }
-                }
-                if (ineq) {
-                    continue;
-                }
-
-                // use this, it is this one
-                TC_type_ty ty = TC_TY_Struct;
-                switch (mr.kind) {
-                    case TC_NIRK_Enum: {
-                        ty = TC_TY_Enum;
-                        break;
-                    }
-                    case TC_NIRK_Struct: {
-                        ty = TC_TY_Struct;
-                        break;
-                    }
-                }
-                return (TC_typeid) {
-                    .ty = ty,
-                    .info.type_id = mr.nth,
-                };
-            }
-
-
-            // MATERIALIZE ENUM
-            for (size_t k=0; k<table->generic_enums.len; k++) {
-                const IR_generic_enumdef ged = table->generic_enums.array[k];
-                if (ged.name != type->info.named.name) continue;
-
-                // is correct number of type args used?
-                if (ged.generic_args.len != type->contained_len) {
-                    char* raw_msg = calloc(1, 100);
-                    snprintf(raw_msg, 100, "expected %lu type arguments, but found only %lu", ged.generic_args.len, type->contained_len);
-                    const SV msg = SV_from_str(raw_msg);
-                    syntax_error(&source_info->source, &source_info->source_filename, &type->info.named.raw_name, &msg);
-                    free(raw_msg);
-                    exit(1);
-                }
-
-                // materialize
-                TC_enumdef_variant_LIST new_variants = TC_enumdef_variant_LIST_new_with_capacity(ged.variants.len);
-                for (size_t j=0; j<ged.variants.len; j++) {
-                    const IR_enumdef_variant variant = ged.variants.array[j];
-                    TC_typeid* new_values = malloc(sizeof(TC_typeid)*variant.values_len);
-
-                    for (size_t v=0; v<variant.values_len; v++) {
-                        const IR_typeuse substituted = substitute_typeuse(&variant.values[v], &ged.generic_args, type->contained);
-                        const TC_typeid ty = resolve_type(&substituted, name_index, source_info, materialized_generics, table, out_structs, out_enums);
-                        new_values[v] = ty;
-                    }
-
-                    TC_enumdef_variant_LIST_push(&new_variants, (TC_enumdef_variant) {
-                        variant.name,
-                        variant.raw_name,
-                        new_values,
-                        variant.values_len
-                    });
-                }
-
-                const TC_enumdef new_enumdef = (TC_enumdef) {
-                    ged.name,
-                    ged.raw_name,
-                    new_variants,
-                    0,
-                    0,
-                    0
-                };
-
-                const size_t nth = out_enums->len;
-                TC_enumdef_LIST_push(out_enums, new_enumdef);
-                TC_materialized_generic_index_record_LIST_push(materialized_generics, (TC_materialized_generic_index_record) {
-                    *type,
-                    TC_NIRK_Enum,
-                    nth
-                });
-
-                return (TC_typeid) {
-                    .ty = TC_TY_Enum,
-                    .info.type_id = nth,
-                };
-            }
-
-            // MATERIALIZE STRUCT
-            for (size_t k=0; k<table->generic_structs.len; k++) {
-                const IR_generic_structdef ges = table->generic_structs.array[k];
-                if (ges.name != type->info.named.name) continue;
-
-                // is correct number of type args used?
-                if (ges.generic_args.len != type->contained_len) {
-                    char* raw_msg = calloc(1, 100);
-                    snprintf(raw_msg, 100, "expected %lu type arguments, but found only %lu", ges.generic_args.len, type->contained_len);
-                    const SV msg = SV_from_str(raw_msg);
-                    syntax_error(&source_info->source, &source_info->source_filename, &type->info.named.raw_name, &msg);
-                    free(raw_msg);
-                    exit(1);
-                }
-
-                TC_field_LIST new_fields = TC_field_LIST_new_with_capacity(ges.fields.len);
-                new_fields.len = ges.fields.len;
-
-                for (size_t j=0; j<ges.fields.len; j++) {
-                    const IR_field fd = ges.fields.array[j];
-                    const IR_typeuse substituted = substitute_typeuse(&fd.type, &ges.generic_args, type->contained);
-                    const TC_typeid ty = resolve_type(&substituted, name_index, source_info, materialized_generics, table, out_structs, out_enums);
-                    new_fields.array[j] = (TC_field) {
-                        fd.name,
-                        fd.raw_name,
-                        ty
-                    };
-                }
-
-                const TC_structdef new_structdef = (TC_structdef) {
-                    ges.name,
-                    ges.raw_name,
-                    new_fields,
-                    (TC_struct_layout) {
-                        0,
-                        0,
-                        NULL
-                    }
-                };
-
-                const size_t nth = out_structs->len;
-                TC_structdef_LIST_push(out_structs, new_structdef);
-                TC_materialized_generic_index_record_LIST_push(materialized_generics, (TC_materialized_generic_index_record) {
-                    *type,
-                    TC_NIRK_Struct,
-                    nth
-                });
-
-                return (TC_typeid) {
-                    .ty = TC_TY_Struct,
-                    .info.type_id = nth,
-                };
-            }
-
-            // by now, we know, it does not exist
-            const SV msg = SV_from_str("unknow generic");
-            syntax_error(&source_info->source, &source_info->source_filename, &type->info.named.raw_name, &msg);
-            exit(1);
-
-        }
-    }
-
-}
-
-
-typedef struct { size_t size; size_t align; } SizeAlign;
-
-SizeAlign calc_type_size(
+SizeAlign path_size_align_for_materialized_type(
     const TC_typeid* restrict type,
-    const TC_structdef_LIST* restrict out_structs,
-    const TC_enumdef_LIST* restrict out_enums,
+    const TC_TypeTable* restrict nct,
 
-   size_t_LIST* restrict in_progress_structs,
-   size_t_LIST* restrict in_progress_enums,
+    size_t_LIST* restrict in_progress_structs,
+    size_t_LIST* restrict in_progress_enums,
 
     const TargetInfo* restrict target_info,
     const SourceInfo* restrict source_info
 ) {
     switch (type->ty) {
+        case TC_TY_Void: {
+            INTERNAL_ERROR("void type does not have size or align")
+        }
+        case TC_TY_External_Type: {
+            const SV msg = SV_from_str("external type has unknow size and therefore cannot be used alone, use it with for example Ref<T>");
+            syntax_error(&source_info->source, &source_info->source_filename, &type->info.external_type.raw_name, &msg);
+            exit(1);
+        }
         case TC_TY_Primitive: {
             return (SizeAlign) { TC_Primitive_TY_size(type->info.primitive), TC_Primitive_TY_size(type->info.primitive)};
         }
+        case TC_TY_Slice:
         case TC_TY_Array: {
             return (SizeAlign) { target_info->ptr_size * 2, target_info->ptr_size }; // { ptr; len; }
         }
@@ -585,7 +57,7 @@ SizeAlign calc_type_size(
             return (SizeAlign) {target_info->ptr_size, target_info->ptr_size };
         }
         case TC_TY_Struct: {
-            TC_structdef* item = &out_structs->array[type->info.type_id];
+            TC_structdef* item = &nct->structs.array[type->info.type_id];
 
             // already calculated
             if (item->layout.size != 0) {
@@ -613,7 +85,7 @@ SizeAlign calc_type_size(
             for (uint32_t i = 0; i < item->fields.len; i++) {
                 const TC_typeid* ft = &item->fields.array[i].type;
 
-                const SizeAlign sa = calc_type_size(ft, out_structs, out_enums, in_progress_structs, in_progress_enums, target_info, source_info);
+                const SizeAlign sa = path_size_align_for_materialized_type(ft, nct, in_progress_structs, in_progress_enums, target_info, source_info);
 
                 const uint32_t fa = sa.align;
                 const uint32_t fs = sa.size;
@@ -637,7 +109,7 @@ SizeAlign calc_type_size(
             return (SizeAlign){ item->layout.size, item->layout.align };
         }
         case TC_TY_Enum: {
-            TC_enumdef* item = &out_enums->array[type->info.type_id];
+            TC_enumdef* item = &nct->enums.array[type->info.type_id];
 
             if (item->size != 0) {
                 return (SizeAlign){ item->size, item->align };
@@ -671,9 +143,9 @@ SizeAlign calc_type_size(
                 size_t variant_align = 1;
 
                 for (size_t f = 0; f < variant->values_len; f++) {
-                    const SizeAlign sa = calc_type_size(
+                    const SizeAlign sa = path_size_align_for_materialized_type(
                         &variant->values[f],
-                        out_structs, out_enums,
+                        nct,
                         in_progress_structs, in_progress_enums,
                         target_info, source_info
                     );
@@ -702,181 +174,536 @@ SizeAlign calc_type_size(
             return (SizeAlign){ total_size, total_align };
         }
     }
+    UNREACHABLE()
 }
 
 
-TC_TypeTable close_type_table(const IR_incomplete_TypeTable* restrict table,
-                              const khash_t(sv_u64_map)* restrict identifier_map,
-                              const TargetInfo* restrict target_info,
-                              const SourceInfo* restrict source_info) {
-
-    TC_name_index_record_LIST name_index = TC_name_index_record_LIST_new_with_capacity(table->enums.len + table->structs.len);
-
-    for (size_t n=0; n<table->enums.len; n++) {
-        const IR_enumdef ed = table->enums.array[n];
-        for (size_t k=0; k<name_index.len; k++) {
-            if (name_index.array[k].name == ed.name) {
-                const SV msg = SV_from_str("type name collision");
-                syntax_error(&source_info->source, &source_info->source_filename, &ed.raw_name, &msg);
-                exit(1);
-            }
-        }
-        TC_name_index_record_LIST_push(&name_index, (TC_name_index_record) {
-            ed.name,
-            TC_NIRK_Enum,
-            n
-        });
-    }
-
-    for (size_t n=0; n<table->structs.len; n++) {
-        const IR_structdef sd = table->structs.array[n];
-        for (size_t k=0; k<name_index.len; k++) {
-            if (name_index.array[k].name == sd.name) {
-                const SV msg = SV_from_str("type name collision");
-                syntax_error(&source_info->source, &source_info->source_filename, &sd.raw_name, &msg);
-                exit(1);
-            }
-        }
-        TC_name_index_record_LIST_push(&name_index, (TC_name_index_record) {
-            sd.name,
-            TC_NIRK_Struct,
-            n
-        });
-    }
-
-
-
-
-    TC_structdef_LIST out_structs = TC_structdef_LIST_new_with_capacity(table->structs.len);
-    out_structs.len = table->structs.len;
-
-    TC_enumdef_LIST out_enums = TC_enumdef_LIST_new_with_capacity(table->enums.len);
-    out_enums.len = table->enums.len;
-
-    TC_materialized_generic_index_record_LIST materialized_generics = TC_materialized_generic_index_record_LIST_new();
-
-
-    {
-        for (size_t n=0; n<table->enums.len; n++) {
-
-            const IR_enumdef ed = table->enums.array[n];
-            TC_enumdef_variant_LIST new_variants = TC_enumdef_variant_LIST_new_with_capacity(ed.variants.len);
-
-            for (size_t k=0; k< ed.variants.len; k++) {
-                const IR_enumdef_variant variant = ed.variants.array[k];
-
-                for (size_t j=0; j < k; j++) {
-                    if (variant.name == ed.variants.array[j].name) {
-                        const SV msg = SV_from_str("variant name must be unique");
-                        syntax_error(&source_info->source, &source_info->source_filename, &variant.raw_name, &msg);
-                        exit(1);
-                    }
-                }
-
-                TC_typeid* new_values = NULL;
-
-                if (variant.values_len > 0) {
-                    new_values = malloc(sizeof(TC_typeid)*variant.values_len);
-                    for (size_t j=0; j<variant.values_len; j++) {
-                        const IR_typeuse tu = variant.values[j];
-                        const TC_typeid new_t = resolve_type(&tu, &name_index, source_info, &materialized_generics, table, &out_structs, &out_enums);
-                        new_values[j] = new_t;
-                    }
-                }
-
-
-                const TC_enumdef_variant new_variant = (TC_enumdef_variant) {
-                    variant.name,
-                    variant.raw_name,
-                    new_values,
-                    variant.values_len
-                };
-                TC_enumdef_variant_LIST_push(&new_variants, new_variant);
-            }
-
-            out_enums.array[n] = (TC_enumdef) {
-                ed.name,
-                ed.raw_name,
-                new_variants,
-                0,
-                0,
-                0
+TC_typeid resolve_tc_type(
+    const IR_typeuse* restrict type,
+    TC_TypeTable* restrict nct,
+    const TargetInfo* restrict target_info,
+    const SourceInfo* restrict source_info
+) {
+    switch (type->tt_ty) {
+        case IR_TY_Void: {
+            return (TC_typeid){
+                .ty = TC_TY_Void
             };
         }
+        case IR_TY_Primitive: {
+            return (TC_typeid){
+                .ty = TC_TY_Primitive,
+                .info.primitive = type->info.primitive
+            };
+        }
+        case IR_TY_Named: {
+            for(size_t n=0; n<nct->enums.len; n++) {
+                if (nct->enums.array[n].name == type->info.named.name) {
+                    return (TC_typeid) {
+                        .ty = TC_TY_Enum,
+                        .info.type_id = n
+                    };
+                }
+            }
+            for (size_t n=0; n<nct->structs.len; n++) {
+                if (nct->structs.array[n].name == type->info.named.name) {
+                    return (TC_typeid) {
+                        .ty = TC_TY_Struct,
+                        .info.type_id = n
+                    };
+                }
+            }
+            for (size_t n=0; n<nct->external_types.len; n++) {
+                if (nct->external_types.array[n] == type->info.named.name) {
+                    return (TC_typeid) {
+                        .ty = TC_TY_External_Type,
+                        .info.external_type = {
+                            type->info.named.name,
+                            type->info.named.raw_name
+                        }
+                    };
+                }
+            }
+            const SV msg = SV_from_str("unknow type");
+            syntax_error(&source_info->source, &source_info->source_filename, &type->info.named.raw_name, &msg);
+            exit(1);
+        }
+        case IR_TY_Ref:
+        case IR_TY_Array:
+        case IR_TY_Box:
+        case IR_TY_Slice:
+        case IR_TY_List: {
+            TC_typeid* contained = malloc(sizeof(TC_typeid));
+            *contained = resolve_tc_type(type->contained, nct, target_info, source_info);
 
-        for (size_t n=0; n<table->structs.len; n++) {
-            const IR_structdef sd = table->structs.array[n];
-            // sd.fields
-            TC_field_LIST new_fields = TC_field_LIST_new_with_capacity(sd.fields.len);
-            for (size_t k=0; k<sd.fields.len; k++) {
-                const IR_field field = sd.fields.array[k];
+            free(type->contained);
 
-                for (size_t j=0; j < k; j++) {
-                    if (field.name == sd.fields.array[j].name) {
-                        const SV msg = SV_from_str("field name must be unique");
-                        syntax_error(&source_info->source, &source_info->source_filename, &field.raw_name, &msg);
-                        exit(1);
+            TC_type_ty ty;
+            switch (type->tt_ty) {
+                case IR_TY_Ref: {
+                    ty = TC_TY_Ref;
+                    break;
+                }
+                case IR_TY_Array: {
+                    ty = TC_TY_Array;
+                    break;
+                }
+                case IR_TY_List: {
+                    ty = TC_TY_List;
+                    break;
+                }
+                case IR_TY_Box: {
+                    ty = TC_TY_Box;
+                    break;
+                }
+                case IR_TY_Slice: {
+                    ty = TC_TY_Slice;
+                    break;
+                }
+                default: {
+                    UNREACHABLE();
+                }
+            }
+
+            return (TC_typeid){
+                .ty = ty,
+                .info.contained = contained
+            };
+        }
+        case IR_TY_Generic: {
+            TC_index_record_kind materialize_kind;
+            size_t materialize_nth;
+            for (size_t n=0; n<nct->materialized_generics.len; n++) {
+                const TC_materialized_generic_index_record mr = nct->materialized_generics.array[n];
+                if (mr.generic.tt_ty != IR_TY_Generic) {
+                    INTERNAL_ERROR("should never happen | u403");
+                }
+
+                const IR_typeuse tu = mr.generic;
+                if (tu.info.named.name != type->info.named.name) {
+                    continue;
+                }
+
+                if (tu.contained_len != type->contained_len) {
+                    char* r_msg = malloc(sizeof(char)*100);
+                    snprintf(r_msg, 100, "for generic expected %lu args, but got %lu", tu.contained_len, type->contained_len);
+                    const SV msg = SV_from_str(r_msg);
+                    syntax_error(&source_info->source, &source_info->source_filename, &type->info.named.raw_name, &msg);
+                    free(r_msg);
+                    exit(1);
+                }
+
+                for (size_t j=0; j<tu.contained_len; j++) {
+                    if (!CMP_IR_typeuse(&tu.contained[j], &type->contained[j])) {
+                        materialize_kind = mr.kind;
+                        materialize_nth = n;
+                        goto materialize;
                     }
                 }
 
-                const TC_typeid new_type = resolve_type(&field.type, &name_index, source_info, &materialized_generics, table, &out_structs, &out_enums);
-
-                const TC_field new_field = (TC_field) {
-                    field.name,
-                    field.raw_name,
-                    new_type
+                TC_type_ty ty = TC_TY_Struct;
+                switch (mr.kind) {
+                    case TC_NIRK_Enum: {
+                        ty = TC_TY_Enum;
+                        break;
+                    }
+                    case TC_NIRK_Struct: {
+                        ty = TC_TY_Struct;
+                        break;
+                    }
+                }
+                return (TC_typeid) {
+                    .ty = ty,
+                    .info.type_id = mr.nth,
                 };
-                TC_field_LIST_push(&new_fields, new_field);
             }
 
-            out_structs.array[n] = (TC_structdef) {
-                sd.name,
-                sd.raw_name,
-                new_fields,
-                (TC_struct_layout) {
-                    0,
-                    0,
-                    NULL
-                }
-            };
+            for (size_t n = 0; n < nct->generic_enums.len; n++) {
+                if (nct->generic_enums.array[n].name == type->info.named.name) {
+                    if (nct->generic_enums.array[n].generic_args.len != type->contained_len) {
+                        char* r_msg = malloc(sizeof(char)*100);
+                        snprintf(r_msg, 100, "for generic expected %lu args, but got %lu", nct->generic_enums.array[n].generic_args.len, type->contained_len);
+                        const SV msg = SV_from_str(r_msg);
+                        syntax_error(&source_info->source, &source_info->source_filename, &type->info.named.raw_name, &msg);
+                        free(r_msg);
+                        exit(1);
+                    }
+                    materialize_kind = TC_NIRK_Enum;
+                    materialize_nth = n;
+                    goto materialize;
 
+                }
+            }
+
+            for (size_t n = 0; n < nct->generic_structs.len; n++) {
+                if (nct->generic_structs.array[n].name == type->info.named.name) {
+                    if (nct->generic_structs.array[n].generic_args.len != type->contained_len) {
+                        char* r_msg = malloc(sizeof(char)*100);
+                        snprintf(r_msg, 100, "for generic expected %lu args, but got %lu", nct->generic_structs.array[n].generic_args.len, type->contained_len);
+                        const SV msg = SV_from_str(r_msg);
+                        syntax_error(&source_info->source, &source_info->source_filename, &type->info.named.raw_name, &msg);
+                        free(r_msg);
+                        exit(1);
+                    }
+                    materialize_kind = TC_NIRK_Struct;
+                    materialize_nth = n;
+                    goto materialize;
+
+                }
+            }
+
+            {
+                const SV msg = SV_from_str("unknow generic");
+                syntax_error(&source_info->source, &source_info->source_filename, &type->info.named.raw_name, &msg);
+                exit(1);
+            }
+
+
+            // materialize
+            materialize: {
+                switch (materialize_kind) {
+                    case TC_NIRK_Enum: {
+                        IR_generic_enumdef ged = nct->generic_enums.array[materialize_nth];
+
+                        // materialize
+                        TC_enumdef_variant_LIST new_variants = TC_enumdef_variant_LIST_new_with_capacity(ged.variants.len);
+                        for (size_t j=0; j<ged.variants.len; j++) {
+                            const IR_enumdef_variant variant = ged.variants.array[j];
+                            TC_typeid* new_values = malloc(sizeof(TC_typeid)*variant.values_len);
+
+                            for (size_t v=0; v<variant.values_len; v++) {
+                                const IR_typeuse substituted = substitute_typeuse(&variant.values[v], &ged.generic_args, type->contained);
+                                const TC_typeid ty = resolve_tc_type(&substituted, nct, target_info, source_info);
+                                new_values[v] = ty;
+                            }
+
+                            TC_enumdef_variant_LIST_push(&new_variants, (TC_enumdef_variant) {
+                                variant.name,
+                                variant.raw_name,
+                                new_values,
+                                variant.values_len
+                            });
+                        }
+
+                        const TC_enumdef new_enumdef = (TC_enumdef) {
+                            ged.name,
+                            ged.raw_name,
+                            new_variants,
+                            0,
+                            0,
+                            0
+                        };
+
+
+                        const size_t nth = nct->enums.len;
+                        TC_enumdef_LIST_push(&nct->enums, new_enumdef);
+                        TC_materialized_generic_index_record_LIST_push(&nct->materialized_generics, (TC_materialized_generic_index_record) {
+                            *type,
+                            TC_NIRK_Enum,
+                            nth
+                        });
+
+                        const TC_typeid ret = (TC_typeid) {
+                            .ty = TC_TY_Enum,
+                            .info.type_id = nth,
+                        };
+
+                        {
+                            size_t_LIST in_progress_structs = size_t_LIST_new();
+                            size_t_LIST in_progress_enums = size_t_LIST_new();
+
+                            path_size_align_for_materialized_type(&ret, nct, &in_progress_structs, &in_progress_enums, target_info, source_info);
+
+                            size_t_LIST_free(&in_progress_structs);
+                            size_t_LIST_free(&in_progress_enums);
+                        }
+
+                        return ret;
+
+                    }
+                    case TC_NIRK_Struct: {
+                        IR_generic_structdef ges = nct->generic_structs.array[materialize_nth];
+
+
+                        TC_field_LIST new_fields = TC_field_LIST_new_with_capacity(ges.fields.len);
+                        new_fields.len = ges.fields.len;
+
+                        for (size_t j=0; j<ges.fields.len; j++) {
+                            const IR_field fd = ges.fields.array[j];
+                            const IR_typeuse substituted = substitute_typeuse(&fd.type, &ges.generic_args, type->contained);
+                            const TC_typeid ty = resolve_tc_type(&substituted, nct, target_info, source_info);
+                            new_fields.array[j] = (TC_field) {
+                                fd.name,
+                                fd.raw_name,
+                                ty
+                            };
+                        }
+
+                        const TC_structdef new_structdef = (TC_structdef) {
+                            ges.name,
+                            ges.raw_name,
+                            new_fields,
+                            (TC_struct_layout) {
+                                0,
+                                0,
+                                NULL
+                            }
+                        };
+
+                        const size_t nth = nct->structs.len;
+                        TC_structdef_LIST_push(&nct->structs, new_structdef);
+                        TC_materialized_generic_index_record_LIST_push(&nct->materialized_generics, (TC_materialized_generic_index_record) {
+                            *type,
+                            TC_NIRK_Struct,
+                            nth
+                        });
+
+
+                        const TC_typeid ret = (TC_typeid) {
+                            .ty = TC_TY_Struct,
+                            .info.type_id = nth,
+                        };
+
+                        {
+                            size_t_LIST in_progress_structs = size_t_LIST_new();
+                            size_t_LIST in_progress_enums = size_t_LIST_new();
+
+                            path_size_align_for_materialized_type(&ret, nct, &in_progress_structs, &in_progress_enums, target_info, source_info);
+
+                            size_t_LIST_free(&in_progress_structs);
+                            size_t_LIST_free(&in_progress_enums);
+                        }
+
+
+                        return ret;
+                    }
+                }
+            }
+
+            UNREACHABLE()
         }
     }
-
-    // either go through all types and calc size, or fix sizes in the materialization
-    size_t_LIST in_progress_structs = size_t_LIST_new();
-    size_t_LIST in_progress_enums = size_t_LIST_new();
-
-    for (size_t n=0; n < out_structs.len; n++) {
-        calc_type_size(&(TC_typeid) {
-            .ty = TC_TY_Struct,
-            .info.type_id = n
-        }, &out_structs, &out_enums, &in_progress_structs, &in_progress_enums, target_info, source_info);
-
-        in_progress_structs.len = 0;
-        in_progress_enums.len = 0;
-    }
-
-    for (size_t n=0; n < out_enums.len; n++) {
-        calc_type_size(&(TC_typeid) {
-            .ty = TC_TY_Enum,
-            .info.type_id = n
-        }, &out_structs, &out_enums, &in_progress_structs, &in_progress_enums, target_info, source_info);
-
-        in_progress_structs.len = 0;
-        in_progress_enums.len = 0;
-    }
-
-
-    return (TC_TypeTable) {
-        out_structs,
-        out_enums,
-        materialized_generics
-    };
+    UNREACHABLE()
 }
 
-/// typechecking pass
-void TC_typecheck(TargetInfo* restrict target_info, SVList* restrict tokens, const SV* restrict source, const SV* restrict source_filename, const TC_TypeTable* restrict tt, const IR_func_LIST* restrict code) {
+typedef struct {
+    TC_typeid type;
+    Identifier name;
+} TC_arg;
 
+init_prefixed_list_type(TC_arg)
+
+/// on success returns TRUE, and CAST from source to dest can be emitted
+bool try_to_cast_to(const TC_typeid* source, const TC_typeid* dest) {
+    switch (source->ty) {
+        case TC_TY_Primitive: {
+            if (dest->ty != TC_TY_Primitive && dest->ty != TC_TY_Enum) return false;
+            // dest->info.primitive;
+            return true;
+        }
+        case TC_TY_Enum: {
+            if (dest->ty != TC_TY_Primitive && dest->ty != TC_TY_Enum) return false;
+            UNIMPLEMENTED("try_to_cast_to for TC_TY_Enum")
+        }
+
+        case TC_TY_Void:
+        case TC_TY_Struct:
+        case TC_TY_Ref:
+        case TC_TY_Array:
+        case TC_TY_List:
+        case TC_TY_Box:
+        case TC_TY_Slice:
+        case TC_TY_External_Type:
+            return false;
+    }
+    UNREACHABLE()
+}
+
+void TC_typecheck_and_lower_fn(
+    const IR_func fn,
+    const khash_t(sv_u64_map)* restrict identifier_map,
+    const IR_func_LIST* restrict functions,
+    const CFFI_IR_extern_fn_LIST* restrict external_functions,
+    TC_TypeTable* restrict nct,
+    const TargetInfo* restrict target_info,
+    const SourceInfo* restrict source_info
+) {
+
+    const IR_typeuse ir_ret_t = fn.fn_ret_t;
+    const TC_typeid ret_t = resolve_tc_type(&ir_ret_t, nct, target_info, source_info);
+
+    if (fn.args.len > 0) {
+        UNIMPLEMENTED("function with args typechecking")
+    }
+
+    TC_arg_LIST args = TC_arg_LIST_new_with_capacity(fn.args.len);
+    args.len = fn.args.len;
+    for (size_t n=0; n<fn.args.len; n++) {
+        const TC_typeid type = resolve_tc_type(&fn.args.array[n].type, nct, target_info, source_info);
+        args.array[n] = (TC_arg) {
+            type,
+            fn.args.array[n].name
+        };
+    }
+
+    // now we have args and return with real types, we now can check against that
+
+    // typechecker state
+
+    // todo: known value optimization??
+
+    // (temporal - type)
+    TC_typeid_LIST temporals = TC_typeid_LIST_new_with_capacity(fn.highest_temporal_number+1);
+
+    for (size_t block_id = 0; block_id < fn.blocks.len; block_id++) {
+        const IR_block block = fn.blocks.array[block_id];
+        for (size_t instr_nth = 0; instr_nth < block.instructions.len; instr_nth++) {
+            const IR_instr instr = block.instructions.array[instr_nth];
+            switch (instr.ty) {
+                case IR_INST_TY__CONST_INT: {
+                    printf("CONST_INT %li -> Number temporals[%lu]\n", instr.p1.value, instr.dest.val);
+                    temporals.array[instr.dest.val] = (TC_typeid) {
+                        .ty = TC_TY_Primitive,
+                        .info.primitive = TC_Primitive__Number,
+                    };
+                    break;
+                }
+                case IR_INST_TY__CONST_FLOAT: {
+                    printf("CONST_FLOAT %f -> FloatNumber temporals[%lu]\n", instr.p1.value_float, instr.dest.val);
+                    temporals.array[instr.dest.val] = (TC_typeid) {
+                        .ty = TC_TY_Primitive,
+                        .info.primitive = TC_Primitive__FloatNumber,
+                    };
+                    break;
+                }
+                case IR_INST_TY__MAKE_ARRAY: {
+                    UNIMPLEMENTED()
+                }
+                case IR_INST_TY__MAKE_STRUCT: {
+                    UNIMPLEMENTED()
+                }
+                case IR_INST_TY__VAR_DECL: {
+                    printf("VAR_DECL from type '");
+                    size_t dest = instr.dest.val;
+                    const TC_typeid temporal_ty = temporals.array[dest];
+                    print_TC_typeid(&temporal_ty, (khash_t(sv_u64_map)*)identifier_map, nct);
+
+                    const TC_typeid declaration_ty = resolve_tc_type(instr.p2.type, nct, target_info, source_info);
+                    printf("' to type '");
+                    print_TC_typeid(&declaration_ty, (khash_t(sv_u64_map)*)identifier_map, nct);
+                    printf("'\n");
+
+                    if (!CMP_tc_typeid(&temporal_ty, &declaration_ty)) {
+                        if (try_to_cast_to(&temporal_ty, &declaration_ty)) {
+                            printf("EMIT CAST '");
+                            print_TC_typeid(&temporal_ty, (khash_t(sv_u64_map)*)identifier_map, nct);
+                            printf("' -> '");
+                            print_TC_typeid(&declaration_ty, (khash_t(sv_u64_map)*)identifier_map, nct);
+                            printf("'\n");
+                        } else {
+                            // TODO: proper error reporting (raw_name is not known)
+                            // syntax_error(&source_info->source, &source_info->source_filename, instr.)
+                            fprintf(stderr, "type collision\n");
+                            exit(1);
+                        }
+                    }
+                    break;
+                }
+                case IR_INST_TY__INVALID: {
+                    INTERNAL_ERROR("IR_INST_TY__INVALID");
+                }
+                case IR_INST_TY__PHI: {
+                    UNIMPLEMENTED("IR_INST_TY__PHI")
+                }
+                case IR_INST_TY__OP_ADD:
+                case IR_INST_TY__OP_SUB:
+                case IR_INST_TY__OP_DIV:
+                case IR_INST_TY__OP_MUL:
+                case IR_INST_TY__OP_POW: {
+                    const TC_typeid v1 = temporals.array[instr.p1.src1.val];
+                    const TC_typeid v2 = temporals.array[instr.p2.src2.val];
+                    if (!CMP_tc_typeid(&v1, &v2)) {
+                        // TODO: do not throw error immediately
+
+                        // printf("TC v1='");
+                        // print_TC_typeid(&v1, (khash_t(sv_u64_map)*)identifier_map, nct);
+                        // printf("', v2='");
+                        // print_TC_typeid(&v2, (khash_t(sv_u64_map)*)identifier_map, nct);
+                        // printf("'\n");
+                        if (try_to_cast_to(&v1, &v2)) {
+                            temporals.array[instr.dest.val] = v2;
+                            printf("EMIT CAST '");
+                            print_TC_typeid(&v1, (khash_t(sv_u64_map)*)identifier_map, nct);
+                            printf("' -> '");
+                            print_TC_typeid(&v2, (khash_t(sv_u64_map)*)identifier_map, nct);
+                            printf("'\n");
+                        } else {
+                            // TODO: proper error reporting (raw_name is not known)
+                            // syntax_error(&source_info->source, &source_info->source_filename, instr.)
+                            fprintf(stderr, "type collision\n");
+                            exit(1);
+                        }
+                    } else {
+                        temporals.array[instr.dest.val] = v1;
+                    }
+
+                    break;
+                }
+                case IR_INST_TY__OP_OR:
+                    break;
+                case IR_INST_TY__OP_AND:
+                    break;
+                case IR_INST_TY__OP_CMP_EQ:
+                    break;
+                case IR_INST_TY__OP_CMP_NOT_EQ:
+                    break;
+                case IR_INST_TY__OP_CMP_LESS:
+                    break;
+                case IR_INST_TY__OP_CMP_LESS_EQ:
+                    break;
+                case IR_INST_TY__OP_CMP_GREATER:
+                    break;
+                case IR_INST_TY__OP_CMP_GREATER_EQ:
+                    break;
+                case IR_INST_TY__STORE_PTR:
+                    break;
+                case IR_INST_TY__BRANCH:
+                    break;
+                case IR_INST_TY__JUMP:
+                    break;
+                case IR_INST_TY__RETURN_VOID:
+                    break;
+                case IR_INST_TY__RETURN:
+                    break;
+                case IR_INST_TY__GET_FIELD_PTR:
+                    break;
+                case IR_INST_TY__INDEX_PTR:
+                    break;
+                case IR_INST_TY__READ_PTR:
+                    break;
+                case IR_INST_TY__FN_CALL_VOID:
+                    break;
+                case IR_INST_TY__FN_CALL_RET:
+                    break;
+            }
+        }
+    }
+
+
+}
+
+/// typechecking pass + lowering to MIR
+void TC_typecheck_and_lower(
+    const khash_t(sv_u64_map)* restrict identifier_map,
+    const IR_func_LIST* restrict functions,
+    const CFFI_IR_extern_fn_LIST* restrict external_functions,
+    TC_TypeTable* restrict nct,
+    const TargetInfo* restrict target_info,
+    const SourceInfo* restrict source_info
+) {
+
+    for (size_t n = 0; n < functions->len; n++) {
+        TC_typecheck_and_lower_fn(functions->array[n], identifier_map, functions, external_functions, nct, target_info, source_info);
+    }
 
 }

@@ -1,0 +1,45 @@
+
+
+// Borrow — C owns the memory
+extern Int32 external_fn(Int32* array, Uint32 len)
+  into
+  Int32 external_fn(Slice<Int32> array { array, len });
+
+// Ownership transfer — your runtime frees
+extern Int32* alloc_fn(Uint32 len)
+  into
+  Array<Int32> alloc_fn(Uint32 len);
+
+// Nullable
+extern Int32* maybe_fn(Uint32 len)
+  into
+  Option<Slice<Int32>> maybe_fn(Uint32 len);
+
+// Output param
+extern void read_fn(Int32* buf, Uint32* out_len)
+  into
+  Slice<Int32> { buf, out_len } read_fn();
+
+
+extern type Ctx;
+
+extern Ctx* create_ctx()
+  into Ref<Ctx> create_ctx();
+
+struct k {
+    Slice<Int32> a;
+    Ref<Ctx> c;
+}
+
+generic enum Option<T> {
+    Some(T),
+    None
+}
+
+Option<Int32> main() {
+    Int a = 10*3+4;
+    Uint b = 100*2;
+
+    a = 10;
+    b = a + 3;
+}

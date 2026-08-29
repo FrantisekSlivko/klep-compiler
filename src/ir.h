@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include "sv_u64_map.h"
 #include "parser.h"
-#include "typechecking.h"
+#include "typecompletion.h"
 #include "utils/float64.h"
 
 
@@ -141,6 +141,7 @@ typedef struct {
     Identifier fn_name;
     IR_typename_pair_LIST args;
     IR_block_LIST blocks;
+    size_t highest_temporal_number;
 } IR_func;
 
 init_prefixed_list_type(IR_func)
