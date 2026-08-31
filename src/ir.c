@@ -4,7 +4,7 @@
 #include "utils/dev.h"
 
 
-void print_IR_typeuse(const IR_typeuse* restrict ty, khash_t(sv_u64_map)* restrict identifier_map) {
+void print_IR_typeuse(const IR_typeuse* restrict ty, const khash_t(sv_u64_map)* restrict identifier_map) {
     if (ty->tt_ty == IR_TY_Primitive) {
         const SV k = TC_Primitive_TY_to_SV(ty->info.primitive);
         printf(SV_format, SV_v_args(k));
@@ -14,20 +14,25 @@ void print_IR_typeuse(const IR_typeuse* restrict ty, khash_t(sv_u64_map)* restri
         printf("Void");
         return;
     }
-    const SV type_name = SV_from_identifiermap_lookup(identifier_map, ty->info.named.name);
+    const SV type_name = ty->info.named.span.sv; // SV_from_identifiermap_lookup(identifier_map, ty->info.named.name);
     printf(SV_format, SV_v_args(type_name));
     switch (ty->tt_ty) {
         case IR_TY_Primitive:
         case IR_TY_Named:
             break;
         case IR_TY_Ref:
-        case IR_TY_Array:
         case IR_TY_Box:
         case IR_TY_Slice:
         case IR_TY_List: {
             putc('<', stdout);
             print_IR_typeuse(ty->contained, identifier_map);
             putc('>', stdout);
+            break;
+        }
+        case IR_TY_Array: {
+            putc('<', stdout);
+            print_IR_typeuse(ty->contained, identifier_map);
+            printf(", %u>", ty->array_const_size);
             break;
         }
         case IR_TY_Generic: {
@@ -45,7 +50,7 @@ void print_IR_typeuse(const IR_typeuse* restrict ty, khash_t(sv_u64_map)* restri
     }
 }
 
-void print_IR_instr(const IR_instr* restrict instr, khash_t(sv_u64_map)* restrict identifier_map) {
+void print_IR_instr(const IR_instr* restrict instr, const khash_t(sv_u64_map)* restrict identifier_map) {
     switch (instr->ty) {
         case IR_INST_TY__INVALID: {
             printf(C_RED"INVALID IR"C_RESET);
@@ -66,14 +71,29 @@ void print_IR_instr(const IR_instr* restrict instr, khash_t(sv_u64_map)* restric
             break;
         }
 
+        case IR_INST_TY__DROP: {
+            const SV var_name = instr->p1.name.span.sv; // SV_from_identifiermap_lookup(identifier_map, instr->p1.name);
+            printf("DROP $"SV_format" %%%lu '", SV_v_args(var_name), instr->dest.val);
+            print_IR_typeuse(instr->p2.type, identifier_map);
+            printf("'");
+            break;
+        }
+
         case IR_INST_TY__VAR_DECL: {
-            const SV var_name = SV_from_identifiermap_lookup(identifier_map, instr->p1.name);
+            const SV var_name = instr->p1.name.span.sv; // SV_from_identifiermap_lookup(identifier_map, instr->p1.name);
             printf("VAR_DECL $"SV_format" %%%lu {", SV_v_args(var_name), instr->dest.val);
             print_IR_typeuse(instr->p2.type, identifier_map);
             printf("}");
             break;
         }
 
+
+        case IR_INST_TY__EXPLICIT_CAST: {
+            printf("%%%lu = CAST{", instr->dest.val);
+            print_IR_typeuse(instr->p2.type, identifier_map);
+            printf("}(%%%lu)", instr->p1.src1.val);
+            break;
+        }
 
 
         case IR_INST_TY__STORE_PTR: {
@@ -105,11 +125,11 @@ void print_IR_instr(const IR_instr* restrict instr, khash_t(sv_u64_map)* restric
             break;
         }
         case IR_INST_TY__MAKE_STRUCT: {
-            const SV name = SV_from_identifiermap_lookup(identifier_map, instr->p1.name);
+            const SV name = instr->p1.name.span.sv; // SV_from_identifiermap_lookup(identifier_map, instr->p1.name);
             printf("%%%lu = MAKE_STRUCT '"SV_format"' {", instr->dest.val, SV_v_args(name));
             for (size_t i = 0; i < instr->p2.struct_args->len; i++) {
                 const IR_named_value v = instr->p2.struct_args->array[i];
-                const SV field_name = SV_from_identifiermap_lookup(identifier_map, v.name);
+                const SV field_name = v.name.span.sv; // SV_from_identifiermap_lookup(identifier_map, v.name);
                 printf("'."SV_format"' = %%%lu", SV_v_args(field_name), v.value.val);
                 // printf("%%%lu", instr->p2.array->array[i].val);
                 if (i+1 != instr->p2.struct_args->len) {
@@ -195,11 +215,11 @@ void print_IR_instr(const IR_instr* restrict instr, khash_t(sv_u64_map)* restric
             break;
         }
         case IR_INST_TY__RETURN: {
-            printf("RETURN %%%lu", instr->p1.src1.val);
+            printf("RETURN %%%lu", instr->dest.val);
             break;
         }
         case IR_INST_TY__GET_FIELD_PTR: {
-            const SV field_name = SV_from_identifiermap_lookup(identifier_map, instr->p1.name);
+            const SV field_name = instr->p1.name.span.sv; // SV_from_identifiermap_lookup(identifier_map, instr->p1.name);
             printf("%%%lu = GET_FIELD_PTR %%%lu, '."SV_format"'", instr->dest.val, instr->p2.src2.val, SV_v_args(field_name));
             break;
         }
@@ -212,7 +232,7 @@ void print_IR_instr(const IR_instr* restrict instr, khash_t(sv_u64_map)* restric
             break;
         }
         case IR_INST_TY__FN_CALL_VOID: {
-            const SV fn_name = SV_from_identifiermap_lookup(identifier_map, instr->p1.name);
+            const SV fn_name = instr->p1.name.span.sv; // SV_from_identifiermap_lookup(identifier_map, instr->p1.name);
             printf("CALL <"SV_format"> (", SV_v_args(fn_name));
             for (size_t i = 0; i < instr->p2.array->len; i++) {
                 printf("%%%lu", instr->p2.array->array[i].val);
@@ -224,7 +244,7 @@ void print_IR_instr(const IR_instr* restrict instr, khash_t(sv_u64_map)* restric
             break;
         }
         case IR_INST_TY__FN_CALL_RET: {
-            const SV fn_name = SV_from_identifiermap_lookup(identifier_map, instr->p1.name);
+            const SV fn_name = instr->p1.name.span.sv; // SV_from_identifiermap_lookup(identifier_map, instr->p1.name);
             printf("%%%lu = CALL <"SV_format"> (", instr->dest.val, SV_v_args(fn_name));
             for (size_t i = 0; i < instr->p2.array->len; i++) {
                 printf("%%%lu", instr->p2.array->array[i].val);

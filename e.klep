@@ -8,7 +8,7 @@ extern Int32 external_fn(Int32* array, Uint32 len)
 // Ownership transfer — your runtime frees
 extern Int32* alloc_fn(Uint32 len)
   into
-  Array<Int32> alloc_fn(Uint32 len);
+  List<Int32> alloc_fn(Uint32 len);
 
 // Nullable
 extern Int32* maybe_fn(Uint32 len)
@@ -20,6 +20,109 @@ extern void read_fn(Int32* buf, Uint32* out_len)
   into
   Slice<Int32> { buf, out_len } read_fn();
 
+
+// Option<Int32> main() {
+//     Int a = 3+4;
+//     Uint b = 100+2;
+//
+//     a = 10;
+//     b = a + 3;
+// }
+
+// Int add(Uint a, Int b) {
+//     return a + b;
+// }
+
+// Int max(Uint a, Int8 b) {
+//     if (a > b) {
+//         return a;
+//     } else {
+//         return b;
+//     }
+// }
+
+Uint cast_test(Int a) {
+    Int64 b = a;
+    Int16 c = a;
+    return cast<Uint>(a);
+}
+
+void drop_test(Box<Int> a, Option<Array<Int64, 5>> b) {
+
+}
+
+Int kv(Uint8 a, Int8 b) {
+    Int c = 0;
+    if (a > b) {
+        c = a + 1;
+    } else {
+        c = b + 1;
+    }
+    return c + 1;
+}
+
+
+
+// void index_field_test() {
+//     List<int> l = [1+2, 2, 3];
+//     int len = l.len;
+//     int second = l[1];
+//
+//     List<List<int>> l2 = [l];
+//     int double_len = l2[0].len;
+//
+//     l[2] = 5;
+//     l[0] += 1;
+//
+//     int i = 0;
+//     while i < 10 {
+//         i += 1;
+//     }
+//     int ii = i * i;
+// }
+
+// Int stress_test() {
+//     Int a = 2;
+//     Int b = 0;
+//     Int result = 0;
+//
+//     // Testing list literal with mixed constants, variables, and expressions
+//     List<Int> k = [1, a, 10 + 5, a * 3];
+//
+//     // Outer loop
+//     while a < 50 {
+//         // 'step' is local to the outer loop. It needs a new temp every outer iteration.
+//         int step = 0;
+//
+//         // Inner loop
+//         while b < 10 {
+//             // 3-way branch inside a nested loop
+//             if b < 3 {
+//                 step = step + k[0];
+//             } else if b < 7 {
+//                 step = step + k[1];
+//                 result = result + 1;
+//             } else {
+//                 step = step + k[2];
+//                 a = a + 1;
+//             }
+//             b = b + 1;
+//         }
+//
+//         // 2-way branch outside the inner loop
+//         if step > 15 {
+//             a = a + k[3];
+//         } else {
+//             a = a + 5;
+//             result = result - 1;
+//         }
+//
+//         // Reset inner loop counter (tests back-edge PHI updating for 'b')
+//         b = 0;
+//     }
+//
+//     return a + result;
+// }
 
 extern type Ctx;
 
@@ -36,10 +139,13 @@ generic enum Option<T> {
     None
 }
 
-Option<Int32> main() {
-    Int a = 10*3+4;
-    Uint b = 100*2;
-
-    a = 10;
-    b = a + 3;
-}
+// Bool is_positive(Uint n) {
+//     return n > 0;
+// }
+//
+// void lists() {
+//     Array<Int32, 3> array = [1, 2, 3];
+//     List<Int32> list = [1, 2, 3];
+//
+// }
+// const IR_instr_error_info_LIST* restrict error_info_list

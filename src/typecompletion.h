@@ -46,13 +46,11 @@ typedef struct TC_typeid {
         struct {
             struct TC_typeid* contained;
             size_t contained_len;
-            Identifier generics_name;
+            SpannedIdentifier generics_name;
         } generic;
-        struct {
-            Identifier name;
-            SV raw_name;
-        } external_type;
+        SpannedIdentifier external_type;
     } info;
+    TokenSpan full_typeuse_span;
 } TC_typeid;
 
 init_prefixed_list_type(TC_typeid)
@@ -60,8 +58,7 @@ init_prefixed_list_type(TC_typeid)
 
 
 typedef struct {
-    Identifier name;
-    SV raw_name;
+    SpannedIdentifier name;
     TC_typeid type; // IR_TY_Named for structs, IR_TY_Primitive for builtins, etc.
 } TC_field;
 
@@ -76,8 +73,7 @@ typedef struct {
 
 
 typedef struct {
-    Identifier name;
-    SV raw_name;
+    SpannedIdentifier name;
     TC_field_LIST fields;
     TC_struct_layout layout;
 } TC_structdef;
@@ -86,8 +82,7 @@ init_prefixed_list_type(TC_structdef)
 
 
 typedef struct {
-    Identifier name;
-    SV raw_name;
+    SpannedIdentifier name;
     TC_typeid* values;
     /// =0 if without values
     size_t values_len;
@@ -95,8 +90,7 @@ typedef struct {
 init_prefixed_list_type(TC_enumdef_variant)
 
 typedef struct {
-    Identifier name;
-    SV raw_name;
+    SpannedIdentifier name;
     TC_enumdef_variant_LIST variants;
     uint32_t size;
     uint32_t discriminant_size;
@@ -157,7 +151,7 @@ typedef struct TC_TypeTable {
     IR_generic_structdef_LIST generic_structs;
     IR_generic_enumdef_LIST generic_enums;
 
-    Identifier_LIST external_types;
+    SpannedIdentifier_LIST external_types;
 } TC_TypeTable;
 
 
@@ -168,14 +162,14 @@ TC_TypeTable close_type_table(
     const SourceInfo* restrict source_info
 );
 
-void print_TC_typeid(const TC_typeid* restrict ty, khash_t(sv_u64_map)* restrict identifier_map, const TC_TypeTable* restrict tt);
+void print_TC_typeid(const TC_typeid* restrict ty, const khash_t(sv_u64_map)* restrict identifier_map, const TC_TypeTable* restrict nct);
 
 
 bool CMP_IR_typeuse(const IR_typeuse* a, const IR_typeuse* b);
 
 IR_typeuse substitute_typeuse(
     const IR_typeuse* restrict input,
-    const Identifier_LIST* restrict generic_args,
+    const SpannedIdentifier_LIST* restrict generic_args,
     const IR_typeuse* restrict args
 );
 

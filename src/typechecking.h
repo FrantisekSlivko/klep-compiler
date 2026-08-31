@@ -17,7 +17,8 @@ void TC_typecheck_and_lower(
     const CFFI_IR_extern_fn_LIST* restrict external_functions,
     TC_TypeTable* restrict nct,
     const TargetInfo* restrict target_info,
-    const SourceInfo* restrict source_info
+    const SourceInfo* restrict source_info,
+    TC_typeid_LIST* restrict type_needing_destructor
 );
 
 #endif //KLEPCOMPILER_TYPECHECKING_H

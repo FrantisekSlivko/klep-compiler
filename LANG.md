@@ -51,15 +51,15 @@ int main(Array<String> args) {
 
 ## Compiler types
 
-| Type         | Storage             | Ownership     | Freed by          |
-|--------------|---------------------|---------------|-------------------|
-| `primitives` | stack / inline      | copy          | scope exit        |
-| `structs`    | stack / inline      | move          | scope exit        |
-| `Array<T>`   | heap                | unique, owned | scope exit (RAII) |
-| `List<T>`    | heap                | unique, owned | scope exit (RAII) |
-| `Ref<T>`     | —                   | non-owning    | n/a               |
-| `Box<T>`     | heap                | unique, owned | scope exit (RAII) |
-| `Slice<T>`   | fat ptr (ptr + len) | non-owning    | n/a               |
+| Type          | Storage             | Ownership     | Freed by          |
+|---------------|---------------------|---------------|-------------------|
+| `primitives`  | stack / inline      | copy          | scope exit        |
+| `structs`     | stack / inline      | move          | scope exit        |
+| `Array<T, N>` | stack / inline      | move          | scope exit        |
+| `List<T>`     | heap                | unique, owned | scope exit (RAII) |
+| `Ref<T>`      | —                   | non-owning    | n/a               |
+| `Box<T>`      | heap                | unique, owned | scope exit (RAII) |
+| `Slice<T>`    | fat ptr (ptr + len) | non-owning    | n/a               |
 
 ### built-in types
 

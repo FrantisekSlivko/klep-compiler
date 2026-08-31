@@ -109,9 +109,9 @@ void compile(const SV source, const SV source_filename) {
     if (functions.len > 0) {
         printf("FUNCTIONS:\n");
         for (size_t f = 0; f < functions.len; f++) {
-            const Identifier fn_name = functions.array[f].fn_name;
+            const SpannedIdentifier fn_name = functions.array[f].fn_name;
 
-            const SV real_fn_name = SV_from_identifiermap_lookup(identifier_map, fn_name);
+            const SV real_fn_name = fn_name.span.sv; // SV_from_identifiermap_lookup(identifier_map, fn_name);
 
             printf("  FUNC <"SV_format"> -> ", SV_v_args(real_fn_name));
             print_IR_typeuse(&functions.array[f].fn_ret_t, identifier_map);
@@ -123,7 +123,7 @@ void compile(const SV source, const SV source_filename) {
                 printf("      binds: { ");
                 for (size_t n = 0; n < block->bindings.len; n++) {
                     const IR_SSA_binding bind = block->bindings.array[n];
-                    const SV var = SV_from_identifiermap_lookup(identifier_map, bind.variable);
+                    const SV var = bind.variable.span.sv; // SV_from_identifiermap_lookup(identifier_map, bind.variable);
                     printf("'"SV_format"' %%%lu", SV_v_args(var), bind.bind.val);
                     if (n + 1 != block->bindings.len) {
                         printf(", ");
@@ -149,13 +149,13 @@ void compile(const SV source, const SV source_filename) {
             TC_structdef sd = nct.structs.array[n];
             TC_struct_layout sl = sd.layout;
 
-            SV name = sd.raw_name;
+            SV name = sd.name.span.sv;
             printf("  STRUCT '"SV_format"'{%lu}, align=%u, size=%u {\n", SV_v_args(name), n, sl.align, sl.size);
             for (size_t k=0; k<sd.fields.len; k++) {
                 uint32_t offset = sl.field_offsets == (void*)nullptr ? 0 : sl.field_offsets[k];
                 TC_field f = sd.fields.array[k];
 
-                SV f_name = f.raw_name;
+                SV f_name = f.name.span.sv;
 
                 printf("    FIELD '"SV_format"', type='", SV_v_args(f_name));
                 print_TC_typeid(&f.type, identifier_map, &nct);
@@ -170,10 +170,10 @@ void compile(const SV source, const SV source_filename) {
         printf("ENUMS:\n");
         for (size_t n=0; n<nct.enums.len; n++) {
             TC_enumdef ed = nct.enums.array[n];
-            printf("  ENUM '"SV_format"'{%lu}, align=%u, size=%u {\n", SV_v_args(ed.raw_name), n, ed.align, ed.size);
+            printf("  ENUM '"SV_format"'{%lu}, align=%u, size=%u {\n", SV_v_args(ed.name.span.sv), n, ed.align, ed.size);
             for (size_t v=0; v<ed.variants.len; v++) {
                 TC_enumdef_variant var = ed.variants.array[v];
-                printf("    "SV_format, SV_v_args(var.raw_name));
+                printf("    "SV_format, SV_v_args(var.name.span.sv));
                 if (var.values_len > 0) {
                     printf("(");
                     for (size_t l=0; l<var.values_len; l++) {
@@ -197,7 +197,19 @@ void compile(const SV source, const SV source_filename) {
 
     printf("COMMENCING TYPECHECKING...\n");
 
-    TC_typecheck_and_lower(identifier_map, &functions, &external_functions, &nct, &target_info, &source_info);
+    TC_typeid_LIST type_needing_destructor = TC_typeid_LIST_new();
+    TC_typecheck_and_lower(identifier_map, &functions, &external_functions, &nct, &target_info, &source_info, &type_needing_destructor);
 
     printf("DONE\n");
+
+    if (type_needing_destructor.len > 0) {
+        printf("TYPES NEEDING DESTRUCTORS:\n");
+        for (size_t n = 0; n < type_needing_destructor.len; ++n) {
+            printf("  DESTRUCTOR{");
+            print_TC_typeid(&type_needing_destructor.array[n], identifier_map, &nct);
+            printf("}\n");
+        }
+    }
+
+
 }
