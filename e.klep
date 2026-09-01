@@ -40,7 +40,7 @@ extern void read_fn(Int32* buf, Uint32* out_len)
 //         return b;
 //     }
 // }
-
+// MOVE for var declr and assignment
 Uint cast_test(Int a) {
     Int64 b = a;
     Int16 c = a;
@@ -48,6 +48,25 @@ Uint cast_test(Int a) {
 }
 
 void drop_test(Box<Int> a, Option<Array<Int64, 5>> b) {
+
+}
+
+Int add(Int a, Int b) {
+    return a + b;
+}
+
+Int deref(Ref<Int> a, Ref<Ref<Ref<Int>>> b) {
+    return a + b;
+}
+
+Void if_plus_while(Int n) {
+    Int i = 0;
+    if (n < 0) {
+        n = -1 * n;
+    }
+    while (i < n) {
+        i += 1;
+    }
 
 }
 

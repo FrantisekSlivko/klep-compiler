@@ -44,6 +44,7 @@ typedef struct {
     IR_instr_error_info_LIST* func_error_info_list;
     uint64_t temporal_fn_cnt;
     P_compilation_scope_LIST compilation_scope;
+    IR_typename_pair_LIST* fn_args;
 
     IR_incomplete_TypeTable type_table;
     CFFI_IR_extern_fn_LIST external_functions;
@@ -1195,8 +1196,8 @@ IR_temporal_with_span P_get_expr(Parser* p) {
         P_emit(p, (IR_instr) {
             .dest = dest,
             .ty = ty,
-            .p1 = {.src1 = v2},
-            .p2 = {.src2 = v1},
+            .p1 = {.src1 = v2 },
+            .p2 = {.src2 = v1 },
         }, (IR_instr_error_info) {
             .kind = IR_IEI_math_operation,
             .info.math_operation = {
@@ -1266,7 +1267,14 @@ void P_get_var_dec_stmt(Parser* p) {
     // const IR_block* last = &p->func_scope_blocks->array[var_decl_block];
     // const size_t var_decl_nth = last->instructions.len - 1;
 
-    const IR_temporal_with_span rs = P_get_expr(p);
+    const IR_temporal_with_span expr_rs = P_get_expr(p);
+    const IR_temporal move_dest = P_new_temporal(p);
+    P_emit(p, (IR_instr) {
+        .ty = IR_INST_TY__MOVE,
+        .dest = move_dest,
+        .p1.src1 = expr_rs.temp,
+    }, (IR_instr_error_info) { .kind = IR_IEI_none });
+    const IR_temporal_with_span rs = (IR_temporal_with_span){move_dest, expr_rs.span};
 
     IR_typeuse* ttype = malloc(sizeof(IR_typeuse));
     *ttype = ty;
@@ -1622,6 +1630,12 @@ void P_get_while_stmt(Parser* p) {
                                     }
                                     break;
                                 }
+                                case IR_INST_TY__MOVE: {
+                                    if (instr->p1.src1.val == what_to_replace.val) {
+                                        instr->p1.src1.val = replace_with.val;
+                                    }
+                                    break;
+                                }
                                 case IR_INST_TY__EXPLICIT_CAST: {
                                     if (instr->p1.src1.val == what_to_replace.val) {
                                         instr->p1.src1.val = replace_with.val;
@@ -1809,6 +1823,27 @@ void P_get_return_stmt(Parser* p) {
                     }
                 }
             }
+
+            // drop args
+            // p->fn_args
+            // const IR_SSA_binding_LIST* bindings = P_get_current_block_bindings(p);
+            for(size_t n = p->fn_args->len; n-- > 0; ) {
+                const IR_typename_pair a = p->fn_args->array[n];
+                for (size_t b = 0; b < bindings->len; b++) {
+                    if (bindings->array[b].variable.identifier != a.name.identifier) continue;
+
+                    IR_typeuse* ttype = malloc(sizeof(IR_typeuse));
+                    *ttype = a.type;
+
+                    P_emit(p, (IR_instr){
+                        .ty = IR_INST_TY__DROP,
+                        .dest = bindings->array[b].bind,
+                        .p1.name = a.name,
+                        .p2.type = ttype, // a.type,
+                    }, (IR_instr_error_info) { .kind =  IR_IEI_none });
+                    break;
+                }
+            }
         }
 
         P_next_token(p);
@@ -1819,6 +1854,14 @@ void P_get_return_stmt(Parser* p) {
     }
 
     const IR_temporal_with_span ret = P_get_expr(p);
+
+    const IR_temporal move_dest = P_new_temporal(p);
+    P_emit(p, (IR_instr) {
+        .ty = IR_INST_TY__MOVE,
+        .dest = move_dest,
+        .p1.src1 = ret.temp,
+    }, (IR_instr_error_info) { .kind = IR_IEI_none });
+    const IR_temporal_with_span final_out = (IR_temporal_with_span){move_dest, ret.span};
 
 
     // get all scopes, and drop 1by1
@@ -1847,14 +1890,35 @@ void P_get_return_stmt(Parser* p) {
                 }
             }
         }
+
+        // drop args
+        // p->fn_args
+        // const IR_SSA_binding_LIST* bindings = P_get_current_block_bindings(p);
+        for(size_t n = p->fn_args->len; n-- > 0; ) {
+            const IR_typename_pair a = p->fn_args->array[n];
+            for (size_t b = 0; b < bindings->len; b++) {
+                if (bindings->array[b].variable.identifier != a.name.identifier) continue;
+
+                IR_typeuse* ttype = malloc(sizeof(IR_typeuse));
+                *ttype = a.type;
+
+                P_emit(p, (IR_instr){
+                    .ty = IR_INST_TY__DROP,
+                    .dest = bindings->array[b].bind,
+                    .p1.name = a.name,
+                    .p2.type = ttype, // a.type,
+                }, (IR_instr_error_info) { .kind =  IR_IEI_none });
+                break;
+            }
+        }
     }
 
     P_emit(p, (IR_instr){
         .ty = IR_INST_TY__RETURN,
-        .dest = ret.temp,
+        .dest = final_out.temp,
     }, (IR_instr_error_info) {
         .kind = IR_IEI_return_value,
-        .info.return_value = { ret.span }
+        .info.return_value = { final_out.span }
     });
 
     P_require_semicolon();
@@ -1960,16 +2024,25 @@ void P_get_assignment(Parser* p) {
         exit(1);
     }
 
+
+    const IR_temporal move_dest = P_new_temporal(p);
+    P_emit(p, (IR_instr) {
+        .ty = IR_INST_TY__MOVE,
+        .dest = move_dest,
+        .p1.src1 = out_val.temp,
+    }, (IR_instr_error_info) { .kind = IR_IEI_none });
+    const IR_temporal_with_span final_out = (IR_temporal_with_span){move_dest, out_val.span};
+
     if (is_dest_ptr) {
         P_emit(p, (IR_instr){
                    .ty = IR_INST_TY__STORE_PTR,
                    .dest = wrapped_result.temp,
-                   .p1.src1 = out_val.temp,
+                   .p1.src1 = final_out.temp,
                }, (IR_instr_error_info) {
                 .kind = IR_IEI_store_ptr,
                    .info.store_ptr = {
                         .to = wrapped_result.span,
-                        .ptr = out_val.span
+                        .ptr = final_out.span
                    }
                });
     } else {
@@ -1978,14 +2051,14 @@ void P_get_assignment(Parser* p) {
         for (size_t n = 0; n < binds->len; n++) {
             if (binds->array[n].variable.identifier == name) {
                 found = true;
-                binds->array[n].bind = out_val.temp;
+                binds->array[n].bind = final_out.temp;
                 break;
             }
         }
         if (!found) {
             IR_SSA_binding_LIST_push(binds, (IR_SSA_binding){
                                          .variable = {name,(TokenSpan){*origin_name}},
-                                         .bind = out_val.temp,
+                                         .bind = final_out.temp,
                                      });
         }
     }
@@ -2293,6 +2366,8 @@ void P_get_top_fn(Parser* p) {
     IR_instr_error_info_LIST error_info_list = IR_instr_error_info_LIST_new();
     p->func_error_info_list = &error_info_list;
 
+    p->fn_args = &args;
+
     P_append_block(p);
 
     for (size_t n = 0; n < args.len; n++) {
@@ -2306,7 +2381,13 @@ void P_get_top_fn(Parser* p) {
     P_get_code_section(p);
 
     // drop args
-    {
+    if (
+        p->func_scope_blocks->len > 0 &&
+        p->func_scope_blocks->array[p->func_scope_blocks->len - 1].instructions.len > 0 &&
+        (p->func_scope_blocks->array[p->func_scope_blocks->len - 1].instructions.array[p->func_scope_blocks->array[p->func_scope_blocks->len - 1].instructions.len - 1].ty == IR_INST_TY__RETURN ||
+        p->func_scope_blocks->array[p->func_scope_blocks->len - 1].instructions.array[p->func_scope_blocks->array[p->func_scope_blocks->len - 1].instructions.len - 1].ty == IR_INST_TY__RETURN_VOID)
+        ) {} else {
+
         const IR_SSA_binding_LIST* bindings = P_get_current_block_bindings(p);
         for(size_t n = args.len; n-- > 0; ) {
             const IR_typename_pair a = args.array[n];
@@ -2823,6 +2904,7 @@ TC_TypeTable parse(
         NULL,
         0,
         (P_compilation_scope_LIST){0},
+        NULL,
         (IR_incomplete_TypeTable){
             IR_structdef_LIST_new(),
             IR_enumdef_LIST_new(),

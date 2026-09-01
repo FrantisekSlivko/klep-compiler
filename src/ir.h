@@ -50,6 +50,9 @@ typedef enum {
     /// DROP p1.name={var_name}, dest={temporal}, p2.stype={type}
     IR_INST_TY__DROP,
 
+    /// %n{dest} = MOVE %k{p1.src1}
+    IR_INST_TY__MOVE,
+
     IR_INST_TY__VAR_DECL,
 
     /// STORE dest={ptr}, p1.src1={value}
@@ -79,6 +82,7 @@ typedef enum {
     IR_INST_TY__OP_CMP_GREATER,
     IR_INST_TY__OP_CMP_GREATER_EQ,
 
+    /// .dest = cmp_rs.temp, .p1.br_true, .p2.br_false,
     IR_INST_TY__BRANCH,
     IR_INST_TY__JUMP,
 

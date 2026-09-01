@@ -534,6 +534,8 @@ typedef struct {
     size_t instr_nth;
 } TC_InstrPos;
 
+init_prefixed_list_type(TC_InstrPos)
+
 typedef enum {
     TC_VK_Int,
     TC_VK_Float,
@@ -607,8 +609,9 @@ size_t TC_implicit_cast(
                 case TC_Primitive__Int32:
                 case TC_Primitive__Int64: {
                     if ((uint32_t)(out_type.info.primitive) < (uint32_t)(in_type.info.primitive)) {
-                        fprintf(stderr, "[type-error] cannot autocast, type narrowing not allowed, use explicit cast<T>()\n");
-                        exit(1);
+                        // fprintf(stderr, "[type-error] cannot autocast, type narrowing not allowed, use explicit cast<T>()\n");
+                        // exit(1);
+                        goto cannot_use_explicit_cast;
                     }
                     break;
                 }
@@ -633,8 +636,9 @@ size_t TC_implicit_cast(
                 case TC_Primitive__Uint32:
                 case TC_Primitive__Uint64: {
                     if ((uint32_t)(out_type.info.primitive) < (uint32_t)(in_type.info.primitive)) {
-                        fprintf(stderr, "[type-error] cannot autocast, type narrowing not allowed, use explicit cast<T>()\n");
-                        exit(1);
+                        // fprintf(stderr, "[type-error] cannot autocast, type narrowing not allowed, use explicit cast<T>()\n");
+                        // exit(1);
+                        goto cannot_use_explicit_cast;
                     }
                     break;
                 }
@@ -655,8 +659,9 @@ size_t TC_implicit_cast(
                 case TC_Primitive__Float32:
                 case TC_Primitive__Float64: {
                     if ((uint32_t)(out_type.info.primitive) < (uint32_t)(in_type.info.primitive)) {
-                        fprintf(stderr, "[type-error] cannot autocast, type narrowing not allowed, use explicit cast<T>()\n");
-                        exit(1);
+                        // fprintf(stderr, "[type-error] cannot autocast, type narrowing not allowed, use explicit cast<T>()\n");
+                        // exit(1);
+                        goto cannot_use_explicit_cast;
                     }
                     break;
                 }
@@ -770,8 +775,7 @@ void RAII_drop(
 }
 
 
-
-void TC_typecheck_and_lower_fn(
+void lowering_and_emission_pass_over_fn(
     const IR_func fn,
     const khash_t(sv_u64_map)* restrict identifier_map,
     const IR_func_LIST* restrict functions,
@@ -779,13 +783,25 @@ void TC_typecheck_and_lower_fn(
     TC_TypeTable* restrict nct,
     const TargetInfo* restrict target_info,
     const SourceInfo* restrict source_info,
+    const TC_Entry_LIST* restrict temporals_map
+) {
+    UNIMPLEMENTED()
+}
+
+
+
+void type_inference_pass_over_fn(
+    const IR_func fn,
+    const khash_t(sv_u64_map)* restrict identifier_map,
+    const IR_func_LIST* restrict functions,
+    const CFFI_IR_extern_fn_LIST* restrict external_functions,
+    TC_TypeTable* restrict nct,
+    const TargetInfo* restrict target_info,
+    const SourceInfo* restrict source_info,
+    TC_Entry_LIST* restrict temporals_map,
     TC_typeid_LIST* restrict type_needing_destructor
 ) {
     const IR_instr_error_info_LIST* error_info_list = &fn.error_info_list;
-    {
-        const SV fn_name = fn.fn_name.span.sv; // SV_from_identifiermap_lookup(identifier_map, fn.fn_name);
-        printf("TYPECHECKING FN '"SV_format"'\n", SV_v_args(fn_name));
-    }
 
     const IR_typeuse ir_ret_t = fn.fn_ret_t;
     const TC_typeid ret_t = resolve_tc_type(&ir_ret_t, nct, target_info, source_info);
@@ -803,16 +819,18 @@ void TC_typecheck_and_lower_fn(
 
     // now we have args and return with real types, we now can check against that
 
+    TC_InstrPos_LIST visited_phis = TC_InstrPos_LIST_new();
+
 
     /// `is_value_known` is always false in this pass
-    TC_Entry_LIST temporals_map = TC_Entry_LIST_new_with_capacity(fn.highest_temporal_number+1);
+    *temporals_map = TC_Entry_LIST_new_with_capacity(fn.highest_temporal_number+1);
 
-    TC_Entry_LIST_push(&temporals_map, (TC_Entry) { .known_temporal = false });
+    TC_Entry_LIST_push(temporals_map, (TC_Entry) { .known_temporal = false });
     for (size_t n = 0; n < args.len; n++) {
-        printf("ARG %%%lu {", n+1);
-        print_TC_typeid(&args.array[n].type, identifier_map, nct);
-        printf("}\n");
-        TC_Entry_LIST_push(&temporals_map, (TC_Entry) {
+        // printf("ARG %%%lu {", n+1);
+        // print_TC_typeid(&args.array[n].type, identifier_map, nct);
+        // printf("}\n");
+        TC_Entry_LIST_push(temporals_map, (TC_Entry) {
             .known_temporal = true,
             .type = args.array[n].type,
             .origin = (TC_InstrPos) {0},
@@ -821,87 +839,58 @@ void TC_typecheck_and_lower_fn(
         });
     }
 
-    while (temporals_map.len < fn.highest_temporal_number+1) {
-        TC_Entry_LIST_push(&temporals_map, (TC_Entry) { .known_temporal = false });
+    while (temporals_map->len < fn.highest_temporal_number+1) {
+        TC_Entry_LIST_push(temporals_map, (TC_Entry) { .known_temporal = false });
     }
 
 
     // reverse instr walk + jump back on PHI to type-resolve
 
-
     for (ptrdiff_t block_id = (ptrdiff_t)fn.blocks.len - 1; block_id >= 0; block_id--) {
         const IR_block block = fn.blocks.array[block_id];
-        printf("BLOCK %ld:\n", block_id);
+        // printf("BLOCK %ld:\n", block_id);
+        bool perf_jump = false;
         for (size_t instr_nth = block.instructions.len; instr_nth-- > 0;) {
+            if (perf_jump) {
+                break;
+            }
             const IR_instr instr = block.instructions.array[instr_nth];
             const IR_instr_error_info error_info = error_info_list->array[instr.error_info_index];
 
-            printf("  READ_INSTR: ");
-            print_IR_instr(&instr, identifier_map);
-            printf("\n");
+            // printf("  READ_INSTR: ");
+            // print_IR_instr(&instr, identifier_map);
+            // printf("\n");
 
-            // todo: auto-deref int-type for math ops
 
-            size_t math_v1_temporal = 0;
-            size_t math_v2_temporal = 0;
+            // ---------------------------------------------------------
+            //              TYPE INFERENCE PASS
+            // ---------------------------------------------------------
 
             switch (instr.ty) {
-                case IR_INST_TY__OP_ADD:
-                case IR_INST_TY__OP_SUB:
-                case IR_INST_TY__OP_DIV:
-                case IR_INST_TY__OP_MUL:
-                case IR_INST_TY__OP_POW: {
-                    const TC_Entry dest = temporals_map.array[instr.dest.val];
-                    const TC_typeid dest_type = dest.type;
-
-                    math_v1_temporal = instr.p1.src1.val;
-                    math_v2_temporal = instr.p2.src2.val;
-
-                    if (temporals_map.array[instr.p1.src1.val].known_temporal) {
-                        if (!CMP_tc_typeid(&dest_type, &temporals_map.array[instr.p1.src1.val].type)) {
-                            math_v1_temporal = TC_implicit_cast(
-                                dest_type,
-                                temporals_map.array[instr.p1.src1.val].type,
-                                // I need dest.span, p1.src1.span, and p2.src2.span
-                                instr.p1.src1.val,
-                                block_id,
-                                instr_nth,
-                                identifier_map,
-                                nct,
-                                &temporals_map,
-                                source_info,
-                                error_info
-                            );
+                case IR_INST_TY__DROP: {
+                    const TC_typeid type = resolve_tc_type(instr.p2.type, nct, target_info, source_info);
+                    temporals_map->array[instr.dest.val] = (TC_Entry) {
+                        .known_temporal = true,
+                        .type = type,
+                        .origin = (TC_InstrPos) { .block = block_id, .instr_nth = instr_nth },
+                        .is_value_known = false,
+                        .null = NULL,
+                    };
+                    break;
+                }
+                case IR_INST_TY__VAR_DECL: {
+                    const TC_typeid type = resolve_tc_type(instr.p2.type, nct, target_info, source_info);
+                    if (temporals_map->array[instr.dest.val].known_temporal) {
+                        if (!CMP_tc_typeid(&temporals_map->array[instr.dest.val].type, &type)) {
+                            // type error
+                            fprintf(stderr, "var_decl type collision | make proper error later\n");
+                            exit(1);
                         }
                     } else {
-                        temporals_map.array[instr.p1.src1.val] = (TC_Entry) {
+                        // %dest is dead value (never used)
+                        temporals_map->array[instr.dest.val] = (TC_Entry) {
                             .known_temporal = true,
-                            .type = dest_type,
-                            .origin = (TC_InstrPos) { .block = block_id, .instr_nth = instr_nth },
-                            .is_value_known = false,
-                            .null = NULL,
-                        };
-                    }
-
-                    if (temporals_map.array[instr.p2.src2.val].known_temporal) {
-                        if (!CMP_tc_typeid(&dest_type, &temporals_map.array[instr.p2.src2.val].type)) {
-                            math_v2_temporal = TC_implicit_cast(
-                                dest_type,
-                                temporals_map.array[instr.p2.src2.val].type,
-                                instr.p2.src2.val,
-                                block_id,
-                                instr_nth,
-                                identifier_map,
-                                nct,
-                                &temporals_map,
-                                source_info,
-                                error_info
-                            );
-                        }
-                    } else {
-                        temporals_map.array[instr.p2.src2.val] = (TC_Entry) {
-                            .known_temporal = true,
-                            .type = dest_type,
+                            .type = type,
                             .origin = (TC_InstrPos) { .block = block_id, .instr_nth = instr_nth },
                             .is_value_known = false,
                             .null = NULL,
@@ -909,250 +898,176 @@ void TC_typecheck_and_lower_fn(
                     }
                     break;
                 }
-                case IR_INST_TY__OP_OR:
-                case IR_INST_TY__OP_AND:
+                case IR_INST_TY__OP_ADD:
+                case IR_INST_TY__OP_SUB:
+                case IR_INST_TY__OP_DIV:
+                case IR_INST_TY__OP_MUL:
+                case IR_INST_TY__OP_POW: {
+                    const TC_Entry dest = temporals_map->array[instr.dest.val];
+                    if (!dest.known_temporal) {
+                        // INTERNAL_ERROR()
+                        printf("  skipped MATH_OP, waiting for second pass\n");
+                        break;
+                    }
+
+                    if (temporals_map->array[instr.p1.src1.val].known_temporal) {
+                        // ok (is checked in next pass)
+                    } else {
+                        temporals_map->array[instr.p1.src1.val] = (TC_Entry) {
+                            .known_temporal = true,
+                            .type = dest.type,
+                            .origin = (TC_InstrPos) { .block = block_id, .instr_nth = instr_nth },
+                            .is_value_known = false,
+                            .null = NULL,
+                        };
+                    }
+
+                    if (temporals_map->array[instr.p2.src2.val].known_temporal) {
+                        // ok (is checked in next pass)
+                    } else {
+                        temporals_map->array[instr.p2.src2.val] = (TC_Entry) {
+                            .known_temporal = true,
+                            .type = dest.type,
+                            .origin = (TC_InstrPos) { .block = block_id, .instr_nth = instr_nth },
+                            .is_value_known = false,
+                            .null = NULL,
+                        };
+                    }
+
+                    break;
+                }
+                case IR_INST_TY__CONST_INT: {
+                    const TC_Entry dest = temporals_map->array[instr.dest.val];
+                    if (!dest.known_temporal) {
+                        printf("skipping [%%%lu = CONST_INT]\n", instr.dest.val);
+                        // INTERNAL_ERROR()
+                    }
+                    break;
+                }
+                case IR_INST_TY__RETURN: {
+                    const size_t ret_temporal = instr.dest.val;
+                    if (temporals_map->array[ret_temporal].known_temporal) {
+                        INTERNAL_ERROR()
+
+                    }
+                    temporals_map->array[ret_temporal] = (TC_Entry) {
+                        .known_temporal = true,
+                        .type = ret_t,
+                        .origin = (TC_InstrPos) { .block = block_id, .instr_nth = instr_nth },
+                        .is_value_known = false,
+                        .null = NULL,
+                    };
+
+                    break;
+                }
                 case IR_INST_TY__OP_CMP_EQ:
                 case IR_INST_TY__OP_CMP_NOT_EQ:
                 case IR_INST_TY__OP_CMP_LESS:
                 case IR_INST_TY__OP_CMP_LESS_EQ:
                 case IR_INST_TY__OP_CMP_GREATER:
                 case IR_INST_TY__OP_CMP_GREATER_EQ: {
-                    // todo: dest->bool+check
-                    break;
-                }
-                default: {
-                    break;
-                }
-            }
-
-
-            // ---------------------------------------------------------
-            //              TYPECHECKING PASS
-            // ---------------------------------------------------------
-
-            switch (instr.ty) {
-                case IR_INST_TY__DROP: {
-                    const TC_typeid type = resolve_tc_type(instr.p2.type, nct, target_info, source_info);
-                    temporals_map.array[instr.dest.val] = (TC_Entry) {
-                        .known_temporal = true,
-                        .type = type,
-                        .origin = (TC_InstrPos) { .block = block_id, .instr_nth = instr_nth },
-                        .is_value_known = false,
-                        .null = NULL,
-                    };
-
-                    switch (type.ty) {
-                        case TC_TY_Void:
-                        case TC_TY_Primitive:
-                        case TC_TY_External_Type:
-                        case TC_TY_Slice:
-                        case TC_TY_Ref:
-                            break;
-                        case TC_TY_Struct:
-                        case TC_TY_Enum:
-                        case TC_TY_Array:
-                        case TC_TY_List:
-                        case TC_TY_Box: {
-                            RAII_drop(&type, instr.dest.val, block_id, instr_nth, nct, &temporals_map, type_needing_destructor, identifier_map);
-                            break;
-                        }
-
-                    }
-
-
-
-                    NEW_INSTR_BEGIN
-                    printf("NEW_INSTR: DROP %%%lu {", instr.dest.val);
-                    print_TC_typeid(&type, identifier_map, nct);
-                    printf("}\n");
-                    NEW_INSTR_END
-                    // todo: emit instr to the result blocks
-                    break;
-                }
-                case IR_INST_TY__VAR_DECL: {
-                    const TC_typeid type = resolve_tc_type(instr.p2.type, nct, target_info, source_info);
-                    temporals_map.array[instr.dest.val] = (TC_Entry) {
-                        .known_temporal = true,
-                        .type = type,
-                        .origin = (TC_InstrPos) { .block = block_id, .instr_nth = instr_nth },
-                        .is_value_known = false,
-                        .null = NULL,
-                    };
-                    // todo: emit instr to the result blocks
-                    break;
-                }
-                case IR_INST_TY__OP_ADD:
-                case IR_INST_TY__OP_SUB:
-                case IR_INST_TY__OP_DIV:
-                case IR_INST_TY__OP_MUL:
-                case IR_INST_TY__OP_POW: {
-                    const TC_Entry dest = temporals_map.array[instr.dest.val];
-                    const TC_typeid dest_type = dest.type;
-
-                    NEW_INSTR_BEGIN
-                    printf("NEW_INSTR: %%%lu ", instr.dest.val);
-                    switch (instr.ty) {
-                        case IR_INST_TY__OP_ADD: { printf("ADD"); break; }
-                        case IR_INST_TY__OP_SUB: { printf("SUB"); break; }
-                        case IR_INST_TY__OP_DIV: { printf("DIV"); break; }
-                        case IR_INST_TY__OP_MUL: { printf("MUL"); break; }
-                        case IR_INST_TY__OP_POW: { printf("POW"); break; }
-                        default: {
-                            UNREACHABLE()
-                        }
-                    }
-                    printf("{");
-                    print_TC_typeid(&dest_type, identifier_map, nct);
-                    printf("} %%%lu, %%%lu\n", math_v1_temporal, math_v2_temporal);
-                    NEW_INSTR_END
-
-                    // todo: emit instr to the result blocks
-                    break;
-                }
-                case IR_INST_TY__CONST_INT: {
-                    const TC_Entry dest = temporals_map.array[instr.dest.val];
-                    const TC_typeid dest_type = dest.type;
-
-                    if(dest_type.ty != TC_TY_Primitive) {
-                        // todo: idea: auto-ref??
-                        fprintf(stderr, "[type-error] CONST_INT dest is not primitive type\n");
-                        exit(1);
-                    }
-
-                    switch (dest_type.info.primitive) {
-                        case TC_Primitive__Int8:
-                        case TC_Primitive__Int16:
-                        case TC_Primitive__Int32:
-                        case TC_Primitive__Int64:
-                        case TC_Primitive__Uint8:
-                        case TC_Primitive__Uint16:
-                        case TC_Primitive__Uint32:
-                        case TC_Primitive__Uint64:
-                        case TC_Primitive__Char:
-                        case TC_Primitive__Bool: {
-                            // ok
-                            NEW_INSTR_BEGIN
-                            printf("NEW_INSTR: %%%lu = INT_CONST{", instr.dest.val);
-                            print_TC_typeid(&dest_type, identifier_map, nct);
-                            printf("} value '%ld'\n", instr.p1.value);
-                            NEW_INSTR_END
-                            break;
-                        }
-                        case TC_Primitive__Float32:
-                        case TC_Primitive__Float64: {
-                            // convert to float
-                            NEW_INSTR_BEGIN
-                            printf("NEW_INSTR: %%%lu = FLOAT_CONST{", instr.dest.val);
-                            print_TC_typeid(&dest_type, identifier_map, nct);
-                            printf("} value '%lf'\n", (float64_t)instr.p1.value);
-                            NEW_INSTR_END
-                            break;
-                        }
-                        // case TC_Primitive__Number: {
-                        //     INTERNAL_ERROR("WHUT? N");
-                        // }
-                        // case TC_Primitive__FloatNumber: {
-                        //     INTERNAL_ERROR("WHUT? F");
-                        // }
-                    }
-
-                    // todo: emit instr to the result blocks
-                    break;
-                }
-                case IR_INST_TY__RETURN: {
-                    size_t ret_temporal = instr.dest.val;
-                    if (temporals_map.array[instr.dest.val].known_temporal) {
-                        if (!CMP_tc_typeid(&ret_t, &temporals_map.array[instr.dest.val].type)) {
-                            ret_temporal = TC_implicit_cast(
-                                ret_t,
-                                temporals_map.array[instr.dest.val].type,
-                                instr.dest.val,
-                                block_id,
-                                instr_nth,
-                                identifier_map,
-                                nct,
-                                &temporals_map,
-                                source_info,
-                                error_info
-                            );
-                        }
-                    } else {
-                        temporals_map.array[instr.dest.val] = (TC_Entry) {
+                    const TC_Entry dest = temporals_map->array[instr.dest.val];
+                    if (!dest.known_temporal) {
+                        temporals_map->array[instr.dest.val] = (TC_Entry) {
                             .known_temporal = true,
-                            .type = ret_t,
+                            .type = (TC_typeid) {
+                                .ty = TC_TY_Primitive,
+                                .info.primitive = TC_Primitive__Bool,
+                                .full_typeuse_span = (TokenSpan){SV_from_str("Bool")}
+                            },
                             .origin = (TC_InstrPos) { .block = block_id, .instr_nth = instr_nth },
                             .is_value_known = false,
                             .null = NULL,
                         };
                     }
-
-                    NEW_INSTR_BEGIN
-                    printf("NEW_INSTR: RETURN {");
-                    print_TC_typeid(&ret_t, identifier_map, nct);
-                    printf("} %%%lu\n", ret_temporal);
-                    NEW_INSTR_END
-
+                    // if one of args is known and other unknown, infer
+                    if (temporals_map->array[instr.p1.src1.val].known_temporal && !temporals_map->array[instr.p2.src2.val].known_temporal) {
+                        temporals_map->array[instr.p2.src2.val] = (TC_Entry) {
+                            .known_temporal = true,
+                            .type = temporals_map->array[instr.p1.src1.val].type,
+                            .origin = (TC_InstrPos) { .block = block_id, .instr_nth = instr_nth },
+                            .is_value_known = false,
+                            .null = NULL,
+                        };
+                    } else if (temporals_map->array[instr.p2.src2.val].known_temporal && !temporals_map->array[instr.p1.src1.val].known_temporal) {
+                        temporals_map->array[instr.p1.src1.val] = (TC_Entry) {
+                            .known_temporal = true,
+                            .type = temporals_map->array[instr.p2.src2.val].type,
+                            .origin = (TC_InstrPos) { .block = block_id, .instr_nth = instr_nth },
+                            .is_value_known = false,
+                            .null = NULL,
+                        };
+                    }
+                    break;
+                }
+                case IR_INST_TY__BRANCH: {
+                    const TC_Entry dest = temporals_map->array[instr.dest.val];
+                    if (dest.known_temporal) {
+                        // compare types in the next pass
+                        break;
+                    }
+                    temporals_map->array[instr.dest.val] = (TC_Entry) {
+                        .known_temporal = true,
+                        .type = (TC_typeid) {
+                            .ty = TC_TY_Primitive,
+                            .info.primitive = TC_Primitive__Bool,
+                            .full_typeuse_span = (TokenSpan){SV_from_str("Bool")}
+                        },
+                        .origin = (TC_InstrPos) { .block = block_id, .instr_nth = instr_nth },
+                        .is_value_known = false,
+                        .null = NULL,
+                    };
                     break;
                 }
                 case IR_INST_TY__PHI: {
-                    const IR_temporal_block_phi_record_LIST* phi_args = instr.p2.phi_args;
-                    const size_t dest = instr.dest.val;
-                    const TC_typeid dest_type = temporals_map.array[dest].type;
 
-                    IR_temporal_block_phi_record_LIST* new_phi_args = malloc(sizeof(IR_temporal_block_phi_record_LIST));
-                    *new_phi_args = IR_temporal_block_phi_record_LIST_new_with_capacity(phi_args->len);
-
-                    NEW_INSTR_BEGIN
-                    printf("NEW_INSTR: %%%lu = PHI{", dest);
-                    print_TC_typeid(&dest_type, identifier_map, nct);
-                    printf("} [");
-
-                    for(size_t n=0; n<phi_args->len; n++) {
-                        if (block_id < (ptrdiff_t)phi_args->array[n].block) {
-                            UNIMPLEMENTED("PHI loops [%ld, %ld]", block_id, (ptrdiff_t)phi_args->array[n].block);
-                        }
-                        size_t phi_temporal = phi_args->array[n].temp.val;
-                        if (temporals_map.array[phi_args->array[n].temp.val].known_temporal) {
-                            if (!CMP_tc_typeid(&dest_type, &temporals_map.array[phi_args->array[n].temp.val].type)) {
-                                phi_temporal = TC_implicit_cast(
-                                dest_type,
-                                temporals_map.array[phi_args->array[n].temp.val].type,
-                                phi_args->array[n].temp.val,
-                                block_id,
-                                instr_nth,
-                                identifier_map,
-                                nct,
-                                &temporals_map,
-                                source_info,
-                                error_info
-                            );
-                            }
-                        } else {
-                            temporals_map.array[phi_args->array[n].temp.val] = (TC_Entry) {
-                                .known_temporal = true,
-                                .type = dest_type,
-                                .origin = (TC_InstrPos) { .block = block_id, .instr_nth = instr_nth },
-                                .is_value_known = false,
-                                .null = NULL
-                            };
-                        }
-
-                        IR_temporal_block_phi_record_LIST_push(new_phi_args, (IR_temporal_block_phi_record) {
-                            .temp = {phi_temporal},
-                            .block = phi_args->array[n].block
-                        });
-                        printf("%%%lu BLOCK<%lu>", phi_temporal, phi_args->array[n].block);
-                        if (n+1 != phi_args->len) {
-                            printf(", ");
+                    bool visited = false;
+                    for (size_t n = 0; n < visited_phis.len; n++) {
+                        if ((ptrdiff_t)(visited_phis.array[n].block) == block_id && visited_phis.array[n].instr_nth == instr_nth) {
+                            visited = true;
+                            break;
                         }
                     }
-                    printf("]\n");
-                    NEW_INSTR_END
+                    if (visited) {
+                        break;
+                    }
+
+                    const IR_temporal_block_phi_record_LIST* phi_args = instr.p2.phi_args;
+                    const TC_Entry dest = temporals_map->array[instr.dest.val];
+                    if (!dest.known_temporal) {
+                        printf("  PHI skipped, unknown dest, probably filled later by PHI\n");
+                        break;
+                    }
+
+                    ptrdiff_t highest_block = block_id;
+                    for (size_t n = 0; n<phi_args->len; n++) {
+                        const IR_temporal_block_phi_record arg = phi_args->array[n];
+                        if (!temporals_map->array[arg.temp.val].known_temporal) {
+                            temporals_map->array[arg.temp.val] = (TC_Entry) {
+                                .known_temporal = true,
+                                .type = dest.type,
+                                .origin = (TC_InstrPos) { .block = block_id, .instr_nth = instr_nth },
+                                .is_value_known = false,
+                                .null = NULL,
+                            };
+                        }
+                        if ((ptrdiff_t)(arg.block) > highest_block) {
+                            highest_block = (ptrdiff_t)arg.block;
+                        }
+                    }
+
+                    TC_InstrPos_LIST_push(&visited_phis, (TC_InstrPos) { .block = block_id, .instr_nth = instr_nth });
+
+                    if (highest_block > block_id) {
+                        printf("block jumping to Block<%ld> (from %ld)\n", highest_block, block_id);
+                        block_id = highest_block + 1; // because of (block_id--) in the for loop
+                        perf_jump = true;
+                    }
 
                     break;
                 }
                 case IR_INST_TY__EXPLICIT_CAST: {
-                    const TC_typeid dest_type = temporals_map.array[instr.dest.val].type;
+                    const TC_typeid dest_type = temporals_map->array[instr.dest.val].type;
                     const IR_typeuse* raw_cast_type = instr.p2.type;
                     const TC_typeid cast_type = resolve_tc_type(raw_cast_type, nct, target_info, source_info);
 
@@ -1167,21 +1082,33 @@ void TC_typecheck_and_lower_fn(
                         exit(1);
                     }
 
-                    if (!temporals_map.array[instr.p1.src1.val].known_temporal) {
+                    if (!temporals_map->array[instr.p1.src1.val].known_temporal) {
                         INTERNAL_ERROR("unknown cast intake type");
                     }
 
-                    const TC_typeid cast_intake_type = temporals_map.array[instr.p1.src1.val].type;
-
+                    const TC_typeid cast_intake_type = temporals_map->array[instr.p1.src1.val].type;
 
                     // todo: add verification cast can happen (you cannot cast anything to anything, only numbers around)
 
-
-                    NEW_INSTR_BEGIN
-                    printf("NEW_INSTR: %%%lu = EXPLICIT_CAST %%%lu {", instr.dest.val, instr.p1.src1.val);
-                    print_TC_typeid(&cast_type, identifier_map, nct);
-                    printf("}\n");
-                    NEW_INSTR_END
+                    break;
+                }
+                case IR_INST_TY__MOVE: {
+                    const TC_Entry dest = temporals_map->array[instr.dest.val];
+                    if (!dest.known_temporal) {
+                        printf("  MOVE skipped, unknown dest, probably filled later by PHI\n");
+                        break;
+                    }
+                    if (temporals_map->array[instr.p1.src1.val].known_temporal) {
+                        // ok (is checked in next pass)
+                    } else {
+                        temporals_map->array[instr.p1.src1.val] = (TC_Entry) {
+                            .known_temporal = true,
+                            .type = dest.type,
+                            .origin = (TC_InstrPos) { .block = block_id, .instr_nth = instr_nth },
+                            .is_value_known = false,
+                            .null = NULL,
+                        };
+                    }
 
                     break;
                 }
@@ -1191,147 +1118,6 @@ void TC_typecheck_and_lower_fn(
             }
         }
     }
-
-
-
-
-    /*for (size_t block_id = 0; block_id < fn.blocks.len; block_id++) {
-        const IR_block block = fn.blocks.array[block_id];
-        for (size_t instr_nth = 0; instr_nth < block.instructions.len; instr_nth++) {
-            const IR_instr instr = block.instructions.array[instr_nth];
-            switch (instr.ty) {
-                case IR_INST_TY__CONST_INT: {
-                    printf("CONST_INT %li -> Number temporals[%lu]\n", instr.p1.value, instr.dest.val);
-                    temporals.array[instr.dest.val] = (TC_typeid) {
-                        .ty = TC_TY_Primitive,
-                        .info.primitive = TC_Primitive__Number,
-                    };
-                    break;
-                }
-                case IR_INST_TY__CONST_FLOAT: {
-                    printf("CONST_FLOAT %f -> FloatNumber temporals[%lu]\n", instr.p1.value_float, instr.dest.val);
-                    temporals.array[instr.dest.val] = (TC_typeid) {
-                        .ty = TC_TY_Primitive,
-                        .info.primitive = TC_Primitive__FloatNumber,
-                    };
-                    break;
-                }
-                case IR_INST_TY__MAKE_ARRAY: {
-                    UNIMPLEMENTED()
-                }
-                case IR_INST_TY__MAKE_STRUCT: {
-                    UNIMPLEMENTED()
-                }
-                case IR_INST_TY__VAR_DECL: {
-                    printf("VAR_DECL from type '");
-                    size_t dest = instr.dest.val;
-                    const TC_typeid temporal_ty = temporals.array[dest];
-                    print_TC_typeid(&temporal_ty, (khash_t(sv_u64_map)*)identifier_map, nct);
-
-                    const TC_typeid declaration_ty = resolve_tc_type(instr.p2.type, nct, target_info, source_info);
-                    printf("' to type '");
-                    print_TC_typeid(&declaration_ty, (khash_t(sv_u64_map)*)identifier_map, nct);
-                    printf("'\n");
-
-                    if (!CMP_tc_typeid(&temporal_ty, &declaration_ty)) {
-                        if (try_to_cast_to(&temporal_ty, &declaration_ty)) {
-                            printf("EMIT CAST '");
-                            print_TC_typeid(&temporal_ty, (khash_t(sv_u64_map)*)identifier_map, nct);
-                            printf("' -> '");
-                            print_TC_typeid(&declaration_ty, (khash_t(sv_u64_map)*)identifier_map, nct);
-                            printf("'\n");
-                        } else {
-                            // TODO: proper error reporting (raw_name is not known)
-                            // syntax_error(&source_info->source, &source_info->source_filename, instr.)
-                            fprintf(stderr, "type collision\n");
-                            exit(1);
-                        }
-                    }
-                    break;
-                }
-                case IR_INST_TY__INVALID: {
-                    INTERNAL_ERROR("IR_INST_TY__INVALID");
-                }
-                case IR_INST_TY__PHI: {
-                    UNIMPLEMENTED("IR_INST_TY__PHI")
-                }
-                case IR_INST_TY__DROP: {
-                    // todo: emit DROP Type + initial args
-                    break;
-                }
-                case IR_INST_TY__OP_ADD:
-                case IR_INST_TY__OP_SUB:
-                case IR_INST_TY__OP_DIV:
-                case IR_INST_TY__OP_MUL:
-                case IR_INST_TY__OP_POW: {
-                    const TC_typeid v1 = temporals.array[instr.p1.src1.val];
-                    const TC_typeid v2 = temporals.array[instr.p2.src2.val];
-                    if (!CMP_tc_typeid(&v1, &v2)) {
-                        // TODO: do not throw error immediately
-
-                        // printf("TC v1='");
-                        // print_TC_typeid(&v1, (khash_t(sv_u64_map)*)identifier_map, nct);
-                        // printf("', v2='");
-                        // print_TC_typeid(&v2, (khash_t(sv_u64_map)*)identifier_map, nct);
-                        // printf("'\n");
-                        if (try_to_cast_to(&v1, &v2)) {
-                            temporals.array[instr.dest.val] = v2;
-                            printf("EMIT CAST '");
-                            print_TC_typeid(&v1, (khash_t(sv_u64_map)*)identifier_map, nct);
-                            printf("' -> '");
-                            print_TC_typeid(&v2, (khash_t(sv_u64_map)*)identifier_map, nct);
-                            printf("'\n");
-                        } else {
-                            // TODO: proper error reporting (raw_name is not known)
-                            // syntax_error(&source_info->source, &source_info->source_filename, instr.)
-                            fprintf(stderr, "type collision\n");
-                            exit(1);
-                        }
-                    } else {
-                        temporals.array[instr.dest.val] = v1;
-                    }
-
-                    break;
-                }
-                case IR_INST_TY__OP_OR:
-                    break;
-                case IR_INST_TY__OP_AND:
-                    break;
-                case IR_INST_TY__OP_CMP_EQ:
-                    break;
-                case IR_INST_TY__OP_CMP_NOT_EQ:
-                    break;
-                case IR_INST_TY__OP_CMP_LESS:
-                    break;
-                case IR_INST_TY__OP_CMP_LESS_EQ:
-                    break;
-                case IR_INST_TY__OP_CMP_GREATER:
-                    break;
-                case IR_INST_TY__OP_CMP_GREATER_EQ:
-                    break;
-                case IR_INST_TY__STORE_PTR:
-                    break;
-                case IR_INST_TY__BRANCH:
-                    break;
-                case IR_INST_TY__JUMP:
-                    break;
-                case IR_INST_TY__RETURN_VOID:
-                    break;
-                case IR_INST_TY__RETURN:
-                    break;
-                case IR_INST_TY__GET_FIELD_PTR:
-                    break;
-                case IR_INST_TY__INDEX_PTR:
-                    break;
-                case IR_INST_TY__READ_PTR:
-                    break;
-                case IR_INST_TY__FN_CALL_VOID:
-                    break;
-                case IR_INST_TY__FN_CALL_RET:
-                    break;
-            }
-        }
-    }*/
 
 
 }
@@ -1348,9 +1134,38 @@ void TC_typecheck_and_lower(
 ) {
 
 
-
     for (size_t n = 0; n < functions->len; n++) {
-        TC_typecheck_and_lower_fn(functions->array[n], identifier_map, functions, external_functions, nct, target_info, source_info, type_needing_destructor);
+        const IR_func fn = functions->array[n];
+        {
+            const SV fn_name = fn.fn_name.span.sv;
+            printf("TYPECHECKING FN '"SV_format"'\n", SV_v_args(fn_name));
+        }
+
+        TC_Entry_LIST temporals;
+
+        type_inference_pass_over_fn(fn, identifier_map, functions, external_functions, nct, target_info, source_info, &temporals, type_needing_destructor);
+
+        for (size_t t = 1; t < temporals.len; t++) {
+            const TC_Entry e = temporals.array[t];
+            if (!e.known_temporal) {
+                printf("  %%%lu UNKNOWN\n", t);
+                continue;
+            }
+            if (e.type.ty == TC_TY_Void) {
+                printf("ERROR: VOID TYPE %%%lu\n", t);
+                continue;
+            }
+            printf("   %%%lu = {"SV_format"}\n", t, SV_v_args(e.type.full_typeuse_span.sv));
+        }
+
+        // lowering_and_emission_pass_over_fn(fn, )
+
+
+
+
+        // TC_typecheck_and_lower_fn(functions->array[n], identifier_map, functions, external_functions, nct, target_info, source_info, type_needing_destructor);
+
+        TC_Entry_LIST_free(&temporals);
     }
 
 }

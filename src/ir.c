@@ -79,6 +79,11 @@ void print_IR_instr(const IR_instr* restrict instr, const khash_t(sv_u64_map)* r
             break;
         }
 
+        case IR_INST_TY__MOVE: {
+            printf("%%%lu = MOVE %%%lu", instr->dest.val, instr->p1.src1.val);
+            break;
+        }
+
         case IR_INST_TY__VAR_DECL: {
             const SV var_name = instr->p1.name.span.sv; // SV_from_identifiermap_lookup(identifier_map, instr->p1.name);
             printf("VAR_DECL $"SV_format" %%%lu {", SV_v_args(var_name), instr->dest.val);
