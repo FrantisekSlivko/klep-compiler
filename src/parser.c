@@ -562,6 +562,7 @@ typedef struct {
     IR_temporal temp;
     TokenSpan span;
 } IR_temporal_with_span;
+init_prefixed_list_type(IR_temporal_with_span)
 
 IR_temporal_with_span P_get_expr(Parser* p);
 
@@ -585,18 +586,20 @@ IR_temporal_with_span P_expr_accesors_wrapper(Parser* p, const IR_temporal_with_
         const TokenSpan whole = TS_merge(&origin.span, &field_name_span);
 
         P_emit(p, (IR_instr){
-                   .ty = IR_INST_TY__GET_FIELD_PTR,
-                   .dest = result,
-                   .p1.name = {i, (TokenSpan) {*field_name }},
-                   .p2.src2 = origin.temp,
-               }, (IR_instr_error_info) {
-                    .kind = IR_IEI_get_struct_field,
-                   .info.get_struct_field = {
-                       .field_name = field_name_span,
-                       .origin = origin.span,
-                       .whole = whole,
-                   }
-               });
+            .ty = IR_INST_TY__GET_STRUCT_FIELD_PTR,
+            .info.get_struct_field_ptr = {
+                .dest = result,
+                .field_name = {i, (TokenSpan) {*field_name }},
+                .struct_ptr = origin.temp
+            }
+        }, (IR_instr_error_info) {
+            .kind = IR_IEI_get_struct_field,
+            .info.get_struct_field = {
+                .field_name = field_name_span,
+                .origin = origin.span,
+                .whole = whole,
+            }
+        });
 
         return P_expr_accesors_wrapper(p, (IR_temporal_with_span) { result, whole });
     }
@@ -611,18 +614,20 @@ IR_temporal_with_span P_expr_accesors_wrapper(Parser* p, const IR_temporal_with_
         const TokenSpan whole = TS_merge(&origin.span, &end_span);
 
         P_emit(p, (IR_instr){
-                   .ty = IR_INST_TY__INDEX_PTR,
-                   .dest = result,
-                   .p1.src1 = origin.temp,
-                   .p2.src2 = index.temp,
-               }, (IR_instr_error_info) {
-                   .kind = IR_IEI_index_array,
-                   .info.index_array = {
-                        .origin = origin.span,
-                        .index_expr = index.span,
-                        .whole = whole
-                   }
-               });
+            .ty = IR_INST_TY__INDEX_PTR,
+            .info.index_ptr = {
+                .dest = result,
+                .array_ptr = origin.temp,
+                .index_val = index.temp
+            }
+        }, (IR_instr_error_info) {
+            .kind = IR_IEI_index_array,
+            .info.index_array = {
+                .origin = origin.span,
+                .index_expr = index.span,
+                .whole = whole
+            }
+        });
 
         return P_expr_accesors_wrapper(p, (IR_temporal_with_span){ result, whole });
     }
@@ -672,9 +677,11 @@ IR_temporal_with_span P_get_expr_val(Parser* p) {
         const TokenSpan whole = TS_merge(&(TokenSpan){*start}, &(TokenSpan){*end});
         P_emit(p, (IR_instr){
             .ty = IR_INST_TY__EXPLICIT_CAST,
-            .dest = dest,
-            .p1.src1 = source.temp,
-            .p2.type = ttype
+            .info.explicit_cast = {
+                .dest = dest,
+                .type = ttype,
+                .src = source.temp
+            }
         }, (IR_instr_error_info) {
             .kind = IR_IEI_explicit_cast,
             .info.explicit_cast = {
@@ -688,13 +695,56 @@ IR_temporal_with_span P_get_expr_val(Parser* p) {
         if (wrapped_result.temp.val != dest.val) {
             const IR_temporal val_load = P_new_temporal(p);
             P_emit(p, (IR_instr){
-                       .ty = IR_INST_TY__READ_PTR,
-                       .dest = val_load,
-                       .p1.src1 = wrapped_result.temp,
-                   }, (IR_instr_error_info) { .kind =  IR_IEI_none });
+                .ty = IR_INST_TY__READ_PTR,
+                .info.read_ptr = {
+                    .dest = val_load,
+                    .ptr = wrapped_result.temp
+                }
+           }, (IR_instr_error_info) { .kind =  IR_IEI_none });
             return (IR_temporal_with_span){val_load, wrapped_result.span };
+        }
+        return wrapped_result;
+    }
+
+    if (Token_cmp(t, "new")) {
+        UNIMPLEMENTED()
+        P_require_having_next_token(p, TT_Identifier);
+        // new Struct or new Enum
+
+        const IR_typeuse type = P_get_typeuse(p, false);
+
+        // now '{' for struct, or '::' for enum
+        P_require_having_next_token(p, TT_Less);
+
+
+        P_require_having_next_token(p, TT_StartCurlyBracket);
+        Token t1 = P_next_token(p);
+
+
+        // now '::' for enum or '{' for struct
+        if (Token_cmp(t1, "::")) {
+            // enum
+            P_require_having_next_token(p, TT_Identifier);
+            const Token raw_variant_name = P_next_token(p);
+            const Identifier variant_name = P_to_identifier(p, raw_variant_name);
+
+            P_require_having_next_token(p, TT_StartBracket);
+            const Token nx = P_peek_token(p);
+
+            IR_temporal_with_span_LIST args = IR_temporal_with_span_LIST_new();
+            if (Token_cmp(nx, "(")) {
+                P_next_token(p);
+                // get args + )
+            } else {
+
+            }
+
+        } else if (Token_cmp(t1, "{")) {
+            // struct
         } else {
-            return wrapped_result;
+            // error
+            P_syntax_error(p, t1, SV_from_str("expected either '{' or \"::\""));
+            exit(1);
         }
     }
 
@@ -707,14 +757,15 @@ IR_temporal_with_span P_get_expr_val(Parser* p) {
         if (wrapped_result.temp.val != rs.temp.val) {
             const IR_temporal val_load = P_new_temporal(p);
             P_emit(p, (IR_instr){
-                       .ty = IR_INST_TY__READ_PTR,
-                       .dest = val_load,
-                       .p1.src1 = wrapped_result.temp,
-                   }, (IR_instr_error_info) { .kind =  IR_IEI_none });
+                .ty = IR_INST_TY__READ_PTR,
+                .info.read_ptr = {
+                    .dest = val_load,
+                    .ptr = wrapped_result.temp
+                }
+            }, (IR_instr_error_info) { .kind =  IR_IEI_none });
             return (IR_temporal_with_span){val_load, wrapped_result.span };
-        } else {
-            return wrapped_result;
         }
+        return wrapped_result;
     }
 
     if (Token_cmp(t, "[")) {
@@ -733,17 +784,19 @@ IR_temporal_with_span P_get_expr_val(Parser* p) {
             const IR_temporal dest = P_new_temporal(p);
             const TokenSpan whole = TS_merge(&(TokenSpan){*t}, &(TokenSpan){*t1});
             P_emit(p, (IR_instr){
-                       .ty = IR_INST_TY__MAKE_ARRAY,
-                       .dest = dest,
-                       .p2 = {.array = items}
-                   }, (IR_instr_error_info) {
-                        .kind = IR_IEI_make_array,
-                        .info.make_array = {
-                            .items = NULL,
-                            .items_cnt = 0,
-                            .whole = whole
-                        }
-                   });
+                .ty = IR_INST_TY__MAKE_ARRAY,
+                .info.make_array = {
+                    .dest = dest,
+                    .items = items
+                }
+            }, (IR_instr_error_info) {
+                .kind = IR_IEI_make_array,
+                .info.make_array = {
+                    .items = NULL,
+                    .items_cnt = 0,
+                    .whole = whole
+                }
+            });
             return (IR_temporal_with_span){dest, whole};
         }
 
@@ -780,17 +833,19 @@ IR_temporal_with_span P_get_expr_val(Parser* p) {
 
         const TokenSpan whole = TS_merge(&(TokenSpan){*t}, &(TokenSpan){end_s});
         P_emit(p, (IR_instr){
-                   .ty = IR_INST_TY__MAKE_ARRAY,
-                   .dest = dest,
-                   .p2 = {.array = items }
-               }, (IR_instr_error_info) {
-                   .kind = IR_IEI_make_array,
-                   .info.make_array = {
-                       .items = itemss_spans.array,
-                       .items_cnt = itemss_spans.len,
-                       .whole = whole
-                   }
-               });
+            .ty = IR_INST_TY__MAKE_ARRAY,
+            .info.make_array = {
+                .dest = dest,
+                .items = items
+            }
+        }, (IR_instr_error_info) {
+            .kind = IR_IEI_make_array,
+            .info.make_array = {
+                .items = itemss_spans.array,
+                .items_cnt = itemss_spans.len,
+                .whole = whole
+            }
+        });
         return (IR_temporal_with_span){dest, whole};
     }
 
@@ -847,81 +902,83 @@ IR_temporal_with_span P_get_expr_val(Parser* p) {
                 TokenSpan_LIST_shrink(&argss_spans);
                 const TokenSpan whole = TS_merge(&name_span, &(TokenSpan){fn_end});
                 P_emit(p, (IR_instr){
-                           .ty = IR_INST_TY__FN_CALL_RET,
-                           .dest = fn_call,
-                           .p1.name = {name, (TokenSpan) {*t}},
-                           .p2.array = args,
-                       }, (IR_instr_error_info) {
-                            .kind = IR_IEI_function_call,
-                            .info.function_call = {
-                                .name = name_span,
-                                .args = argss_spans.array,
-                                .args_cnt = argss_spans.len,
-                                .whole = whole,
-                            }
-                       });
+                    .ty = IR_INST_TY__FN_CALL_RETVAL,
+                    .info.fn_call_retval = {
+                        .dest = fn_call,
+                        .name = {name, (TokenSpan) {*t}},
+                        .args = args,
+                    }
+                }, (IR_instr_error_info) {
+                     .kind = IR_IEI_function_call,
+                     .info.function_call = {
+                         .name = name_span,
+                         .args = argss_spans.array,
+                         .args_cnt = argss_spans.len,
+                         .whole = whole,
+                     }
+                });
 
                 dest = fn_call;
                 dest_span = whole;
-            } else if (Token_cmp(nx, "{")) {
-                // struct constructor
-                P_next_token(p); // {
-                IR_named_value_LIST* args = malloc(sizeof(IR_named_value_LIST));
-                *args = IR_named_value_LIST_new();
-
-                TokenSpan_LIST args_values_spans = TokenSpan_LIST_new();
-
-                SV end_span;
-                while (1) {
-                    P_require_having_next_token(p, TT_EndCurlyBracket);
-                    const Token kx = P_next_token(p);
-                    if (Token_cmp(kx, "}")) {
-                        end_span = *kx;
-                        break;
-                    }
-                    const Identifier field_name = P_to_identifier(p, kx);
-                    P_require_next_be(p, TT_Equal, SV_from_str_len("=", 1));
-                    const IR_temporal_with_span val = P_get_expr(p);
-
-                    IR_named_value_LIST_push(args, (IR_named_value){
-                                                 .name = {field_name,(TokenSpan) {*kx}},
-                                                 .value = val.temp,
-                                             });
-                    TokenSpan_LIST_push(&args_values_spans, val.span);
-
-                    P_require_having_next_token(p, TT_EndCurlyBracket);
-                    const Token jx = P_next_token(p);
-                    if (Token_cmp(jx, "}")) {
-                        end_span = *jx;
-                        break;
-                    }
-                    if (!Token_cmp(jx, ",")) {
-                        P_syntax_error(p, jx, SV_from_str("expected either ',' or '}'"));
-                        exit(1);
-                    }
-                }
-
-                const IR_temporal out = P_new_temporal(p);
-
-                TokenSpan_LIST_shrink(&args_values_spans);
-                const TokenSpan whole = TS_merge(&name_span, &(TokenSpan){end_span});
-                P_emit(p, (IR_instr){
-                           .ty = IR_INST_TY__MAKE_STRUCT,
-                           .dest = out,
-                           .p1.name = {name,(TokenSpan) {*t}},
-                           .p2.struct_args = args,
-                       }, (IR_instr_error_info) {
-                           .kind = IR_IEI_struct_constructor,
-                           .info.struct_constructor = {
-                                .name = name_span,
-                               .values = args_values_spans.array,
-                               .values_cnt = args_values_spans.len,
-                               .whole = whole,
-                           }
-                       });
-
-                dest = out;
-                dest_span = whole;
+            // } else if (Token_cmp(nx, "{")) {
+            //     // struct constructor
+            //     P_next_token(p); // {
+            //     IR_named_value_LIST* args = malloc(sizeof(IR_named_value_LIST));
+            //     *args = IR_named_value_LIST_new();
+            //
+            //     TokenSpan_LIST args_values_spans = TokenSpan_LIST_new();
+            //
+            //     SV end_span;
+            //     while (1) {
+            //         P_require_having_next_token(p, TT_EndCurlyBracket);
+            //         const Token kx = P_next_token(p);
+            //         if (Token_cmp(kx, "}")) {
+            //             end_span = *kx;
+            //             break;
+            //         }
+            //         const Identifier field_name = P_to_identifier(p, kx);
+            //         P_require_next_be(p, TT_Equal, SV_from_str_len("=", 1));
+            //         const IR_temporal_with_span val = P_get_expr(p);
+            //
+            //         IR_named_value_LIST_push(args, (IR_named_value){
+            //                                      .name = {field_name,(TokenSpan) {*kx}},
+            //                                      .value = val.temp,
+            //                                  });
+            //         TokenSpan_LIST_push(&args_values_spans, val.span);
+            //
+            //         P_require_having_next_token(p, TT_EndCurlyBracket);
+            //         const Token jx = P_next_token(p);
+            //         if (Token_cmp(jx, "}")) {
+            //             end_span = *jx;
+            //             break;
+            //         }
+            //         if (!Token_cmp(jx, ",")) {
+            //             P_syntax_error(p, jx, SV_from_str("expected either ',' or '}'"));
+            //             exit(1);
+            //         }
+            //     }
+            //
+            //     const IR_temporal out = P_new_temporal(p);
+            //
+            //     TokenSpan_LIST_shrink(&args_values_spans);
+            //     const TokenSpan whole = TS_merge(&name_span, &(TokenSpan){end_span});
+            //     P_emit(p, (IR_instr){
+            //                .ty = IR_INST_TY__MAKE_STRUCT,
+            //                .dest = out,
+            //                .p1.name = {name,(TokenSpan) {*t}},
+            //                .p2.struct_args = args,
+            //            }, (IR_instr_error_info) {
+            //                .kind = IR_IEI_struct_constructor,
+            //                .info.struct_constructor = {
+            //                     .name = name_span,
+            //                    .values = args_values_spans.array,
+            //                    .values_cnt = args_values_spans.len,
+            //                    .whole = whole,
+            //                }
+            //            });
+            //
+            //     dest = out;
+            //     dest_span = whole;
             } else {
                 dest = P_variable_lookup(p, t, name);
                 dest_span = name_span;
@@ -936,14 +993,15 @@ IR_temporal_with_span P_get_expr_val(Parser* p) {
         if (wrapped_result.temp.val != dest.val) {
             const IR_temporal val_load = P_new_temporal(p);
             P_emit(p, (IR_instr){
-                       .ty = IR_INST_TY__READ_PTR,
-                       .dest = val_load,
-                       .p1.src1 = wrapped_result.temp,
+                .ty = IR_INST_TY__READ_PTR,
+                .info.read_ptr = {
+                    .dest = val_load,
+                    .ptr = wrapped_result.temp
+                }
             }, (IR_instr_error_info) { .kind =  IR_IEI_none });
             return (IR_temporal_with_span){val_load, wrapped_result.span };
-        } else {
-            return wrapped_result;
         }
+        return wrapped_result;
     }
 
     bool is_float = false;
@@ -974,13 +1032,15 @@ IR_temporal_with_span P_get_expr_val(Parser* p) {
         const IR_temporal res = P_new_temporal(p);
 
         P_emit(p, (IR_instr){
-                   .ty = IR_INST_TY__CONST_FLOAT,
-                   .dest = res,
-                   .p1.value_float = val,
-               }, (IR_instr_error_info) {
-                .kind = IR_IEI_literal,
-                .info.literal = res_span
-               });
+            .ty = IR_INST_TY__CONST_FLOAT,
+            .info.const_float = {
+                .dest = res,
+                .val = val
+            }
+        }, (IR_instr_error_info) {
+            .kind = IR_IEI_literal,
+            .info.literal = res_span
+        });
 
         return (IR_temporal_with_span){res, res_span};
     } else {
@@ -997,9 +1057,11 @@ IR_temporal_with_span P_get_expr_val(Parser* p) {
         const IR_temporal res = P_new_temporal(p);
 
         P_emit(p, (IR_instr){
-                   .ty = IR_INST_TY__CONST_INT,
-                   .dest = res,
-                   .p1.value = val,
+            .ty = IR_INST_TY__CONST_INT,
+            .info.const_int = {
+                .dest = res,
+                .val = val,
+            }
         }, (IR_instr_error_info) {
             .kind = IR_IEI_literal,
             .info.literal = res_span
@@ -1108,10 +1170,12 @@ IR_temporal_with_span P_get_expr(Parser* p) {
                     }
 
                     P_emit(p, (IR_instr) {
-                        .dest = dest,
                         .ty = ty,
-                        .p1 = {.src1 = v2},
-                        .p2 = {.src2 = v1},
+                        .info.math_cmp_boolean_op = {
+                            .dest = dest,
+                            .src1 = v2,
+                            .src2 = v1
+                        }
                     }, (IR_instr_error_info) {
                         .kind = IR_IEI_math_operation,
                         .info.math_operation = {
@@ -1194,10 +1258,12 @@ IR_temporal_with_span P_get_expr(Parser* p) {
         }
 
         P_emit(p, (IR_instr) {
-            .dest = dest,
             .ty = ty,
-            .p1 = {.src1 = v2 },
-            .p2 = {.src2 = v1 },
+            .info.math_cmp_boolean_op = {
+                .dest = dest,
+                .src1 = v2,
+                .src2 = v1
+            }
         }, (IR_instr_error_info) {
             .kind = IR_IEI_math_operation,
             .info.math_operation = {
@@ -1271,8 +1337,10 @@ void P_get_var_dec_stmt(Parser* p) {
     const IR_temporal move_dest = P_new_temporal(p);
     P_emit(p, (IR_instr) {
         .ty = IR_INST_TY__MOVE,
-        .dest = move_dest,
-        .p1.src1 = expr_rs.temp,
+        .info.move = {
+            .dest = move_dest,
+            .src = expr_rs.temp
+        }
     }, (IR_instr_error_info) { .kind = IR_IEI_none });
     const IR_temporal_with_span rs = (IR_temporal_with_span){move_dest, expr_rs.span};
 
@@ -1281,19 +1349,21 @@ void P_get_var_dec_stmt(Parser* p) {
 
     const TokenSpan whole = TS_merge(&ty.full_typeuse_span, &rs.span);
     P_emit(p, (IR_instr){
-               .ty = IR_INST_TY__VAR_DECL,
-               .p1.name = {name,(TokenSpan){*raw_name}},
-               .p2.type = ttype,
-               .dest.val = rs.temp.val
-           }, (IR_instr_error_info) {
-                .kind = IR_IEI_variable_declaration,
-               .info.variable_declaration = {
-                   .name = name_span,
-                   .type = ty.full_typeuse_span,
-                   .expr = rs.span,
-                   .whole = whole
-               }
-           });
+        .ty = IR_INST_TY__VAR_DECL,
+        .info.var_decl = {
+            .var_name = {name,(TokenSpan){*raw_name}},
+            .dest = rs.temp,
+            .type = ttype
+        }
+    }, (IR_instr_error_info) {
+        .kind = IR_IEI_variable_declaration,
+        .info.variable_declaration = {
+            .name = name_span,
+            .type = ty.full_typeuse_span,
+            .expr = rs.span,
+            .whole = whole
+        }
+    });
 
     // // patch VAR_DECL.dest with RS
     // p->func_scope_blocks->array[var_decl_block].instructions.array[var_decl_nth].dest.val = rs.val;
@@ -1355,18 +1425,20 @@ IR_SSA_binding_LIST P_PHI_CONDITIONAL_BRANCHING_MERGER(Parser* restrict p, const
                                                            });
 
                     P_emit(p, (IR_instr){
-                               .ty = IR_INST_TY__PHI,
-                               .dest = phi,
-                               .p2.phi_args = args, // IR_temporal_block_phi_record_LIST* args
-                           }, (IR_instr_error_info) {
-                                .kind = IR_IEI_phi,
-                                .info.phi = { trigger }
-                           });
+                        .ty = IR_INST_TY__PHI,
+                        .info.phi = {
+                            .dest = phi,
+                            .args = args
+                        }
+                    }, (IR_instr_error_info) {
+                        .kind = IR_IEI_phi,
+                        .info.phi = { trigger }
+                    });
 
                     IR_SSA_binding_LIST_push(&out, (IR_SSA_binding){
-                                                 .variable = a_val.variable,
-                                                 .bind = phi
-                                             });
+                        .variable = a_val.variable,
+                        .bind = phi
+                    });
                 }
             }
         }
@@ -1381,11 +1453,8 @@ void P_get_if_stmt(Parser* p) {
         INTERNAL_ERROR("should be 'if' (from calling this fn)")
     }
 
-    P_require_next_be(p, TT_StartBracket, SV_from_str_len("(", 1));
 
     const IR_temporal_with_span cmp_rs = P_get_expr(p);
-
-    P_require_next_be(p, TT_EndBracket, SV_from_str_len(")", 1));
 
     const size_t block_with_cmp = P_get_current_block_index(p);
     const IR_SSA_binding_LIST cmp_bindings = *P_get_current_block_bindings(p);
@@ -1504,30 +1573,32 @@ end:
 
 
     P_emit_to_block(p, block_with_cmp, (IR_instr){
-                        .ty = IR_INST_TY__BRANCH,
-                        .dest = cmp_rs.temp,
-                        .p1.br_true = if_section_start_block,
-                        .p2.br_false = else_section_start_block,
-                    }, (IR_instr_error_info) {
-                        .kind = IR_IEI_branch,
-                        .info.branch = {
-                            .cmp_expr = cmp_rs.span
-                        }
-                    });
+        .ty = IR_INST_TY__BRANCH,
+        .info.branch = {
+            .dest = cmp_rs.temp,
+            .branch_true = if_section_start_block,
+            .branch_false = else_section_start_block
+        }
+    }, (IR_instr_error_info) {
+        .kind = IR_IEI_branch,
+        .info.branch = {
+            .cmp_expr = cmp_rs.span
+        }
+    });
 
     if (!P_block_is_terminated(p, if_section_end_block)) {
         P_emit_to_block(p, if_section_end_block, (IR_instr){
-                            .ty = IR_INST_TY__JUMP,
-                            .p1.br_true = after_block,
-                        }, (IR_instr_error_info){.kind = IR_IEI_none});
+            .ty = IR_INST_TY__JUMP,
+            .info.jump = { after_block }
+        }, (IR_instr_error_info){.kind = IR_IEI_none});
     }
 
     if (else_section_end_block != after_block) {
         if (!P_block_is_terminated(p, else_section_end_block)) {
             P_emit_to_block(p, else_section_end_block, (IR_instr){
-                                .ty = IR_INST_TY__JUMP,
-                                .p1.br_true = after_block,
-                            }, (IR_instr_error_info){.kind = IR_IEI_none});
+                .ty = IR_INST_TY__JUMP,
+                .info.jump = { after_block }
+            }, (IR_instr_error_info){.kind = IR_IEI_none});
         }
     }
 }
@@ -1547,9 +1618,9 @@ void P_get_while_stmt(Parser* p) {
     const size_t header_block_start = P_get_current_block_index(p);
 
     P_emit_to_block(p, pre_header_block, (IR_instr){
-                        .ty = IR_INST_TY__JUMP,
-                        .p1.br_true = header_block_start
-                    }, (IR_instr_error_info){.kind = IR_IEI_none});
+        .ty = IR_INST_TY__JUMP,
+        .info.jump = { header_block_start }
+        }, (IR_instr_error_info){.kind = IR_IEI_none});
 
     {
         IR_SSA_binding_LIST* binds = P_get_current_block_bindings(p);
@@ -1573,9 +1644,9 @@ void P_get_while_stmt(Parser* p) {
     const size_t body_blocks_end = P_get_current_block_index(p);
 
     P_emit(p, (IR_instr){
-               .ty = IR_INST_TY__JUMP,
-               .p1.br_true = header_block_start,
-           }, (IR_instr_error_info){.kind = IR_IEI_none});
+        .ty = IR_INST_TY__JUMP,
+        .info.jump = { header_block_start }
+    }, (IR_instr_error_info){.kind = IR_IEI_none});
 
     const IR_SSA_binding_LIST block_end_bindings = *P_get_current_block_bindings(p);
 
@@ -1616,29 +1687,29 @@ void P_get_while_stmt(Parser* p) {
                                 case IR_INST_TY__INVALID:
                                     break;
                                 case IR_INST_TY__PHI: {
-                                    for (size_t sn = 0; sn < instr->p2.phi_args->len; sn++) {
-                                        const IR_temporal_block_phi_record val = instr->p2.phi_args->array[sn];
+                                    for (size_t sn = 0; sn < instr->info.phi.args->len; sn++) {
+                                        const IR_temporal_block_phi_record val = instr->info.phi.args->array[sn];
                                         if (val.temp.val == what_to_replace.val) {
-                                            instr->p2.phi_args->array[sn].temp.val = replace_with.val;
+                                            instr->info.phi.args->array[sn].temp.val = replace_with.val;
                                         }
                                     }
                                     break;
                                 }
                                 case IR_INST_TY__DROP: {
-                                    if (instr->dest.val == what_to_replace.val) {
-                                        instr->dest.val = replace_with.val;
+                                    if (instr->info.drop.dest.val == what_to_replace.val) {
+                                        instr->info.drop.dest.val = replace_with.val;
                                     }
                                     break;
                                 }
                                 case IR_INST_TY__MOVE: {
-                                    if (instr->p1.src1.val == what_to_replace.val) {
-                                        instr->p1.src1.val = replace_with.val;
+                                    if (instr->info.move.src.val == what_to_replace.val) {
+                                        instr->info.move.src.val = replace_with.val;
                                     }
                                     break;
                                 }
                                 case IR_INST_TY__EXPLICIT_CAST: {
-                                    if (instr->p1.src1.val == what_to_replace.val) {
-                                        instr->p1.src1.val = replace_with.val;
+                                    if (instr->info.explicit_cast.src.val == what_to_replace.val) {
+                                        instr->info.explicit_cast.src.val = replace_with.val;
                                     }
                                     break;
                                 }
@@ -1646,8 +1717,8 @@ void P_get_while_stmt(Parser* p) {
                                     // SHOULD NOT HAVE ANYTHING TO REPLACE
                                     break;
                                 case IR_INST_TY__STORE_PTR: {
-                                    if (instr->p1.src1.val == what_to_replace.val) {
-                                        instr->p1.src1.val = replace_with.val;
+                                    if (instr->info.store_ptr.value.val == what_to_replace.val) {
+                                        instr->info.store_ptr.value.val = replace_with.val;
                                     }
                                     break;
                                 }
@@ -1655,17 +1726,25 @@ void P_get_while_stmt(Parser* p) {
                                 case IR_INST_TY__CONST_FLOAT:
                                     break;
                                 case IR_INST_TY__MAKE_ARRAY: {
-                                    for (size_t sn = 0; sn < instr->p2.array->len; sn++) {
-                                        if (instr->p2.array->array[sn].val == what_to_replace.val) {
-                                            instr->p2.array->array[sn].val = replace_with.val;
+                                    for (size_t sn = 0; sn < instr->info.make_array.items->len; sn++) {
+                                        if (instr->info.make_array.items->array[sn].val == what_to_replace.val) {
+                                            instr->info.make_array.items->array[sn].val = replace_with.val;
                                         }
                                     }
                                     break;
                                 }
                                 case IR_INST_TY__MAKE_STRUCT: {
-                                    for (size_t sn = 0; sn < instr->p2.struct_args->len; sn++) {
-                                        if (instr->p2.struct_args->array[sn].value.val == what_to_replace.val) {
-                                            instr->p2.struct_args->array[sn].value.val = replace_with.val;
+                                    for (size_t sn = 0; sn < instr->info.make_struct.args->len; sn++) {
+                                        if (instr->info.make_struct.args->array[sn].value.val == what_to_replace.val) {
+                                            instr->info.make_struct.args->array[sn].value.val = replace_with.val;
+                                        }
+                                    }
+                                    break;
+                                }
+                                case IR_INST_TY__MAKE_ENUM: {
+                                    for (size_t sn = 0; sn < instr->info.make_enum.args->len; sn++) {
+                                        if (instr->info.make_enum.args->array[sn].val == what_to_replace.val) {
+                                            instr->info.make_enum.args->array[sn].val = replace_with.val;
                                         }
                                     }
                                     break;
@@ -1683,53 +1762,60 @@ void P_get_while_stmt(Parser* p) {
                                 case IR_INST_TY__OP_CMP_LESS_EQ:
                                 case IR_INST_TY__OP_CMP_GREATER:
                                 case IR_INST_TY__OP_CMP_GREATER_EQ: {
-                                    if (instr->p1.src1.val == what_to_replace.val) {
-                                        instr->p1.src1.val = replace_with.val;
+                                    if (instr->info.math_cmp_boolean_op.src1.val == what_to_replace.val) {
+                                        instr->info.math_cmp_boolean_op.src1.val = replace_with.val;
                                     }
-                                    if (instr->p2.src2.val == what_to_replace.val) {
-                                        instr->p2.src2.val = replace_with.val;
+                                    if (instr->info.math_cmp_boolean_op.src2.val == what_to_replace.val) {
+                                        instr->info.math_cmp_boolean_op.src2.val = replace_with.val;
                                     }
                                     break;
                                 }
                                 case IR_INST_TY__BRANCH:
-                                    if (instr->dest.val == what_to_replace.val) {
-                                        instr->dest.val = replace_with.val;
+                                    if (instr->info.branch.dest.val == what_to_replace.val) {
+                                        instr->info.branch.dest.val = replace_with.val;
                                     }
                                     break;
                                 case IR_INST_TY__JUMP:
                                 case IR_INST_TY__RETURN_VOID:
                                     break;
                                 case IR_INST_TY__RETURN:
-                                    if (instr->dest.val == what_to_replace.val) {
-                                        instr->dest.val = replace_with.val;
+                                    if (instr->info.return_value.val == what_to_replace.val) {
+                                        instr->info.return_value.val = replace_with.val;
                                     }
                                     break;
-                                case IR_INST_TY__GET_FIELD_PTR: {
-                                    if (instr->p2.src2.val == what_to_replace.val) {
-                                        instr->p2.src2.val = replace_with.val;
+                                case IR_INST_TY__GET_STRUCT_FIELD_PTR: {
+                                    if (instr->info.get_struct_field_ptr.struct_ptr.val == what_to_replace.val) {
+                                        instr->info.get_struct_field_ptr.struct_ptr.val = replace_with.val;
                                     }
                                     break;
                                 }
                                 case IR_INST_TY__INDEX_PTR: {
-                                    if (instr->p1.src1.val == what_to_replace.val) {
-                                        instr->p1.src1.val = replace_with.val;
+                                    if (instr->info.index_ptr.array_ptr.val == what_to_replace.val) {
+                                        instr->info.index_ptr.array_ptr.val = replace_with.val;
                                     }
-                                    if (instr->p2.src2.val == what_to_replace.val) {
-                                        instr->p2.src2.val = replace_with.val;
+                                    if (instr->info.index_ptr.index_val.val == what_to_replace.val) {
+                                        instr->info.index_ptr.index_val.val = replace_with.val;
                                     }
                                     break;
                                 }
                                 case IR_INST_TY__READ_PTR: {
-                                    if (instr->p1.src1.val == what_to_replace.val) {
-                                        instr->p1.src1.val = replace_with.val;
+                                    if (instr->info.read_ptr.ptr.val == what_to_replace.val) {
+                                        instr->info.read_ptr.ptr.val = replace_with.val;
                                     }
                                     break;
                                 }
-                                case IR_INST_TY__FN_CALL_VOID:
-                                case IR_INST_TY__FN_CALL_RET: {
-                                    for (size_t sn = 0; sn < instr->p2.array->len; sn++) {
-                                        if (instr->p2.array->array[sn].val == what_to_replace.val) {
-                                            instr->p2.array->array[sn].val = replace_with.val;
+                                case IR_INST_TY__FN_CALL_RETVOID: {
+                                    for (size_t sn = 0; sn < instr->info.fn_call_retvoid.args->len; sn++) {
+                                        if (instr->info.fn_call_retval.args->array[sn].val == what_to_replace.val) {
+                                            instr->info.fn_call_retval.args->array[sn].val = replace_with.val;
+                                        }
+                                    }
+                                    break;
+                                }
+                                case IR_INST_TY__FN_CALL_RETVAL: {
+                                    for (size_t sn = 0; sn < instr->info.fn_call_retval.args->len; sn++) {
+                                        if (instr->info.fn_call_retval.args->array[sn].val == what_to_replace.val) {
+                                            instr->info.fn_call_retval.args->array[sn].val = replace_with.val;
                                         }
                                     }
                                     break;
@@ -1754,12 +1840,14 @@ void P_get_while_stmt(Parser* p) {
 
                     // block_end + pre_header merge
                     P_emit_to_block_start(p, header_block_start, (IR_instr){
-                                              .ty = IR_INST_TY__PHI,
-                                              .dest = header_temp_bindings.array[k].bind,
-                                              .p2.phi_args = args,
-                                        }, (IR_instr_error_info) {
-                                              .kind = IR_IEI_phi,
-                                              .info.phi = { while_kw_span }
+                        .ty = IR_INST_TY__PHI,
+                        .info.phi = {
+                            .dest = header_temp_bindings.array[k].bind,
+                            .args = args
+                        }
+                    }, (IR_instr_error_info) {
+                        .kind = IR_IEI_phi,
+                        .info.phi = { while_kw_span }
                     });
                 }
 
@@ -1775,9 +1863,11 @@ void P_get_while_stmt(Parser* p) {
 
     P_emit_to_block(p, header_block_end, (IR_instr){
         .ty = IR_INST_TY__BRANCH,
-        .dest = condition.temp,
-        .p1.br_true = body_blocks_start,
-        .p2.br_false = exit_block_start,
+        .info.branch = {
+            .dest = condition.temp,
+            .branch_true = body_blocks_start,
+            .branch_false = exit_block_start
+        }
     }, (IR_instr_error_info) {
         .kind = IR_IEI_branch,
         .info.branch = {
@@ -1814,11 +1904,13 @@ void P_get_return_stmt(Parser* p) {
                         *ttype = sc->variables.array[v].type;
 
                         P_emit(p, (IR_instr){
-                                   .ty = IR_INST_TY__DROP,
-                                   .dest = bindings->array[b].bind,
-                                   .p1.name = sc->variables.array[v].name,
-                                   .p2.type = ttype,
-                               }, (IR_instr_error_info) { .kind =  IR_IEI_none });
+                            .ty = IR_INST_TY__DROP,
+                            .info.drop = {
+                                .var_name = sc->variables.array[v].name,
+                                .dest = bindings->array[b].bind,
+                                .type = ttype
+                            }
+                        }, (IR_instr_error_info) { .kind =  IR_IEI_none });
                         break;
                     }
                 }
@@ -1837,9 +1929,11 @@ void P_get_return_stmt(Parser* p) {
 
                     P_emit(p, (IR_instr){
                         .ty = IR_INST_TY__DROP,
-                        .dest = bindings->array[b].bind,
-                        .p1.name = a.name,
-                        .p2.type = ttype, // a.type,
+                        .info.drop = {
+                            .var_name = a.name,
+                            .dest = bindings->array[b].bind,
+                            .type = ttype
+                        }
                     }, (IR_instr_error_info) { .kind =  IR_IEI_none });
                     break;
                 }
@@ -1848,8 +1942,8 @@ void P_get_return_stmt(Parser* p) {
 
         P_next_token(p);
         P_emit(p, (IR_instr){
-                   .ty = IR_INST_TY__RETURN_VOID,
-               }, (IR_instr_error_info) { .kind =  IR_IEI_none });
+            .ty = IR_INST_TY__RETURN_VOID,
+        }, (IR_instr_error_info) { .kind =  IR_IEI_none });
         return;
     }
 
@@ -1858,8 +1952,10 @@ void P_get_return_stmt(Parser* p) {
     const IR_temporal move_dest = P_new_temporal(p);
     P_emit(p, (IR_instr) {
         .ty = IR_INST_TY__MOVE,
-        .dest = move_dest,
-        .p1.src1 = ret.temp,
+        .info.move = {
+            .dest = move_dest,
+            .src = ret.temp
+        }
     }, (IR_instr_error_info) { .kind = IR_IEI_none });
     const IR_temporal_with_span final_out = (IR_temporal_with_span){move_dest, ret.span};
 
@@ -1881,11 +1977,13 @@ void P_get_return_stmt(Parser* p) {
                     *ttype = sc->variables.array[v].type;
 
                     P_emit(p, (IR_instr){
-                            .ty = IR_INST_TY__DROP,
+                        .ty = IR_INST_TY__DROP,
+                        .info.drop = {
+                            .var_name = sc->variables.array[v].name,
                             .dest = bindings->array[b].bind,
-                            .p1.name = sc->variables.array[v].name,
-                            .p2.type = ttype,
-                           }, (IR_instr_error_info) { .kind =  IR_IEI_none });
+                            .type = ttype
+                        }
+                    }, (IR_instr_error_info) { .kind =  IR_IEI_none });
                     break;
                 }
             }
@@ -1904,9 +2002,11 @@ void P_get_return_stmt(Parser* p) {
 
                 P_emit(p, (IR_instr){
                     .ty = IR_INST_TY__DROP,
-                    .dest = bindings->array[b].bind,
-                    .p1.name = a.name,
-                    .p2.type = ttype, // a.type,
+                    .info.drop = {
+                        .dest = bindings->array[b].bind,
+                        .type = ttype,
+                        .var_name = a.name
+                    }
                 }, (IR_instr_error_info) { .kind =  IR_IEI_none });
                 break;
             }
@@ -1915,7 +2015,7 @@ void P_get_return_stmt(Parser* p) {
 
     P_emit(p, (IR_instr){
         .ty = IR_INST_TY__RETURN,
-        .dest = final_out.temp,
+        .info.return_value = final_out.temp
     }, (IR_instr_error_info) {
         .kind = IR_IEI_return_value,
         .info.return_value = { final_out.span }
@@ -1949,64 +2049,72 @@ void P_get_assignment(Parser* p) {
         const IR_temporal rs = P_new_temporal(p);
         const TokenSpan whole = TS_merge(&name_span, &expr.span);
         P_emit(p, (IR_instr){
-                   .ty = IR_INST_TY__OP_ADD,
-                   .dest = rs,
-                   .p1.src1 = wrapped_result.temp,
-                   .p2.src2 = expr.temp,
-               }, (IR_instr_error_info) {
-                   .kind = IR_IEI_math_operation,
-                   .info.math_operation = {
-                       .v1 = wrapped_result.span,
-                       .v2 = expr.span,
-                       .op = assignment_span,
-                       .whole = whole
-                   }
-               });
+            .ty = IR_INST_TY__OP_ADD,
+            .info.math_cmp_boolean_op = {
+                .dest = rs,
+                .src1 = wrapped_result.temp,
+                .src2 = expr.temp
+            }
+        }, (IR_instr_error_info) {
+            .kind = IR_IEI_math_operation,
+            .info.math_operation = {
+               .v1 = wrapped_result.span,
+               .v2 = expr.span,
+               .op = assignment_span,
+               .whole = whole
+           }
+        });
         out_val = (IR_temporal_with_span){rs, expr.span};
     } else if (Token_cmp(assignment_type, "-=")) {
         const IR_temporal rs = P_new_temporal(p);
         const TokenSpan whole = TS_merge(&name_span, &expr.span);
         P_emit(p, (IR_instr){
-                   .ty = IR_INST_TY__OP_SUB,
-                   .dest = rs,
-                   .p1.src1 = wrapped_result.temp,
-                   .p2.src2 = expr.temp,
-                }, (IR_instr_error_info) {
-                    .kind = IR_IEI_math_operation,
-                    .info.math_operation = {
-                        .v1 = wrapped_result.span,
-                        .v2 = expr.span,
-                        .op = assignment_span,
-                        .whole = whole
-                    }
-                });
+            .ty = IR_INST_TY__OP_SUB,
+            .info.math_cmp_boolean_op = {
+                .dest = rs,
+                .src1 = wrapped_result.temp,
+                .src2 = expr.temp
+            }
+            }, (IR_instr_error_info) {
+                .kind = IR_IEI_math_operation,
+                .info.math_operation = {
+                    .v1 = wrapped_result.span,
+                    .v2 = expr.span,
+                    .op = assignment_span,
+                    .whole = whole
+                }
+            });
         out_val = (IR_temporal_with_span){rs, expr.span};
     } else if (Token_cmp(assignment_type, "*=")) {
         const IR_temporal rs = P_new_temporal(p);
         const TokenSpan whole = TS_merge(&name_span, &expr.span);
         P_emit(p, (IR_instr){
-                   .ty = IR_INST_TY__OP_MUL,
-                   .dest = rs,
-                   .p1.src1 = wrapped_result.temp,
-                   .p2.src2 = expr.temp,
-                }, (IR_instr_error_info) {
-                    .kind = IR_IEI_math_operation,
-                    .info.math_operation = {
-                        .v1 = wrapped_result.span,
-                        .v2 = expr.span,
-                        .op = assignment_span,
-                        .whole = whole
-                    }
-                });
+            .ty = IR_INST_TY__OP_MUL,
+            .info.math_cmp_boolean_op = {
+                .dest = rs,
+                .src1 = wrapped_result.temp,
+                .src2 = expr.temp
+            }
+        }, (IR_instr_error_info) {
+            .kind = IR_IEI_math_operation,
+            .info.math_operation = {
+                .v1 = wrapped_result.span,
+                .v2 = expr.span,
+                .op = assignment_span,
+                .whole = whole
+            }
+        });
         out_val = (IR_temporal_with_span){rs, expr.span};
     } else if (Token_cmp(assignment_type, "/=")) {
         const IR_temporal rs = P_new_temporal(p);
         const TokenSpan whole = TS_merge(&name_span, &expr.span);
         P_emit(p, (IR_instr){
-                   .ty = IR_INST_TY__OP_DIV,
-                   .dest = rs,
-                   .p1.src1 = wrapped_result.temp,
-                   .p2.src2 = expr.temp,
+            .ty = IR_INST_TY__OP_DIV,
+            .info.math_cmp_boolean_op = {
+                .dest = rs,
+                .src1 = wrapped_result.temp,
+                .src2 = expr.temp
+            }
         }, (IR_instr_error_info) {
             .kind = IR_IEI_math_operation,
             .info.math_operation = {
@@ -2028,23 +2136,27 @@ void P_get_assignment(Parser* p) {
     const IR_temporal move_dest = P_new_temporal(p);
     P_emit(p, (IR_instr) {
         .ty = IR_INST_TY__MOVE,
-        .dest = move_dest,
-        .p1.src1 = out_val.temp,
+        .info.move = {
+            .dest = move_dest,
+            .src = out_val.temp
+        }
     }, (IR_instr_error_info) { .kind = IR_IEI_none });
     const IR_temporal_with_span final_out = (IR_temporal_with_span){move_dest, out_val.span};
 
     if (is_dest_ptr) {
         P_emit(p, (IR_instr){
-                   .ty = IR_INST_TY__STORE_PTR,
-                   .dest = wrapped_result.temp,
-                   .p1.src1 = final_out.temp,
-               }, (IR_instr_error_info) {
-                .kind = IR_IEI_store_ptr,
-                   .info.store_ptr = {
-                        .to = wrapped_result.span,
-                        .ptr = final_out.span
-                   }
-               });
+            .ty = IR_INST_TY__STORE_PTR,
+            .info.store_ptr = {
+                .ptr = wrapped_result.temp,
+                .value = final_out.temp
+            }
+        }, (IR_instr_error_info) {
+            .kind = IR_IEI_store_ptr,
+            .info.store_ptr = {
+                .to = wrapped_result.span,
+                .ptr = final_out.span
+            }
+        });
     } else {
         IR_SSA_binding_LIST* binds = P_get_current_block_bindings(p);
         bool found = false;
@@ -2110,18 +2222,20 @@ void P_get_function_call_stmt(Parser* p) {
 
     TokenSpan_LIST_shrink(&args_spans);
     P_emit(p, (IR_instr){
-               .ty = IR_INST_TY__FN_CALL_VOID,
-               .p1.name = {name,(TokenSpan){*t}},
-               .p2.array = args,
-           }, (IR_instr_error_info) {
-            .kind = IR_IEI_function_call,
-               .info.function_call = {
-                   .name = name_span,
-                   .args = args_spans.array,
-                   .args_cnt = args_spans.len,
-                   .whole = TS_merge(&name_span, &end_span)
-               }
-           });
+        .ty = IR_INST_TY__FN_CALL_RETVOID,
+        .info.fn_call_retvoid = {
+            .name = {name,(TokenSpan){*t}},
+            .args = args
+        }
+    }, (IR_instr_error_info) {
+        .kind = IR_IEI_function_call,
+            .info.function_call = {
+                .name = name_span,
+                .args = args_spans.array,
+                .args_cnt = args_spans.len,
+                .whole = TS_merge(&name_span, &end_span)
+            }
+       });
 
     P_require_semicolon();
 }
@@ -2230,9 +2344,11 @@ void P_get_code_section(Parser* p) {
 
                 P_emit(p, (IR_instr){
                     .ty = IR_INST_TY__DROP,
-                    .dest = bindings->array[b].bind,
-                    .p1.name = pop->variables.array[v].name,
-                    .p2.type = ttype, // pop->variables.array[v].type,
+                    .info.drop = {
+                        .var_name = pop->variables.array[v].name,
+                        .dest = bindings->array[b].bind,
+                        .type = ttype
+                    }
                 }, (IR_instr_error_info) { .kind =  IR_IEI_none });
                 break;
             }
@@ -2399,9 +2515,11 @@ void P_get_top_fn(Parser* p) {
 
                 P_emit(p, (IR_instr){
                     .ty = IR_INST_TY__DROP,
-                    .dest = bindings->array[b].bind,
-                    .p1.name = a.name,
-                    .p2.type = ttype, // a.type,
+                    .info.drop = {
+                        .var_name = a.name,
+                        .dest = bindings->array[b].bind,
+                        .type = ttype
+                    }
                 }, (IR_instr_error_info) { .kind =  IR_IEI_none });
                 break;
             }

@@ -42,76 +42,6 @@ typedef struct {
 init_prefixed_list_type(IR_temporal_block_phi_record)
 
 typedef enum {
-    IR_INST_TY__INVALID = 0,
-
-    /// .dest={phi}, p2.phi_args={args} where args = IR_temporal_block_phi_record_LIST*
-    IR_INST_TY__PHI,
-
-    /// DROP p1.name={var_name}, dest={temporal}, p2.stype={type}
-    IR_INST_TY__DROP,
-
-    /// %n{dest} = MOVE %k{p1.src1}
-    IR_INST_TY__MOVE,
-
-    IR_INST_TY__VAR_DECL,
-
-    /// STORE dest={ptr}, p1.src1={value}
-    IR_INST_TY__STORE_PTR,
-
-    /// %dest={res} = CAST p1.src1={temporal}, p2.stype={type}
-    IR_INST_TY__EXPLICIT_CAST,
-
-    /// dest={res}, p1.value={val}
-    IR_INST_TY__CONST_INT,
-    IR_INST_TY__CONST_FLOAT,
-    IR_INST_TY__MAKE_ARRAY,
-
-    IR_INST_TY__OP_ADD,
-    IR_INST_TY__OP_SUB,
-    IR_INST_TY__OP_DIV,
-    IR_INST_TY__OP_MUL,
-    IR_INST_TY__OP_POW,
-
-    IR_INST_TY__OP_OR,
-    IR_INST_TY__OP_AND,
-
-    IR_INST_TY__OP_CMP_EQ,
-    IR_INST_TY__OP_CMP_NOT_EQ,
-    IR_INST_TY__OP_CMP_LESS,
-    IR_INST_TY__OP_CMP_LESS_EQ,
-    IR_INST_TY__OP_CMP_GREATER,
-    IR_INST_TY__OP_CMP_GREATER_EQ,
-
-    /// .dest = cmp_rs.temp, .p1.br_true, .p2.br_false,
-    IR_INST_TY__BRANCH,
-    IR_INST_TY__JUMP,
-
-    IR_INST_TY__RETURN_VOID,
-    /// .dest={ret},
-    IR_INST_TY__RETURN,
-
-    /// dest = GET_FIELD_PTR p1.name={field_name}, p2.src2={source}
-    IR_INST_TY__GET_FIELD_PTR,
-
-    /// dest = INDEX_PTR p1.src1={array} [ p2.src2={index} ]
-    IR_INST_TY__INDEX_PTR,
-
-    /// dest = READ_PTR p1.src1={ptr}
-    IR_INST_TY__READ_PTR,
-
-    /// not expected to return value
-    /// CALL p1.name={name} (p2.array={args})
-    IR_INST_TY__FN_CALL_VOID,
-
-    /// expected to return value
-    /// dest = CALL p1.name={name} (p2.array={args})
-    IR_INST_TY__FN_CALL_RET,
-
-    /// dest = MAKE_STRUCT p1.name={name} { .p2.struct_args }
-    IR_INST_TY__MAKE_STRUCT,
-} IR_instr_TY;
-
-typedef enum {
     IR_IEI_none,
     IR_IEI_math_operation,
     IR_IEI_literal,
@@ -197,26 +127,173 @@ init_prefixed_list_type(IR_instr_error_info)
 
 typedef uint64_t IR_instr_error_info_index;
 
+typedef enum {
+    IR_INST_TY__INVALID = 0,
+
+    /// .dest={phi}, p2.phi_args={args} where args = IR_temporal_block_phi_record_LIST*
+    IR_INST_TY__PHI,
+
+    /// DROP p1.name={var_name}, dest={temporal}, p2.stype={type}
+    IR_INST_TY__DROP,
+
+    /// %n{dest} = MOVE %k{p1.src1}
+    IR_INST_TY__MOVE,
+
+    IR_INST_TY__VAR_DECL,
+
+    /// STORE dest={ptr}, p1.src1={value}
+    IR_INST_TY__STORE_PTR,
+
+    /// %dest={res} = CAST p1.src1={temporal}, p2.stype={type}
+    IR_INST_TY__EXPLICIT_CAST,
+
+    /// dest={res}, p1.value={val}
+    IR_INST_TY__CONST_INT,
+    IR_INST_TY__CONST_FLOAT,
+    IR_INST_TY__MAKE_ARRAY,
+
+    IR_INST_TY__OP_ADD,
+    IR_INST_TY__OP_SUB,
+    IR_INST_TY__OP_DIV,
+    IR_INST_TY__OP_MUL,
+    IR_INST_TY__OP_POW,
+
+    IR_INST_TY__OP_OR,
+    IR_INST_TY__OP_AND,
+
+    IR_INST_TY__OP_CMP_EQ,
+    IR_INST_TY__OP_CMP_NOT_EQ,
+    IR_INST_TY__OP_CMP_LESS,
+    IR_INST_TY__OP_CMP_LESS_EQ,
+    IR_INST_TY__OP_CMP_GREATER,
+    IR_INST_TY__OP_CMP_GREATER_EQ,
+
+    /// .dest = cmp_rs.temp, .p1.br_true, .p2.br_false,
+    IR_INST_TY__BRANCH,
+    IR_INST_TY__JUMP,
+
+    IR_INST_TY__RETURN_VOID,
+    /// .dest={ret},
+    IR_INST_TY__RETURN,
+
+    /// dest = GET_FIELD_PTR p1.name={field_name}, p2.src2={source}
+    IR_INST_TY__GET_STRUCT_FIELD_PTR,
+
+    /// dest = INDEX_PTR p1.src1={array} [ p2.src2={index} ]
+    IR_INST_TY__INDEX_PTR,
+
+    /// dest = READ_PTR p1.src1={ptr}
+    IR_INST_TY__READ_PTR,
+
+    /// not expected to return value
+    /// CALL p1.name={name} (p2.array={args})
+    IR_INST_TY__FN_CALL_RETVOID,
+
+    /// expected to return value
+    /// dest = CALL p1.name={name} (p2.array={args})
+    IR_INST_TY__FN_CALL_RETVAL,
+
+    /// dest = MAKE_STRUCT p1.optional_typed_name={name, type} { .p2.struct_args }
+    IR_INST_TY__MAKE_STRUCT,
+
+    /// dest = MAKE_ENUM p1.optional_typed_name={name, type} ( .p2.array )
+    IR_INST_TY__MAKE_ENUM,
+} IR_instr_TY;
+
+
 typedef struct {
     IR_instr_TY ty;
-    IR_temporal dest; // used as SRC in BRANCH
     /// index per function into array of debug info for each IR_instr
     IR_instr_error_info_index error_info_index;
     union {
-        IR_temporal src1;
-        int64_t value;
-        float64_t value_float;
-        SpannedIdentifier name;
-        size_t br_true;
-    } p1;
-    union {
-        IR_temporal src2;
-        IR_typeuse* type;
-        IR_temporal_LIST* array;
-        IR_temporal_block_phi_record_LIST* phi_args;
-        IR_named_value_LIST* struct_args;
-        size_t br_false;
-    } p2;
+        struct {
+            IR_temporal dest;
+            IR_temporal_block_phi_record_LIST* args;
+        } phi;
+        struct {
+            SpannedIdentifier var_name;
+            IR_temporal dest;
+            IR_typeuse* type;
+        } drop;
+        struct {
+            IR_temporal dest;
+            IR_temporal src;
+        } move;
+        struct {
+            SpannedIdentifier var_name;
+            IR_temporal dest;
+            IR_typeuse* type;
+        } var_decl;
+        struct {
+            IR_temporal ptr;
+            IR_temporal value;
+        } store_ptr;
+        struct {
+            IR_temporal dest;
+            IR_temporal src;
+            IR_typeuse* type;
+        } explicit_cast;
+        struct {
+            IR_temporal dest;
+            int64_t val;
+        } const_int;
+        struct {
+            IR_temporal dest;
+            float64_t val;
+        } const_float;
+        struct {
+            IR_temporal dest;
+            IR_temporal src1;
+            IR_temporal src2;
+        } math_cmp_boolean_op;
+        struct {
+            IR_temporal dest;
+            size_t branch_true;
+            size_t branch_false;
+        } branch;
+        struct {
+            size_t block;
+        } jump;
+        void* return_void;
+        IR_temporal return_value;
+        struct {
+            IR_temporal dest;
+            SpannedIdentifier field_name;
+            IR_temporal struct_ptr;
+        } get_struct_field_ptr;
+        struct {
+            IR_temporal dest;
+            IR_temporal array_ptr;
+            IR_temporal index_val;
+        } index_ptr;
+        struct {
+            IR_temporal dest;
+            IR_temporal ptr;
+        } read_ptr;
+        struct {
+            IR_temporal dest;
+            SpannedIdentifier name;
+            IR_temporal_LIST* args;
+        } fn_call_retval;
+        struct {
+            SpannedIdentifier name;
+            IR_temporal_LIST* args;
+        } fn_call_retvoid;
+        struct {
+            IR_temporal dest;
+            IR_temporal_LIST* items;
+        } make_array;
+        struct {
+            IR_temporal dest;
+            IR_typeuse* type;
+            IR_named_value_LIST* args;
+        } make_struct;
+        struct {
+            IR_temporal dest;
+            IR_typeuse* type;
+            IR_temporal_LIST* args;
+        } make_enum;
+    } info;
 } IR_instr;
 
 init_prefixed_list_type(IR_instr)

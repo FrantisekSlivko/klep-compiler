@@ -868,8 +868,8 @@ void type_inference_pass_over_fn(
 
             switch (instr.ty) {
                 case IR_INST_TY__DROP: {
-                    const TC_typeid type = resolve_tc_type(instr.p2.type, nct, target_info, source_info);
-                    temporals_map->array[instr.dest.val] = (TC_Entry) {
+                    const TC_typeid type = resolve_tc_type(instr.info.drop.type, nct, target_info, source_info);
+                    temporals_map->array[instr.info.drop.dest.val] = (TC_Entry) {
                         .known_temporal = true,
                         .type = type,
                         .origin = (TC_InstrPos) { .block = block_id, .instr_nth = instr_nth },
@@ -879,16 +879,16 @@ void type_inference_pass_over_fn(
                     break;
                 }
                 case IR_INST_TY__VAR_DECL: {
-                    const TC_typeid type = resolve_tc_type(instr.p2.type, nct, target_info, source_info);
-                    if (temporals_map->array[instr.dest.val].known_temporal) {
-                        if (!CMP_tc_typeid(&temporals_map->array[instr.dest.val].type, &type)) {
+                    const TC_typeid type = resolve_tc_type(instr.info.var_decl.type, nct, target_info, source_info);
+                    if (temporals_map->array[instr.info.var_decl.dest.val].known_temporal) {
+                        if (!CMP_tc_typeid(&temporals_map->array[instr.info.var_decl.dest.val].type, &type)) {
                             // type error
                             fprintf(stderr, "var_decl type collision | make proper error later\n");
                             exit(1);
                         }
                     } else {
                         // %dest is dead value (never used)
-                        temporals_map->array[instr.dest.val] = (TC_Entry) {
+                        temporals_map->array[instr.info.var_decl.dest.val] = (TC_Entry) {
                             .known_temporal = true,
                             .type = type,
                             .origin = (TC_InstrPos) { .block = block_id, .instr_nth = instr_nth },
@@ -903,17 +903,17 @@ void type_inference_pass_over_fn(
                 case IR_INST_TY__OP_DIV:
                 case IR_INST_TY__OP_MUL:
                 case IR_INST_TY__OP_POW: {
-                    const TC_Entry dest = temporals_map->array[instr.dest.val];
+                    const TC_Entry dest = temporals_map->array[instr.info.math_cmp_boolean_op.dest.val];
                     if (!dest.known_temporal) {
                         // INTERNAL_ERROR()
                         printf("  skipped MATH_OP, waiting for second pass\n");
                         break;
                     }
 
-                    if (temporals_map->array[instr.p1.src1.val].known_temporal) {
+                    if (temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].known_temporal) {
                         // ok (is checked in next pass)
                     } else {
-                        temporals_map->array[instr.p1.src1.val] = (TC_Entry) {
+                        temporals_map->array[instr.info.math_cmp_boolean_op.src1.val] = (TC_Entry) {
                             .known_temporal = true,
                             .type = dest.type,
                             .origin = (TC_InstrPos) { .block = block_id, .instr_nth = instr_nth },
@@ -922,10 +922,10 @@ void type_inference_pass_over_fn(
                         };
                     }
 
-                    if (temporals_map->array[instr.p2.src2.val].known_temporal) {
+                    if (temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].known_temporal) {
                         // ok (is checked in next pass)
                     } else {
-                        temporals_map->array[instr.p2.src2.val] = (TC_Entry) {
+                        temporals_map->array[instr.info.math_cmp_boolean_op.src2.val] = (TC_Entry) {
                             .known_temporal = true,
                             .type = dest.type,
                             .origin = (TC_InstrPos) { .block = block_id, .instr_nth = instr_nth },
@@ -937,15 +937,14 @@ void type_inference_pass_over_fn(
                     break;
                 }
                 case IR_INST_TY__CONST_INT: {
-                    const TC_Entry dest = temporals_map->array[instr.dest.val];
+                    const TC_Entry dest = temporals_map->array[instr.info.const_int.dest.val];
                     if (!dest.known_temporal) {
-                        printf("skipping [%%%lu = CONST_INT]\n", instr.dest.val);
-                        // INTERNAL_ERROR()
+                        printf("skipping [%%%lu = CONST_INT]\n", instr.info.const_int.dest.val);
                     }
                     break;
                 }
                 case IR_INST_TY__RETURN: {
-                    const size_t ret_temporal = instr.dest.val;
+                    const size_t ret_temporal = instr.info.return_value.val;
                     if (temporals_map->array[ret_temporal].known_temporal) {
                         INTERNAL_ERROR()
 
@@ -966,9 +965,9 @@ void type_inference_pass_over_fn(
                 case IR_INST_TY__OP_CMP_LESS_EQ:
                 case IR_INST_TY__OP_CMP_GREATER:
                 case IR_INST_TY__OP_CMP_GREATER_EQ: {
-                    const TC_Entry dest = temporals_map->array[instr.dest.val];
+                    const TC_Entry dest = temporals_map->array[instr.info.math_cmp_boolean_op.dest.val];
                     if (!dest.known_temporal) {
-                        temporals_map->array[instr.dest.val] = (TC_Entry) {
+                        temporals_map->array[instr.info.math_cmp_boolean_op.dest.val] = (TC_Entry) {
                             .known_temporal = true,
                             .type = (TC_typeid) {
                                 .ty = TC_TY_Primitive,
@@ -981,18 +980,18 @@ void type_inference_pass_over_fn(
                         };
                     }
                     // if one of args is known and other unknown, infer
-                    if (temporals_map->array[instr.p1.src1.val].known_temporal && !temporals_map->array[instr.p2.src2.val].known_temporal) {
-                        temporals_map->array[instr.p2.src2.val] = (TC_Entry) {
+                    if (temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].known_temporal && !temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].known_temporal) {
+                        temporals_map->array[instr.info.math_cmp_boolean_op.src2.val] = (TC_Entry) {
                             .known_temporal = true,
-                            .type = temporals_map->array[instr.p1.src1.val].type,
+                            .type = temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type,
                             .origin = (TC_InstrPos) { .block = block_id, .instr_nth = instr_nth },
                             .is_value_known = false,
                             .null = NULL,
                         };
-                    } else if (temporals_map->array[instr.p2.src2.val].known_temporal && !temporals_map->array[instr.p1.src1.val].known_temporal) {
-                        temporals_map->array[instr.p1.src1.val] = (TC_Entry) {
+                    } else if (temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].known_temporal && !temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].known_temporal) {
+                        temporals_map->array[instr.info.math_cmp_boolean_op.src1.val] = (TC_Entry) {
                             .known_temporal = true,
-                            .type = temporals_map->array[instr.p2.src2.val].type,
+                            .type = temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].type,
                             .origin = (TC_InstrPos) { .block = block_id, .instr_nth = instr_nth },
                             .is_value_known = false,
                             .null = NULL,
@@ -1001,12 +1000,12 @@ void type_inference_pass_over_fn(
                     break;
                 }
                 case IR_INST_TY__BRANCH: {
-                    const TC_Entry dest = temporals_map->array[instr.dest.val];
+                    const TC_Entry dest = temporals_map->array[instr.info.branch.dest.val];
                     if (dest.known_temporal) {
                         // compare types in the next pass
                         break;
                     }
-                    temporals_map->array[instr.dest.val] = (TC_Entry) {
+                    temporals_map->array[instr.info.branch.dest.val] = (TC_Entry) {
                         .known_temporal = true,
                         .type = (TC_typeid) {
                             .ty = TC_TY_Primitive,
@@ -1032,8 +1031,8 @@ void type_inference_pass_over_fn(
                         break;
                     }
 
-                    const IR_temporal_block_phi_record_LIST* phi_args = instr.p2.phi_args;
-                    const TC_Entry dest = temporals_map->array[instr.dest.val];
+                    const IR_temporal_block_phi_record_LIST* phi_args = instr.info.phi.args;
+                    const TC_Entry dest = temporals_map->array[instr.info.phi.dest.val];
                     if (!dest.known_temporal) {
                         printf("  PHI skipped, unknown dest, probably filled later by PHI\n");
                         break;
@@ -1067,8 +1066,8 @@ void type_inference_pass_over_fn(
                     break;
                 }
                 case IR_INST_TY__EXPLICIT_CAST: {
-                    const TC_typeid dest_type = temporals_map->array[instr.dest.val].type;
-                    const IR_typeuse* raw_cast_type = instr.p2.type;
+                    const TC_typeid dest_type = temporals_map->array[instr.info.explicit_cast.dest.val].type;
+                    const IR_typeuse* raw_cast_type = instr.info.explicit_cast.type;
                     const TC_typeid cast_type = resolve_tc_type(raw_cast_type, nct, target_info, source_info);
 
                     if (!CMP_tc_typeid(&dest_type, &cast_type)) {
@@ -1082,26 +1081,26 @@ void type_inference_pass_over_fn(
                         exit(1);
                     }
 
-                    if (!temporals_map->array[instr.p1.src1.val].known_temporal) {
+                    if (!temporals_map->array[instr.info.explicit_cast.src.val].known_temporal) {
                         INTERNAL_ERROR("unknown cast intake type");
                     }
 
-                    const TC_typeid cast_intake_type = temporals_map->array[instr.p1.src1.val].type;
+                    const TC_typeid cast_intake_type = temporals_map->array[instr.info.explicit_cast.src.val].type;
 
                     // todo: add verification cast can happen (you cannot cast anything to anything, only numbers around)
 
                     break;
                 }
                 case IR_INST_TY__MOVE: {
-                    const TC_Entry dest = temporals_map->array[instr.dest.val];
+                    const TC_Entry dest = temporals_map->array[instr.info.move.dest.val];
                     if (!dest.known_temporal) {
                         printf("  MOVE skipped, unknown dest, probably filled later by PHI\n");
                         break;
                     }
-                    if (temporals_map->array[instr.p1.src1.val].known_temporal) {
+                    if (temporals_map->array[instr.info.move.src.val].known_temporal) {
                         // ok (is checked in next pass)
                     } else {
-                        temporals_map->array[instr.p1.src1.val] = (TC_Entry) {
+                        temporals_map->array[instr.info.move.src.val] = (TC_Entry) {
                             .known_temporal = true,
                             .type = dest.type,
                             .origin = (TC_InstrPos) { .block = block_id, .instr_nth = instr_nth },

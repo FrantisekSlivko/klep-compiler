@@ -57,13 +57,12 @@ void print_IR_instr(const IR_instr* restrict instr, const khash_t(sv_u64_map)* r
             break;
         }
 
-
         case IR_INST_TY__PHI: {
-            printf("%%%lu = PHI { ", instr->dest.val);
-            for (size_t n = 0; n < instr->p2.phi_args->len; n++) {
-                const IR_temporal_block_phi_record val = instr->p2.phi_args->array[n];
+            printf("%%%lu = PHI { ", instr->info.phi.dest.val);
+            for (size_t n = 0; n < instr->info.phi.args->len; n++) {
+                const IR_temporal_block_phi_record val = instr->info.phi.args->array[n];
                 printf("%%%lu BLOCK<%lu>", val.temp.val, val.block);
-                if (n+1 < instr->p2.phi_args->len) {
+                if (n+1 < instr->info.phi.args->len) {
                     printf(", ");
                 }
             }
@@ -72,57 +71,46 @@ void print_IR_instr(const IR_instr* restrict instr, const khash_t(sv_u64_map)* r
         }
 
         case IR_INST_TY__DROP: {
-            const SV var_name = instr->p1.name.span.sv; // SV_from_identifiermap_lookup(identifier_map, instr->p1.name);
-            printf("DROP $"SV_format" %%%lu '", SV_v_args(var_name), instr->dest.val);
-            print_IR_typeuse(instr->p2.type, identifier_map);
-            printf("'");
+            printf("DROP $"SV_format" %%%lu '"SV_format"'", SV_v_args(instr->info.drop.var_name.span.sv), instr->info.drop.dest.val, SV_v_args(instr->info.drop.type->full_typeuse_span.sv));
             break;
         }
 
         case IR_INST_TY__MOVE: {
-            printf("%%%lu = MOVE %%%lu", instr->dest.val, instr->p1.src1.val);
+            printf("%%%lu = MOVE %%%lu", instr->info.move.dest.val, instr->info.move.src.val);
             break;
         }
 
         case IR_INST_TY__VAR_DECL: {
-            const SV var_name = instr->p1.name.span.sv; // SV_from_identifiermap_lookup(identifier_map, instr->p1.name);
-            printf("VAR_DECL $"SV_format" %%%lu {", SV_v_args(var_name), instr->dest.val);
-            print_IR_typeuse(instr->p2.type, identifier_map);
-            printf("}");
+            printf("VAR_DECL $"SV_format" %%%lu {"SV_format"}", SV_v_args(instr->info.var_decl.var_name.span.sv), instr->info.var_decl.dest.val, SV_v_args(instr->info.var_decl.type->full_typeuse_span.sv));
             break;
         }
-
 
         case IR_INST_TY__EXPLICIT_CAST: {
-            printf("%%%lu = CAST{", instr->dest.val);
-            print_IR_typeuse(instr->p2.type, identifier_map);
-            printf("}(%%%lu)", instr->p1.src1.val);
+            printf("%%%lu = CAST{"SV_format"}(%%%lu)", instr->info.explicit_cast.dest.val, SV_v_args(instr->info.explicit_cast.type->full_typeuse_span.sv), instr->info.explicit_cast.src.val);
             break;
         }
-
 
         case IR_INST_TY__STORE_PTR: {
-            printf("STORE_PTR INTO %%%lu VALUE %%%lu", instr->dest.val, instr->p1.src1.val);
+            printf("STORE_PTR INTO %%%lu VALUE %%%lu", instr->info.store_ptr.ptr.val, instr->info.store_ptr.value.val);
             break;
         }
-
 
 
 
 
         case IR_INST_TY__CONST_INT: {
-            printf("%%%lu = CONST_INT %li", instr->dest.val, instr->p1.value);
+            printf("%%%lu = CONST_INT %li", instr->info.const_int.dest.val, instr->info.const_int.val);
             break;
         }
         case IR_INST_TY__CONST_FLOAT: {
-            printf("%%%lu = CONST_FLOAT %f", instr->dest.val, instr->p1.value_float);
+            printf("%%%lu = CONST_FLOAT %f", instr->info.const_float.dest.val, instr->info.const_float.val);
             break;
         }
         case IR_INST_TY__MAKE_ARRAY: {
-            printf("%%%lu = MAKE_ARRAY [", instr->dest.val);
-            for (size_t i = 0; i < instr->p2.array->len; i++) {
-                printf("%%%lu", instr->p2.array->array[i].val);
-                if (i+1 != instr->p2.array->len) {
+            printf("%%%lu = MAKE_ARRAY [", instr->info.make_array.dest.val);
+            for (size_t i = 0; i < instr->info.make_array.items->len; i++) {
+                printf("%%%lu", instr->info.make_array.items->array[i].val);
+                if (i+1 != instr->info.make_array.items->len) {
                     printf(", ");
                 }
             }
@@ -130,88 +118,101 @@ void print_IR_instr(const IR_instr* restrict instr, const khash_t(sv_u64_map)* r
             break;
         }
         case IR_INST_TY__MAKE_STRUCT: {
-            const SV name = instr->p1.name.span.sv; // SV_from_identifiermap_lookup(identifier_map, instr->p1.name);
-            printf("%%%lu = MAKE_STRUCT '"SV_format"' {", instr->dest.val, SV_v_args(name));
-            for (size_t i = 0; i < instr->p2.struct_args->len; i++) {
-                const IR_named_value v = instr->p2.struct_args->array[i];
-                const SV field_name = v.name.span.sv; // SV_from_identifiermap_lookup(identifier_map, v.name);
-                printf("'."SV_format"' = %%%lu", SV_v_args(field_name), v.value.val);
-                // printf("%%%lu", instr->p2.array->array[i].val);
-                if (i+1 != instr->p2.struct_args->len) {
+            printf("%%%lu = MAKE_STRUCT '"SV_format"' {", instr->info.make_struct.dest.val, SV_v_args(instr->info.make_struct.type->full_typeuse_span.sv));
+            for (size_t i = 0; i < instr->info.make_struct.args->len; i++) {
+                const IR_named_value v = instr->info.make_struct.args->array[i];
+                printf("'."SV_format"' = %%%lu", SV_v_args(v.name.span.sv), v.value.val);
+                if (i+1 != instr->info.make_struct.args->len) {
                     printf(", ");
                 }
             }
             putc('}' ,stdout);
             break;
         }
+        case IR_INST_TY__MAKE_ENUM: {
+            printf("%%%lu = MAKE_ENUM '"SV_format"' ", instr->info.make_enum.dest.val, SV_v_args(instr->info.make_enum.type->full_typeuse_span.sv));
+            if (instr->info.make_enum.args->len == 0) {
+                printf("()");
+                break;
+            }
+            printf("( ");
+            for (size_t n = 0; n < instr->info.make_enum.args->len; n++) {
+                printf("%%%lu", instr->info.make_enum.args->array[n].val);
+                if (n + 1 != instr->info.make_enum.args->len) {
+                    printf(", ");
+                }
+            }
+            printf(" )");
+            break;
+        }
 
 
         case IR_INST_TY__OP_ADD: {
-            printf("%%%lu = ADD %%%lu, %%%lu", instr->dest.val, instr->p1.src1.val, instr->p2.src2.val);
+            printf("%%%lu = ADD %%%lu, %%%lu", instr->info.math_cmp_boolean_op.dest.val, instr->info.math_cmp_boolean_op.src1.val, instr->info.math_cmp_boolean_op.src2.val);
             break;
         }
         case IR_INST_TY__OP_SUB: {
-            printf("%%%lu = SUB %%%lu, %%%lu", instr->dest.val, instr->p1.src1.val, instr->p2.src2.val);
+            printf("%%%lu = SUB %%%lu, %%%lu", instr->info.math_cmp_boolean_op.dest.val, instr->info.math_cmp_boolean_op.src1.val, instr->info.math_cmp_boolean_op.src2.val);
             break;
         }
         case IR_INST_TY__OP_DIV: {
-            printf("%%%lu = DIV %%%lu, %%%lu", instr->dest.val, instr->p1.src1.val, instr->p2.src2.val);
+            printf("%%%lu = DIV %%%lu, %%%lu", instr->info.math_cmp_boolean_op.dest.val, instr->info.math_cmp_boolean_op.src1.val, instr->info.math_cmp_boolean_op.src2.val);
             break;
         }
         case IR_INST_TY__OP_MUL: {
-            printf("%%%lu = MUL %%%lu, %%%lu", instr->dest.val, instr->p1.src1.val, instr->p2.src2.val);
+            printf("%%%lu = MUL %%%lu, %%%lu", instr->info.math_cmp_boolean_op.dest.val, instr->info.math_cmp_boolean_op.src1.val, instr->info.math_cmp_boolean_op.src2.val);
             break;
         }
         case IR_INST_TY__OP_POW: {
-            printf("%%%lu = POW %%%lu, %%%lu", instr->dest.val, instr->p1.src1.val, instr->p2.src2.val);
+            printf("%%%lu = POW %%%lu, %%%lu", instr->info.math_cmp_boolean_op.dest.val, instr->info.math_cmp_boolean_op.src1.val, instr->info.math_cmp_boolean_op.src2.val);
             break;
         }
 
 
         case IR_INST_TY__OP_OR: {
-            printf("%%%lu = OR %%%lu, %%%lu", instr->dest.val, instr->p1.src1.val, instr->p2.src2.val);
+            printf("%%%lu = OR %%%lu, %%%lu", instr->info.math_cmp_boolean_op.dest.val, instr->info.math_cmp_boolean_op.src1.val, instr->info.math_cmp_boolean_op.src2.val);
             break;
         }
         case IR_INST_TY__OP_AND: {
-            printf("%%%lu = AND %%%lu, %%%lu", instr->dest.val, instr->p1.src1.val, instr->p2.src2.val);
+            printf("%%%lu = AND %%%lu, %%%lu", instr->info.math_cmp_boolean_op.dest.val, instr->info.math_cmp_boolean_op.src1.val, instr->info.math_cmp_boolean_op.src2.val);
             break;
         }
 
 
 
         case IR_INST_TY__OP_CMP_EQ: {
-            printf("%%%lu = CMP_EQ %%%lu, %%%lu", instr->dest.val, instr->p1.src1.val, instr->p2.src2.val);
+            printf("%%%lu = CMP_EQ %%%lu, %%%lu", instr->info.math_cmp_boolean_op.dest.val, instr->info.math_cmp_boolean_op.src1.val, instr->info.math_cmp_boolean_op.src2.val);
             break;
         }
         case IR_INST_TY__OP_CMP_NOT_EQ: {
-            printf("%%%lu = CMP_NOT_EQ %%%lu, %%%lu", instr->dest.val, instr->p1.src1.val, instr->p2.src2.val);
+            printf("%%%lu = CMP_NOT_EQ %%%lu, %%%lu", instr->info.math_cmp_boolean_op.dest.val, instr->info.math_cmp_boolean_op.src1.val, instr->info.math_cmp_boolean_op.src2.val);
             break;
         }
         case IR_INST_TY__OP_CMP_LESS: {
-            printf("%%%lu = CMP_LESS %%%lu, %%%lu", instr->dest.val, instr->p1.src1.val, instr->p2.src2.val);
+            printf("%%%lu = CMP_LESS %%%lu, %%%lu", instr->info.math_cmp_boolean_op.dest.val, instr->info.math_cmp_boolean_op.src1.val, instr->info.math_cmp_boolean_op.src2.val);
             break;
         }
         case IR_INST_TY__OP_CMP_LESS_EQ: {
-            printf("%%%lu = CMP_LESS_EQ %%%lu, %%%lu", instr->dest.val, instr->p1.src1.val, instr->p2.src2.val);
+            printf("%%%lu = CMP_LESS_EQ %%%lu, %%%lu", instr->info.math_cmp_boolean_op.dest.val, instr->info.math_cmp_boolean_op.src1.val, instr->info.math_cmp_boolean_op.src2.val);
             break;
         }
         case IR_INST_TY__OP_CMP_GREATER: {
-            printf("%%%lu = CMP_GREATER %%%lu, %%%lu", instr->dest.val, instr->p1.src1.val, instr->p2.src2.val);
+            printf("%%%lu = CMP_GREATER %%%lu, %%%lu", instr->info.math_cmp_boolean_op.dest.val, instr->info.math_cmp_boolean_op.src1.val, instr->info.math_cmp_boolean_op.src2.val);
             break;
         }
         case IR_INST_TY__OP_CMP_GREATER_EQ: {
-            printf("%%%lu = CMP_GREATER_EQ %%%lu, %%%lu", instr->dest.val, instr->p1.src1.val, instr->p2.src2.val);
+            printf("%%%lu = CMP_GREATER_EQ %%%lu, %%%lu", instr->info.math_cmp_boolean_op.dest.val, instr->info.math_cmp_boolean_op.src1.val, instr->info.math_cmp_boolean_op.src2.val);
             break;
         }
 
 
 
         case IR_INST_TY__BRANCH: {
-            printf("BR %%%lu, BLOCK<%lu>, BLOCK<%lu>", instr->dest.val, instr->p1.br_true, instr->p2.br_false);
+            printf("BR %%%lu, BLOCK<%lu>, BLOCK<%lu>", instr->info.branch.dest.val, instr->info.branch.branch_true, instr->info.branch.branch_false);
             break;
         }
         case IR_INST_TY__JUMP: {
-            printf("JUMP BLOCK<%lu>", instr->p1.br_true);
+            printf("JUMP BLOCK<%lu>", instr->info.jump.block);
             break;
         }
 
@@ -220,40 +221,37 @@ void print_IR_instr(const IR_instr* restrict instr, const khash_t(sv_u64_map)* r
             break;
         }
         case IR_INST_TY__RETURN: {
-            printf("RETURN %%%lu", instr->dest.val);
+            printf("RETURN %%%lu", instr->info.return_value.val);
             break;
         }
-        case IR_INST_TY__GET_FIELD_PTR: {
-            const SV field_name = instr->p1.name.span.sv; // SV_from_identifiermap_lookup(identifier_map, instr->p1.name);
-            printf("%%%lu = GET_FIELD_PTR %%%lu, '."SV_format"'", instr->dest.val, instr->p2.src2.val, SV_v_args(field_name));
+        case IR_INST_TY__GET_STRUCT_FIELD_PTR: {
+            printf("%%%lu = GET_FIELD_PTR %%%lu, '."SV_format"'", instr->info.get_struct_field_ptr.dest.val, instr->info.get_struct_field_ptr.struct_ptr.val, SV_v_args(instr->info.get_struct_field_ptr.field_name.span.sv));
             break;
         }
         case IR_INST_TY__INDEX_PTR: {
-            printf("%%%lu = INDEX_PTR %%%lu [ %%%lu ]", instr->dest.val, instr->p1.src1.val, instr->p2.src2.val);
+            printf("%%%lu = INDEX_PTR %%%lu [ %%%lu ]", instr->info.index_ptr.dest.val, instr->info.index_ptr.array_ptr.val, instr->info.index_ptr.index_val.val);
             break;
         }
         case IR_INST_TY__READ_PTR: {
-            printf("%%%lu = READ_PTR %%%lu", instr->dest.val, instr->p1.src1.val);
+            printf("%%%lu = READ_PTR %%%lu", instr->info.read_ptr.dest.val, instr->info.read_ptr.ptr.val);
             break;
         }
-        case IR_INST_TY__FN_CALL_VOID: {
-            const SV fn_name = instr->p1.name.span.sv; // SV_from_identifiermap_lookup(identifier_map, instr->p1.name);
-            printf("CALL <"SV_format"> (", SV_v_args(fn_name));
-            for (size_t i = 0; i < instr->p2.array->len; i++) {
-                printf("%%%lu", instr->p2.array->array[i].val);
-                if (i+1 != instr->p2.array->len) {
+        case IR_INST_TY__FN_CALL_RETVOID: {
+            printf("CALL <"SV_format"> (", SV_v_args(instr->info.fn_call_retvoid.name.span.sv));
+            for (size_t i = 0; i < instr->info.fn_call_retvoid.args->len; i++) {
+                printf("%%%lu", instr->info.fn_call_retvoid.args->array[i].val);
+                if (i+1 != instr->info.fn_call_retvoid.args->len) {
                     printf(", ");
                 }
             }
             putc(')' ,stdout);
             break;
         }
-        case IR_INST_TY__FN_CALL_RET: {
-            const SV fn_name = instr->p1.name.span.sv; // SV_from_identifiermap_lookup(identifier_map, instr->p1.name);
-            printf("%%%lu = CALL <"SV_format"> (", instr->dest.val, SV_v_args(fn_name));
-            for (size_t i = 0; i < instr->p2.array->len; i++) {
-                printf("%%%lu", instr->p2.array->array[i].val);
-                if (i+1 != instr->p2.array->len) {
+        case IR_INST_TY__FN_CALL_RETVAL: {
+            printf("%%%lu = CALL <"SV_format"> (", instr->info.fn_call_retval.dest.val, SV_v_args(instr->info.fn_call_retval.name.span.sv));
+            for (size_t i = 0; i < instr->info.fn_call_retval.args->len; i++) {
+                printf("%%%lu", instr->info.fn_call_retval.args->array[i].val);
+                if (i+1 != instr->info.fn_call_retval.args->len) {
                     printf(", ");
                 }
             }
