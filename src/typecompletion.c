@@ -33,8 +33,8 @@ void print_TC_typeid(const TC_typeid* restrict ty, const khash_t(sv_u64_map)* re
         }
         case TC_TY_Array: {
             printf("Array<");
-            print_TC_typeid(ty->info.contained, identifier_map, nct);
-            putc('>', stdout);
+            print_TC_typeid(ty->info.t_array.contained, identifier_map, nct);
+            printf(", %u>", ty->info.t_array.array_size);
             break;
         }
         case TC_TY_List: {
@@ -230,11 +230,13 @@ bool CMP_TC_typeid(const TC_typeid* restrict a, const TC_typeid* restrict b) {
             return a->info.type_id == b->info.type_id;
         }
         case TC_TY_Ref:
-        case TC_TY_Array:
         case TC_TY_List:
         case TC_TY_Slice:
         case TC_TY_Box: {
             return CMP_TC_typeid(a->info.contained, b->info.contained);
+        }
+        case TC_TY_Array: {
+            return a->info.t_array.array_size == b->info.t_array.array_size && CMP_TC_typeid(a->info.t_array.contained, b->info.t_array.contained);
         }
         case TC_TY_External_Type: {
             return a->info.external_type.identifier == b->info.external_type.identifier;
@@ -303,7 +305,7 @@ IR_typeuse substitute_typeuse(
         case IR_TY_List: {
 
             if (input->contained_len != 1) {
-                INTERNAL_ERROR("invalid contained length of builtin type")
+                INTERNAL_ERROR("invalid contained length of builtin type (%lu)", input->contained_len)
             }
 
             IR_typeuse* new_contained = malloc(sizeof(IR_typeuse));
@@ -348,14 +350,16 @@ TC_typeid resolve_type(const IR_typeuse* restrict type,
 ) {
     switch (type->tt_ty) {
         case IR_TY_Void: {
-            return (TC_typeid){
-                .ty = TC_TY_Void
+            return (TC_typeid) {
+                .ty = TC_TY_Void,
+                .full_typeuse_span = type->full_typeuse_span
             };
         }
         case IR_TY_Primitive: {
             return (TC_typeid){
                 .ty = TC_TY_Primitive,
-                .info.primitive = type->info.primitive
+                .info.primitive = type->info.primitive,
+                .full_typeuse_span = type->full_typeuse_span
             };
         }
         case IR_TY_Named: {
@@ -375,6 +379,7 @@ TC_typeid resolve_type(const IR_typeuse* restrict type,
                     return (TC_typeid) {
                         .ty = ty,
                         .info.type_id = name_index->array[n].nth,
+                        .full_typeuse_span = type->full_typeuse_span
                     };
                 }
             }
@@ -382,10 +387,8 @@ TC_typeid resolve_type(const IR_typeuse* restrict type,
                 if (table->extern_types.array[n].identifier == type->info.named.identifier) {
                     return (TC_typeid) {
                         .ty = TC_TY_External_Type,
-                        .info.external_type = type->info.named /*{
-                            type->info.named.name,
-                            type->info.named.raw_name
-                        }*/
+                        .info.external_type = type->info.named,
+                        .full_typeuse_span = type->full_typeuse_span
                     };
                 }
             }
@@ -394,8 +397,23 @@ TC_typeid resolve_type(const IR_typeuse* restrict type,
             syntax_error(&source_info->source, &source_info->source_filename, &type->info.named.span.sv, &msg);
             exit(1);
         }
+        case IR_TY_Array: {
+            TC_typeid* contained = malloc(sizeof(TC_typeid));
+            *contained = resolve_type(type->contained, name_index, source_info, materialized_generics, table, out_structs, out_enums);
+
+            free(type->contained);
+
+            TC_type_ty ty = TC_TY_Array;
+            return (TC_typeid){
+                .ty = ty,
+                .info.t_array = {
+                    contained,
+                    type->array_const_size
+                },
+                .full_typeuse_span = type->full_typeuse_span
+            };
+        }
         case IR_TY_Ref:
-        case IR_TY_Array:
         case IR_TY_Box:
         case IR_TY_Slice:
         case IR_TY_List: {
@@ -408,10 +426,6 @@ TC_typeid resolve_type(const IR_typeuse* restrict type,
             switch (type->tt_ty) {
                 case IR_TY_Ref: {
                     ty = TC_TY_Ref;
-                    break;
-                }
-                case IR_TY_Array: {
-                    ty = TC_TY_Array;
                     break;
                 }
                 case IR_TY_List: {
@@ -433,7 +447,8 @@ TC_typeid resolve_type(const IR_typeuse* restrict type,
 
             return (TC_typeid){
                 .ty = ty,
-                .info.contained = contained
+                .info.contained = contained,
+                .full_typeuse_span = type->full_typeuse_span
             };
         }
         case IR_TY_Generic: {
@@ -479,6 +494,7 @@ TC_typeid resolve_type(const IR_typeuse* restrict type,
                 return (TC_typeid) {
                     .ty = ty,
                     .info.type_id = mr.nth,
+                    .full_typeuse_span = type->full_typeuse_span
                 };
             }
 
@@ -536,6 +552,7 @@ TC_typeid resolve_type(const IR_typeuse* restrict type,
                 return (TC_typeid) {
                     .ty = TC_TY_Enum,
                     .info.type_id = nth,
+                    .full_typeuse_span = type->full_typeuse_span
                 };
             }
 
@@ -588,6 +605,7 @@ TC_typeid resolve_type(const IR_typeuse* restrict type,
                 return (TC_typeid) {
                     .ty = TC_TY_Struct,
                     .info.type_id = nth,
+                    .full_typeuse_span = type->full_typeuse_span
                 };
             }
 
@@ -626,9 +644,15 @@ SizeAlign calc_type_size(
         case TC_TY_Primitive: {
             return (SizeAlign) { TC_Primitive_TY_size(type->info.primitive), TC_Primitive_TY_size(type->info.primitive)};
         }
-        case TC_TY_Slice:
-        case TC_TY_Array: {
+        case TC_TY_Slice: {
             return (SizeAlign) { target_info->ptr_size * 2, target_info->ptr_size }; // { ptr; len; }
+        }
+        case TC_TY_Array: {
+            const SizeAlign inner = calc_type_size(type->info.t_array.contained, out_structs, out_enums, in_progress_structs, in_progress_enums, target_info, source_info);
+            return (SizeAlign) {
+                type->info.t_array.array_size * inner.size,
+                inner.align
+            };
         }
         case TC_TY_List: {
             return (SizeAlign) {target_info->ptr_size * 3, target_info->ptr_size }; // { ptr; len; cap; }
@@ -900,7 +924,7 @@ TC_TypeTable close_type_table(const IR_incomplete_TypeTable* restrict table,
     for (size_t n=0; n < out_structs.len; n++) {
         calc_type_size(&(TC_typeid) {
             .ty = TC_TY_Struct,
-            .info.type_id = n
+            .info.type_id = n,
         }, &out_structs, &out_enums, &in_progress_structs, &in_progress_enums, target_info, source_info);
 
         in_progress_structs.len = 0;
@@ -921,6 +945,7 @@ TC_TypeTable close_type_table(const IR_incomplete_TypeTable* restrict table,
     return (TC_TypeTable) {
         out_structs,
         out_enums,
+        name_index,
         materialized_generics,
         table->generic_structs,
         table->generic_enums,

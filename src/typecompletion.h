@@ -48,6 +48,10 @@ typedef struct TC_typeid {
             size_t contained_len;
             SpannedIdentifier generics_name;
         } generic;
+        struct {
+            struct TC_typeid* contained;
+            uint32_t array_size;
+        } t_array;
         SpannedIdentifier external_type;
     } info;
     TokenSpan full_typeuse_span;
@@ -143,6 +147,8 @@ typedef struct TC_TypeTable {
 
     TC_enumdef_LIST enums;
     // size_t* enum_sizes;
+
+    TC_name_index_record_LIST name_index;
 
     // TC_materialized_generic_structdef_LIST materialized_generic_structs;
     // TC_materialized_generic_enumdef_LIST materialized_generic_enums;

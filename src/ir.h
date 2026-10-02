@@ -47,6 +47,7 @@ typedef enum {
     IR_IEI_literal,
     IR_IEI_explicit_cast,
     IR_IEI_make_array,
+    IR_IEI_make_enum,
     IR_IEI_function_call,
     IR_IEI_struct_constructor,
     IR_IEI_get_struct_field,
@@ -79,6 +80,12 @@ typedef struct {
             TokenSpan whole;
         } make_array;
         struct {
+            TokenSpan variant;
+            TokenSpan* items;
+            size_t items_cnt;
+            TokenSpan whole;
+        } make_enum;
+        struct {
             TokenSpan name;
             TokenSpan* args;
             size_t args_cnt;
@@ -86,11 +93,10 @@ typedef struct {
         } function_call;
         /// names.span are in the instruction itself
         struct {
-            TokenSpan name;
             TokenSpan* values;
             size_t values_cnt;
             TokenSpan whole;
-        } struct_constructor;
+        } make_struct;
         struct {
             TokenSpan origin;
             TokenSpan field_name;
@@ -150,6 +156,7 @@ typedef enum {
     /// dest={res}, p1.value={val}
     IR_INST_TY__CONST_INT,
     IR_INST_TY__CONST_FLOAT,
+    IR_INST_TY__CONST_STRING,
     IR_INST_TY__MAKE_ARRAY,
 
     IR_INST_TY__OP_ADD,
@@ -243,11 +250,15 @@ typedef struct {
         } const_float;
         struct {
             IR_temporal dest;
+            Identifier string;
+        } const_string;
+        struct {
+            IR_temporal dest;
             IR_temporal src1;
             IR_temporal src2;
         } math_cmp_boolean_op;
         struct {
-            IR_temporal dest;
+            IR_temporal cond;
             size_t branch_true;
             size_t branch_false;
         } branch;
@@ -291,6 +302,7 @@ typedef struct {
         struct {
             IR_temporal dest;
             IR_typeuse* type;
+            Identifier variant;
             IR_temporal_LIST* args;
         } make_enum;
     } info;

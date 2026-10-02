@@ -24,4 +24,8 @@ fprintf(stderr, "[UNREACHABLE at "__FILE__ ":" LINE_STR ": ] " fmt "\n" __VA_OPT
 exit(3);                                                                          \
 } while (0);
 
+#define WARN(fmt, ...) do { \
+printf("["C_YELLOW"WARNING"C_RESET"] " fmt "\n" __VA_OPT__(,) __VA_ARGS__); \
+} while (0); \
+
 #endif //KLEPCOMPILER_DEV_H

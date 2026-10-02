@@ -1,0 +1,68 @@
+
+struct A {
+    Int32 v1;
+    Float32 v2;
+    List<Int32> v3;
+}
+
+Int32 main() {
+    Int32 a = 10 + 3;
+    a += 2;
+    a = 5;
+    a = 6;
+    a = 1 > 3 + 3;
+    return a + 3;
+}
+
+Float32 two() {
+    A a = new A { v1 = 1, v2 = 2.3, v3 = [1,2,3] };
+    return a.v2;
+}
+
+Void loop() {
+    Int n = 0;
+    while (n < 10) {
+        print(n);
+        n += 1;
+    }
+}
+
+
+// Assuming an Option-like enum exists: enum Option<T> { Some(T), None }
+generic enum Option<T> {
+    Some(T),
+    None
+}
+
+List<List<Option<Ref<Int>>>> inference_nightmare(Slice<Int> base_ptr) {
+    // The compiler must infer the types of deeply nested empty arrays,
+    // payload-less enums, and explicit casts solely from the function's return type!
+
+    return [
+        // Index 0: Standard inference
+        [
+            new Option::Some(base_ptr),
+            new Option::None
+        ],
+
+        // Index 1: The "Empty Container" problem
+        [],
+
+        // Index 2: The "Cast Shield" and Pointer Math problem
+        [
+            // new Option::Some(cast<Ref<Int>>(0)),
+            new Option::Some(base_ptr[5])
+        ]
+    ];
+}
+
+
+Void types() {
+    Int32 a = 10;
+    Int8 b = 5;
+    Int64 c = a + b;
+    Uint8 cmp = a or b;
+
+    Int8 n = 10;
+    Uint64 k = 5 + cast<Int32>(n) + 1;
+}

@@ -106,6 +106,10 @@ void print_IR_instr(const IR_instr* restrict instr, const khash_t(sv_u64_map)* r
             printf("%%%lu = CONST_FLOAT %f", instr->info.const_float.dest.val, instr->info.const_float.val);
             break;
         }
+        case IR_INST_TY__CONST_STRING: {
+            printf("%%%lu = CONST_STRING \"" SV_format "\"", instr->info.const_string.dest.val, SV_v_args(SV_from_identifiermap_lookup(identifier_map, instr->info.const_string.string)));
+            break;
+        }
         case IR_INST_TY__MAKE_ARRAY: {
             printf("%%%lu = MAKE_ARRAY [", instr->info.make_array.dest.val);
             for (size_t i = 0; i < instr->info.make_array.items->len; i++) {
@@ -208,7 +212,7 @@ void print_IR_instr(const IR_instr* restrict instr, const khash_t(sv_u64_map)* r
 
 
         case IR_INST_TY__BRANCH: {
-            printf("BR %%%lu, BLOCK<%lu>, BLOCK<%lu>", instr->info.branch.dest.val, instr->info.branch.branch_true, instr->info.branch.branch_false);
+            printf("BR %%%lu, BLOCK<%lu>, BLOCK<%lu>", instr->info.branch.cond.val, instr->info.branch.branch_true, instr->info.branch.branch_false);
             break;
         }
         case IR_INST_TY__JUMP: {

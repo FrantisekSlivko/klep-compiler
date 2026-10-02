@@ -28,6 +28,22 @@ void print_error(const SV* restrict filename, size_t line_num, size_t char_num, 
     putc('\n', stderr);
 }
 
+void print_type_error(const SV* restrict filename, size_t line_num, size_t char_num, const SV* message, const SV* code_line, size_t ptr_start, size_t ptr_len) {
+    fprintf(stderr, "\n");
+
+    fprintf(stderr, ""SV_format":%lu:%lu: "C_RED"type error:"C_RESET" "SV_format"\n", SV_p_args(filename), line_num, char_num, SV_p_args(message));
+
+    fprintf(stderr, "  "SV_format"\n", SV_p_args(code_line));
+    fprintf(stderr, "  ");
+    for (size_t n = 0; n < ptr_start; n++ ) {
+        putc(' ', stderr);
+    }
+    for (size_t n = 0; n < ptr_len; n++) {
+        putc('^', stderr);
+    }
+    putc('\n', stderr);
+}
+
 void print_hint(const SV* restrict filename, size_t line_num, size_t char_num, const SV* message, const SV* code_line, size_t ptr_start, size_t ptr_len) {
     fprintf(stderr, "\n");
 
@@ -85,6 +101,13 @@ void syntax_error(const SV* source, const SV* restrict source_filename, const SV
 
     const SV line = SV_from_str_len(source->start + tl.line_start, tl.line_len);
     print_error(source_filename, tl.line_num+1, tl.inline_start+1, message, &line, tl.inline_start, token->len);
+}
+
+void type_error(const SV* source, const SV* restrict source_filename, const SV* token, const SV* message) {
+    const TokenLocation tl = locate_token(source, token);
+
+    const SV line = SV_from_str_len(source->start + tl.line_start, tl.line_len);
+    print_type_error(source_filename, tl.line_num+1, tl.inline_start+1, message, &line, tl.inline_start, token->len);
 }
 
 void expected_token_error(const SV* source, const SV* restrict source_filename, const SV* last_token, const char* restrict expected) {
