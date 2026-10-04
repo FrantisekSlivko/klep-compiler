@@ -63,6 +63,47 @@ Void types() {
     Int64 c = a + b;
     Uint8 cmp = a or b;
 
+    Slice<Char> l = "hi";
+    /// Uint64 k = l + 5 + cast<Int32>(n) + 1;
+}
+
+Void refs() {
     Int8 n = 10;
-    Uint64 k = 5 + cast<Int32>(n) + 1;
+    Ref<Int8> n2 = n;
+    Int32 n3 = n;
+    Int64 n4 = n2;
+    Uint32 b = 1 or 0;
+
+    List<Char> s = "Hello World!\ta";
+    s[2] = 'H';
+}
+
+// tests correct PHI casts with different types
+Int32 control_flow() {
+    Int32 x = 0;
+    if (1 < 10) {
+        Int8 v = 5;
+        x = v + 3;
+    } else {
+        x = 20;
+    }
+
+    Int32 i = 0;
+    while (1 < 10) {
+        if(i == 3) {
+            Int16 five = 5;
+            i = five;
+        }
+        Int8 plus_one = 1;
+        i += plus_one;
+    }
+    x += i;
+    return x;
+}
+
+Void uint_loop() {
+    Uint32 i = 0;
+    while (i < 10) {
+        i += 1;
+    }
 }

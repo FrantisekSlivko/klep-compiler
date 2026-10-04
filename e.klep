@@ -31,8 +31,8 @@ extern void read_fn(Int32* buf, Uint32* out_len)
 
 
 Int max(Uint a, Int8 b) {
-    if (a > b) {
-        return a;
+    if (cast<Int32>(a) > cast<Int32>(b)) {
+        return cast<Int32>(a);
     } else {
         return b;
     }
@@ -41,7 +41,6 @@ Int max(Uint a, Int8 b) {
 
 Uint cast_test(Int a) {
     Int64 b = a;
-    Int16 c = a;
     return cast<Uint>(a);
 }
 
@@ -70,7 +69,7 @@ Void if_plus_while(Int n) {
 
 Int kv(Uint8 a, Int8 b) {
     Int c = 0;
-    if (a > b) {
+    if (cast<Int16>(a) > b) {
         c = a + 1;
     } else {
         c = b + 1;

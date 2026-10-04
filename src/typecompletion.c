@@ -3,7 +3,6 @@
 #include "utils/dev.h"
 
 
-
 void print_TC_typeid(const TC_typeid* restrict ty, const khash_t(sv_u64_map)* restrict identifier_map, const TC_TypeTable* restrict nct) {
     switch (ty->ty) {
         case TC_TY_Void: {
@@ -60,6 +59,122 @@ void print_TC_typeid(const TC_typeid* restrict ty, const khash_t(sv_u64_map)* re
             break;
         }
     }
+}
+
+SV append_and_advance_buff(const SV* dest, const SV src) {
+    // 1. Prevent buffer overflows by clamping the copy length to the remaining capacity
+    const size_t copy_len = src.len < dest->len ? src.len : dest->len;
+
+    // 2. Copy the data (casting away constness since SV often has a const char* start,
+    //    but we are using it here as a writable buffer slice)
+    if (copy_len > 0) {
+        memcpy((char*)dest->start, src.start, copy_len);
+    }
+
+    // 3. Return a new SV shifted forward by the amount we just wrote
+    return (SV){
+        .start = dest->start + copy_len,
+        .len = dest->len - copy_len
+    };
+}
+
+SV format_TC_typeid_inner(SV buffer, const TC_typeid* restrict ty, const khash_t(sv_u64_map)* restrict identifier_map, const TC_TypeTable* restrict nct);
+
+SV format_TC_typeid(const TC_typeid* restrict ty, const khash_t(sv_u64_map)* restrict identifier_map, const TC_TypeTable* restrict nct) {
+    const size_t MAX_SIZE = 1024;
+    char* buff = malloc(sizeof(char)*MAX_SIZE);
+    const SV buffer = (SV) {.start = buff, .len = MAX_SIZE };
+    const SV ret = format_TC_typeid_inner(buffer, ty, identifier_map, nct);
+    char* new_buff = realloc(buff, ret.start - buffer.start);
+    return (SV) { .start = new_buff, .len = ret.start - buffer.start};
+}
+
+#define MAKE_SV_LIT(X) (SV){.start=X, .len=sizeof(X)-1}
+
+SV format_TC_typeid_inner(const SV buffer, const TC_typeid* restrict ty, const khash_t(sv_u64_map)* restrict identifier_map, const TC_TypeTable* restrict nct) {
+    switch (ty->ty) {
+        case TC_TY_Void: {
+            return append_and_advance_buff(&buffer, MAKE_SV_LIT("Void"));
+            break;
+        }
+        case TC_TY_Primitive: {
+            const SV k = TC_Primitive_TY_to_SV(ty->info.primitive);
+            return append_and_advance_buff(&buffer, k);
+        }
+        case TC_TY_Struct: {
+            const SV name = nct->structs.array[ty->info.type_id].name.span.sv; // SV_from_identifiermap_lookup(identifier_map, nct->structs.array[ty->info.type_id].name);
+            const SV b1 = append_and_advance_buff(&buffer, name);
+            const int len = snprintf((char*)b1.start, b1.len, "{%u}", ty->info.type_id);
+            const SV b2 = (SV){.start = b1.start + len, .len = b1.len - len };
+            // printf(SV_format"{%u}", SV_v_args(name), ty->info.type_id);
+            return b2;
+            // break;
+        }
+        case TC_TY_Enum: {
+            const SV name = nct->enums.array[ty->info.type_id].name.span.sv; // SV_from_identifiermap_lookup(identifier_map, nct->enums.array[ty->info.type_id].name);
+            const SV b1 = append_and_advance_buff(&buffer, name);
+            const int len = snprintf((char*)b1.start, b1.len, "{%u}", ty->info.type_id);
+            const SV b2 = (SV){.start = b1.start + len, .len = b1.len - len };
+            // printf(SV_format"{%u}", SV_v_args(name), ty->info.type_id);
+            // break;
+            return b2;
+        }
+        case TC_TY_Ref: {
+            // printf("Ref<");
+            const SV b1 = append_and_advance_buff(&buffer, MAKE_SV_LIT("Ref<"));
+            const SV b2 = format_TC_typeid_inner(b1, ty->info.contained, identifier_map, nct);
+            const SV b3 = append_and_advance_buff(&b2, MAKE_SV_LIT(">"));
+            // putc('>', stdout);
+            // break;
+            return b3;
+        }
+        case TC_TY_Array: {
+            // printf("Array<");
+            const SV b1 = append_and_advance_buff(&buffer, MAKE_SV_LIT("Array<"));
+            const SV b2 = format_TC_typeid_inner(b1, ty->info.t_array.contained, identifier_map, nct);
+            const int len = snprintf((char*)b2.start, b2.len, ", %u>", ty->info.type_id);
+            // printf(", %u>", ty->info.t_array.array_size);
+            const SV b3 = (SV){.start = b2.start + len, .len = b2.len - len };;
+            // break;
+            return b3;
+        }
+        case TC_TY_List: {
+            // printf("List<");
+            const SV b1 = append_and_advance_buff(&buffer, MAKE_SV_LIT("List<"));
+            const SV b2 = format_TC_typeid_inner(b1, ty->info.contained, identifier_map, nct);
+            const SV b3 = append_and_advance_buff(&b2, MAKE_SV_LIT(">"));
+            // putc('>', stdout);
+            // break;
+            return b3;
+        }
+        case TC_TY_Box: {
+            // printf("Box<");
+            const SV b1 = append_and_advance_buff(&buffer, MAKE_SV_LIT("Box<"));
+            const SV b2 = format_TC_typeid_inner(b1, ty->info.contained, identifier_map, nct);
+            // putc('>', stdout);
+            const SV b3 = append_and_advance_buff(&b2, MAKE_SV_LIT(">"));
+            // break;
+            return b3;
+        }
+        case TC_TY_Slice: {
+            // printf("Slice<");
+            const SV b1 = append_and_advance_buff(&buffer, MAKE_SV_LIT("Slice<"));
+            const SV b2 = format_TC_typeid_inner(b1, ty->info.contained, identifier_map, nct);
+            // putc('>', stdout);
+            const SV b3 = append_and_advance_buff(&b2, MAKE_SV_LIT(">"));
+            // break;
+            return b3;
+        }
+        case TC_TY_External_Type: {
+            const SV b1 = append_and_advance_buff(&buffer, MAKE_SV_LIT("ExternalType{"));
+            const SV b2 = append_and_advance_buff(&b1, ty->info.external_type.span.sv);
+            const SV b3 = append_and_advance_buff(&b2, MAKE_SV_LIT("}"));
+            // printf("ExternalType{"SV_format"}", SV_v_args(ty->info.external_type.span.sv));
+            // break;
+            return b3;
+        }
+    }
+    UNREACHABLE()
 }
 
 
@@ -264,7 +379,21 @@ bool CMP_IR_typeuse(const IR_typeuse* restrict a, const IR_typeuse* restrict b) 
             return CMP_IR_typeuse(a->contained, b->contained);
         }
         case IR_TY_Generic: {
+            // if (a->info.named.identifier != b->info.named.identifier) return false;
+            // if (a->contained_len != b->contained_len) return false;
+            // for(size_t n=0; n<a->contained_len; n++) {
+            //     if (!CMP_IR_typeuse(&a->contained[n], &b->contained[n])) {
+            //         return false;
+            //     }
+            // }
+            // return true;
+
+            if (a->info.named.identifier != b->info.named.identifier) {
+                return false;
+            }
+
             if (a->contained_len != b->contained_len) return false;
+
             for(size_t n=0; n<a->contained_len; n++) {
                 if (!CMP_IR_typeuse(&a->contained[n], &b->contained[n])) {
                     return false;

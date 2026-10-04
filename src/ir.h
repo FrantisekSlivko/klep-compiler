@@ -57,6 +57,7 @@ typedef enum {
     IR_IEI_branch,
     IR_IEI_return_value,
     IR_IEI_store_ptr,
+    IR_IEI_move,
 } IR_instr_error_info_kind;
 
 typedef struct {
@@ -125,7 +126,11 @@ typedef struct {
         struct {
             TokenSpan to;
             TokenSpan ptr;
+            TokenSpan expr;
         } store_ptr;
+        struct {
+            TokenSpan value;
+        } move;
         void* null;
     } info;
 } IR_instr_error_info;

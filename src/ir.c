@@ -2,7 +2,7 @@
 
 #include "utils/color.h"
 #include "utils/dev.h"
-
+#include <ctype.h>
 
 void print_IR_typeuse(const IR_typeuse* restrict ty, const khash_t(sv_u64_map)* restrict identifier_map) {
     if (ty->tt_ty == IR_TY_Primitive) {
@@ -107,7 +107,18 @@ void print_IR_instr(const IR_instr* restrict instr, const khash_t(sv_u64_map)* r
             break;
         }
         case IR_INST_TY__CONST_STRING: {
-            printf("%%%lu = CONST_STRING \"" SV_format "\"", instr->info.const_string.dest.val, SV_v_args(SV_from_identifiermap_lookup(identifier_map, instr->info.const_string.string)));
+            printf("%%%lu = CONST_STRING \"", instr->info.const_string.dest.val);
+            const SV val = SV_from_identifiermap_lookup(identifier_map, instr->info.const_string.string);
+            for (size_t i = 0; i < val.len; i++) {
+                unsigned char c = val.start[i];
+                if (c == '\n') printf("\\n");
+                else if (c == '\t') printf("\\t");
+                else if (c == '\r') printf("\\r");
+                else if (c == '\\') printf("\\\\");
+                else if (isprint(c)) putchar(c);
+                else printf("\\x%02X", c);
+            }
+            printf("\"");
             break;
         }
         case IR_INST_TY__MAKE_ARRAY: {

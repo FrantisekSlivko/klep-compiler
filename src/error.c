@@ -12,10 +12,10 @@ typedef struct {
     size_t inline_start;
 } TokenLocation;
 
-void print_error(const SV* restrict filename, size_t line_num, size_t char_num, const SV* message, const SV* code_line, size_t ptr_start, size_t ptr_len) {
+void print_error(const SV* restrict filename, const size_t line_num, const size_t char_num, const SV* message, const SV* code_line, const size_t ptr_start, const size_t ptr_len) {
     fprintf(stderr, "\n");
 
-    fprintf(stderr, ""SV_format":%lu:%lu: "C_RED"error:"C_RESET" "SV_format"\n", SV_p_args(filename), line_num, char_num, SV_p_args(message));
+    fprintf(stderr, ""C_BLUE""SV_format":%lu:%lu:"C_RESET" "C_RED"error:"C_RESET" "SV_format"\n", SV_p_args(filename), line_num, char_num, SV_p_args(message));
 
     fprintf(stderr, "  "SV_format"\n", SV_p_args(code_line));
     fprintf(stderr, "  ");
@@ -28,10 +28,10 @@ void print_error(const SV* restrict filename, size_t line_num, size_t char_num, 
     putc('\n', stderr);
 }
 
-void print_type_error(const SV* restrict filename, size_t line_num, size_t char_num, const SV* message, const SV* code_line, size_t ptr_start, size_t ptr_len) {
+void print_type_error(const SV* restrict filename, const size_t line_num, const size_t char_num, const SV* message, const SV* code_line, const size_t ptr_start, const size_t ptr_len) {
     fprintf(stderr, "\n");
 
-    fprintf(stderr, ""SV_format":%lu:%lu: "C_RED"type error:"C_RESET" "SV_format"\n", SV_p_args(filename), line_num, char_num, SV_p_args(message));
+    fprintf(stderr, ""C_BLUE""SV_format":%lu:%lu:"C_RESET" "C_RED"type error:"C_RESET" "SV_format"\n", SV_p_args(filename), line_num, char_num, SV_p_args(message));
 
     fprintf(stderr, "  "SV_format"\n", SV_p_args(code_line));
     fprintf(stderr, "  ");
@@ -44,10 +44,10 @@ void print_type_error(const SV* restrict filename, size_t line_num, size_t char_
     putc('\n', stderr);
 }
 
-void print_hint(const SV* restrict filename, size_t line_num, size_t char_num, const SV* message, const SV* code_line, size_t ptr_start, size_t ptr_len) {
+void print_hint(const SV* restrict filename, const size_t line_num, const size_t char_num, const SV* message, const SV* code_line, const size_t ptr_start, const size_t ptr_len) {
     fprintf(stderr, "\n");
 
-    fprintf(stderr, ""SV_format":%lu:%lu: "C_CYAN"hint:"C_RESET" "SV_format"\n", SV_p_args(filename), line_num, char_num, SV_p_args(message));
+    fprintf(stderr, ""C_BLUE""SV_format":%lu:%lu:"C_RESET" "C_CYAN"hint:"C_RESET" "SV_format"\n", SV_p_args(filename), line_num, char_num, SV_p_args(message));
 
     fprintf(stderr, "  "SV_format"\n", SV_p_args(code_line));
     fprintf(stderr, "  ");

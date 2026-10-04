@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <ctype.h>
 
 #include "error.h"
 #include "utils/dev.h"
@@ -1007,26 +1008,289 @@ IR_temporal_with_span P_get_expr_val(Parser* p) {
         return (IR_temporal_with_span){dest, whole};
     }
 
-    if (t->start[0] == '"') { // string literal
-        // CONST_STRING
-        if (t->start[t->len-1] != '"') {
+    if (t->start[0] == '"') {
+        // // string literal
+        // // CONST_STRING
+        // if (t->start[t->len - 1] != '"') {
+        //     P_syntax_error(p, t, SV_from_str("unterminated string literal"));
+        //     exit(1);
+        // }
+        // const IR_temporal dest = P_new_temporal(p);
+        // const SV raw_str = (SV){.start = &t->start[1], .len = t->len - 2};
+        // const Identifier str = P_to_identifier(p, &raw_str);
+        // P_emit(p, (IR_instr){
+        //            .ty = IR_INST_TY__CONST_STRING,
+        //            .info.const_string = {
+        //                .dest = dest,
+        //                .string = str
+        //            }
+        //        }, (IR_instr_error_info){
+        //            .kind = IR_IEI_literal,
+        //            .info.literal = (TokenSpan){.sv = *t}
+        //        });
+        // return (IR_temporal_with_span){dest, (TokenSpan){.sv = *t}};
+        // Allocate a temporary buffer for the unescaped string.
+        // The decoded string will never be larger than the raw token length.
+        char* unescaped = malloc(t->len);
+
+        size_t out_len = 0;
+        size_t i = 1;
+        bool is_closed = false;
+
+        while (i < t->len) {
+            if (t->start[i] == '"') {
+                is_closed = true;
+                i++; // Consume the closing quote
+                break;
+            }
+
+            if (t->start[i] == '\\') {
+                i++; // Consume backslash
+                if (i >= t->len) {
+                    free(unescaped);
+                    P_syntax_error(p, t, SV_from_str("unexpected EOF in escape sequence"));
+                    exit(1);
+                }
+
+                char c = t->start[i];
+                switch (c) {
+                    case 'n': unescaped[out_len++] = '\n';
+                        i++;
+                        break;
+                    case 't': unescaped[out_len++] = '\t';
+                        i++;
+                        break;
+                    case 'r': unescaped[out_len++] = '\r';
+                        i++;
+                        break;
+                    case 'b': unescaped[out_len++] = '\b';
+                        i++;
+                        break;
+                    case 'f': unescaped[out_len++] = '\f';
+                        i++;
+                        break;
+                    case 'v': unescaped[out_len++] = '\v';
+                        i++;
+                        break;
+                    case 'a': unescaped[out_len++] = '\a';
+                        i++;
+                        break;
+                    case '\\': unescaped[out_len++] = '\\';
+                        i++;
+                        break;
+                    case '\'': unescaped[out_len++] = '\'';
+                        i++;
+                        break;
+                    case '\"': unescaped[out_len++] = '\"';
+                        i++;
+                        break;
+                    case '?': unescaped[out_len++] = '\?';
+                        i++;
+                        break;
+                    case 'x': {
+                        i++;
+                        if (i >= t->len || !isxdigit((unsigned char)t->start[i])) {
+                            P_syntax_error(p, t, SV_from_str("\\x must be followed by at least one hex digit"));
+                            exit(1);
+                        }
+                        uint32_t hex_val = 0;
+                        while (i < t->len && isxdigit((unsigned char)t->start[i])) {
+                            char hc = t->start[i];
+                            int nibble = (hc >= '0' && hc <= '9')
+                                             ? (hc - '0')
+                                             : (tolower((unsigned char) hc) - 'a' + 10);
+
+                            hex_val = (hex_val << 4) | nibble;
+                            if (hex_val > 255) {
+                                P_syntax_error(p, t, SV_from_str("hex escape sequence out of range"));
+                                exit(1);
+                            }
+                            i++;
+                        }
+                        unescaped[out_len++] = (char) (uint8_t) hex_val;
+                        break;
+                    }
+                    default: {
+                        if (c >= '0' && c <= '7') {
+                            uint32_t oct_val = 0;
+                            int count = 0;
+                            while (i < t->len && count < 3 && t->start[i] >= '0' && t->start[i] <= '7') {
+                                oct_val = (oct_val << 3) | (t->start[i] - '0');
+                                if (oct_val > 255) {
+                                    P_syntax_error(p, t, SV_from_str("octal escape sequence out of range"));
+                                    exit(1);
+                                }
+                                i++;
+                                count++;
+                            }
+                            unescaped[out_len++] = (char) (uint8_t) oct_val;
+                        } else {
+                            P_syntax_error(p, t, SV_from_str("unknown escape sequence"));
+                            exit(1);
+                        }
+                        break;
+                    }
+                }
+            } else {
+                // Normal character
+                unescaped[out_len++] = t->start[i];
+                i++;
+            }
+        }
+
+        if (!is_closed) {
+            free(unescaped);
             P_syntax_error(p, t, SV_from_str("unterminated string literal"));
             exit(1);
         }
-        const IR_temporal dest = P_new_temporal(p);
-        const SV raw_str = (SV) {.start = &t->start[1], .len = t->len-2 };
+
+        // Pass the decoded string to the identifier pool
+        const SV raw_str = (SV){.start = unescaped, .len = out_len};
         const Identifier str = P_to_identifier(p, &raw_str);
+
+        const IR_temporal dest = P_new_temporal(p);
         P_emit(p, (IR_instr){
-            .ty = IR_INST_TY__CONST_STRING,
-            .info.const_string = {
-                .dest = dest,
-                .string = str
+                   .ty = IR_INST_TY__CONST_STRING,
+                   .info.const_string = {
+                       .dest = dest,
+                       .string = str
+                   }
+               }, (IR_instr_error_info){
+                   .kind = IR_IEI_literal,
+                   .info.literal = (TokenSpan){.sv = *t}
+               });
+
+        return (IR_temporal_with_span){dest, (TokenSpan){.sv = *t}};
+    }
+
+    if (t->start[0] == '\'') {
+        // char literal -> const_int Uint8
+        size_t i = 1;
+        uint8_t result_val = 0;
+        bool is_valid = true;
+
+        if (i >= t->len || t->start[i] == '\'') {
+            is_valid = false; // Reject empty literal '' or unexpected EOF
+        } else if (t->start[i] == '\\') {
+            i++; // Consume the backslash
+            if (i >= t->len) {
+                is_valid = false;
+            } else {
+                char c = t->start[i];
+                switch (c) {
+                    case 'n': result_val = '\n';
+                        i++;
+                        break;
+                    case 't': result_val = '\t';
+                        i++;
+                        break;
+                    case 'r': result_val = '\r';
+                        i++;
+                        break;
+                    case 'b': result_val = '\b';
+                        i++;
+                        break;
+                    case 'f': result_val = '\f';
+                        i++;
+                        break;
+                    case 'v': result_val = '\v';
+                        i++;
+                        break;
+                    case 'a': result_val = '\a';
+                        i++;
+                        break;
+                    case '\\': result_val = '\\';
+                        i++;
+                        break;
+                    case '\'': result_val = '\'';
+                        i++;
+                        break;
+                    case '\"': result_val = '\"';
+                        i++;
+                        break;
+                    case '?': result_val = '\?';
+                        i++;
+                        break;
+                    case 'x': {
+                        i++; // Consume 'x'
+                        if (i >= t->len || !isxdigit((unsigned char) t->start[i])) {
+                            P_syntax_error(p, t, SV_from_str("\\x must be followed by at least one hex digit"));
+                            exit(1);
+                        } else {
+                            uint32_t hex_val = 0;
+                            while (i < t->len && isxdigit((unsigned char) t->start[i])) {
+                                char hc = t->start[i];
+                                int nibble = (hc >= '0' && hc <= '9')
+                                                 ? (hc - '0')
+                                                 : (tolower((unsigned char) hc) - 'a' + 10);
+
+                                hex_val = (hex_val << 4) | nibble;
+                                if (hex_val > 255) {
+                                    P_syntax_error(p, t, SV_from_str("hex escape sequence out of range"));
+                                    exit(1);
+                                }
+                                i++;
+                            }
+                            result_val = (uint8_t) hex_val;
+                        }
+                        break;
+                    }
+                    default: {
+                        if (c >= '0' && c <= '7') {
+                            uint32_t oct_val = 0;
+                            int count = 0;
+                            // Octal escapes can be up to 3 digits long
+                            while (i < t->len && count < 3 && t->start[i] >= '0' && t->start[i] <= '7') {
+                                oct_val = (oct_val << 3) | (t->start[i] - '0');
+                                if (oct_val > 255) {
+                                    P_syntax_error(p, t, SV_from_str("octal escape sequence out of range"));
+                                    exit(1);
+                                }
+                                i++;
+                                count++;
+                            }
+                            if (is_valid) result_val = (uint8_t) oct_val;
+                        } else {
+                            is_valid = false; // Reject unknown escape sequences
+                        }
+                        break;
+                    }
+                }
             }
-        }, (IR_instr_error_info){
-            .kind = IR_IEI_literal,
-            .info.literal = (TokenSpan){.sv = *t }
-        });
-        return (IR_temporal_with_span){dest, (TokenSpan){.sv=*t}};
+        } else {
+            // Standard ASCII character
+            result_val = (uint8_t) t->start[i];
+            i++;
+        }
+
+        // Crucial Check: Ensure the very next character is the closing quote.
+        // This rejects multi-character literals like 'ab' and unclosed quotes.
+        if (is_valid) {
+            if (i < t->len && t->start[i] == '\'') {
+                i++; // Consume the closing quote
+            } else {
+                is_valid = false;
+            }
+        }
+
+        if (is_valid) {
+            const IR_temporal res = P_new_temporal(p);
+            P_emit(p, (IR_instr){
+                       .ty = IR_INST_TY__CONST_INT,
+                       .info.const_int = {
+                           .dest = res,
+                           .val = result_val,
+                       }
+                   }, (IR_instr_error_info){
+                       .kind = IR_IEI_literal,
+                       .info.literal = (TokenSpan){.sv = *t}
+                   });
+
+            return (IR_temporal_with_span){res, (TokenSpan){.sv = *t}};
+        } else {
+            P_syntax_error(p, t, SV_from_str_len("invalid char literal", 20));
+            exit(1);
+        }
     }
 
     // name
@@ -1100,65 +1364,6 @@ IR_temporal_with_span P_get_expr_val(Parser* p) {
 
                 dest = fn_call;
                 dest_span = whole;
-                // } else if (Token_cmp(nx, "{")) {
-                //     // struct constructor
-                //     P_next_token(p); // {
-                //     IR_named_value_LIST* args = malloc(sizeof(IR_named_value_LIST));
-                //     *args = IR_named_value_LIST_new();
-                //
-                //     TokenSpan_LIST args_values_spans = TokenSpan_LIST_new();
-                //
-                //     SV end_span;
-                //     while (1) {
-                //         P_require_having_next_token(p, TT_EndCurlyBracket);
-                //         const Token kx = P_next_token(p);
-                //         if (Token_cmp(kx, "}")) {
-                //             end_span = *kx;
-                //             break;
-                //         }
-                //         const Identifier field_name = P_to_identifier(p, kx);
-                //         P_require_next_be(p, TT_Equal, SV_from_str_len("=", 1));
-                //         const IR_temporal_with_span val = P_get_expr(p);
-                //
-                //         IR_named_value_LIST_push(args, (IR_named_value){
-                //                                      .name = {field_name,(TokenSpan) {*kx}},
-                //                                      .value = val.temp,
-                //                                  });
-                //         TokenSpan_LIST_push(&args_values_spans, val.span);
-                //
-                //         P_require_having_next_token(p, TT_EndCurlyBracket);
-                //         const Token jx = P_next_token(p);
-                //         if (Token_cmp(jx, "}")) {
-                //             end_span = *jx;
-                //             break;
-                //         }
-                //         if (!Token_cmp(jx, ",")) {
-                //             P_syntax_error(p, jx, SV_from_str("expected either ',' or '}'"));
-                //             exit(1);
-                //         }
-                //     }
-                //
-                //     const IR_temporal out = P_new_temporal(p);
-                //
-                //     TokenSpan_LIST_shrink(&args_values_spans);
-                //     const TokenSpan whole = TS_merge(&name_span, &(TokenSpan){end_span});
-                //     P_emit(p, (IR_instr){
-                //                .ty = IR_INST_TY__MAKE_STRUCT,
-                //                .dest = out,
-                //                .p1.name = {name,(TokenSpan) {*t}},
-                //                .p2.struct_args = args,
-                //            }, (IR_instr_error_info) {
-                //                .kind = IR_IEI_struct_constructor,
-                //                .info.struct_constructor = {
-                //                     .name = name_span,
-                //                    .values = args_values_spans.array,
-                //                    .values_cnt = args_values_spans.len,
-                //                    .whole = whole,
-                //                }
-                //            });
-                //
-                //     dest = out;
-                //     dest_span = whole;
             } else {
                 dest = P_variable_lookup(p, t, name);
                 dest_span = name_span;
@@ -1515,14 +1720,16 @@ void P_get_var_dec_stmt(Parser* p) {
 
     const IR_temporal_with_span expr_rs = P_get_expr(p);
     const IR_temporal move_dest = P_new_temporal(p);
+    const IR_temporal_with_span rs = (IR_temporal_with_span){move_dest, expr_rs.span};
+
     P_emit(p, (IR_instr){
                .ty = IR_INST_TY__MOVE,
                .info.move = {
                    .dest = move_dest,
                    .src = expr_rs.temp
                }
-           }, (IR_instr_error_info){.kind = IR_IEI_none});
-    const IR_temporal_with_span rs = (IR_temporal_with_span){move_dest, expr_rs.span};
+           }, (IR_instr_error_info){.kind = IR_IEI_move, .info.move = {.value = rs.span}});
+
 
     IR_typeuse* ttype = malloc(sizeof(IR_typeuse));
     *ttype = ty;
@@ -2138,7 +2345,7 @@ void P_get_return_stmt(Parser* p) {
                    .dest = move_dest,
                    .src = ret.temp
                }
-           }, (IR_instr_error_info){.kind = IR_IEI_none});
+           }, (IR_instr_error_info){.kind = IR_IEI_move, .info.move = {.value = ret.span}});
     const IR_temporal_with_span final_out = (IR_temporal_with_span){move_dest, ret.span};
 
 
@@ -2316,44 +2523,59 @@ void P_get_assignment(Parser* p) {
         exit(1);
     }
 
+    if (!is_dest_ptr) {
+        IR_SSA_binding_LIST* binds = P_get_current_block_bindings(p);
+        bool found = false;
+        for (size_t n = 0; n < binds->len; n++) {
+            if (binds->array[n].variable.identifier == name) {
+                found = true;
+                break;
+            }
+        }
+        if (found) {
+            IR_typeuse* type = malloc(sizeof(IR_typeuse));
+            *type = P_variable_type_lookup(p, origin_name, name);
+            P_emit(p, (IR_instr){
+                       .ty = IR_INST_TY__DROP,
+                       .info.drop = {
+                           .var_name = name_spanned,
+                           .dest = dest,
+                           .type = type,
+                       }
+                   }, (IR_instr_error_info){.kind = IR_IEI_none});
+        }
+    }
 
-    const IR_temporal move_dest = P_new_temporal(p);
-    P_emit(p, (IR_instr){
-               .ty = IR_INST_TY__MOVE,
-               .info.move = {
-                   .dest = move_dest,
-                   .src = out_val.temp
-               }
-           }, (IR_instr_error_info){.kind = IR_IEI_none});
-    const IR_temporal_with_span final_out = (IR_temporal_with_span){move_dest, out_val.span};
 
-    // DROP CURRENT VALUE
-    IR_typeuse* type = malloc(sizeof(IR_typeuse));
-    *type = P_variable_type_lookup(p, origin_name, name);
-    P_emit(p, (IR_instr){
-               .ty = IR_INST_TY__DROP,
-               .info.drop = {
-                   .var_name = name_spanned,
-                   .dest = dest,
-                   .type = type,
-               }
-           }, (IR_instr_error_info){.kind = IR_IEI_none});
+
 
     if (is_dest_ptr) {
         P_emit(p, (IR_instr){
                    .ty = IR_INST_TY__STORE_PTR,
                    .info.store_ptr = {
                        .ptr = wrapped_result.temp,
-                       .value = final_out.temp
+                       .value = out_val.temp
                    }
                }, (IR_instr_error_info){
                    .kind = IR_IEI_store_ptr,
                    .info.store_ptr = {
                        .to = wrapped_result.span,
-                       .ptr = final_out.span
+                       .ptr = out_val.span,
+                       .expr = expr.span,
                    }
                });
     } else {
+
+        const IR_temporal move_dest = P_new_temporal(p);
+        P_emit(p, (IR_instr){
+                   .ty = IR_INST_TY__MOVE,
+                   .info.move = {
+                       .dest = move_dest,
+                       .src = out_val.temp
+                   }
+               }, (IR_instr_error_info){.kind = IR_IEI_move, .info.move = {.value = expr.span}});
+        const IR_temporal_with_span final_out = (IR_temporal_with_span){move_dest, out_val.span};
+
         IR_SSA_binding_LIST* binds = P_get_current_block_bindings(p);
         bool found = false;
         for (size_t n = 0; n < binds->len; n++) {
@@ -2370,6 +2592,19 @@ void P_get_assignment(Parser* p) {
                                      });
         }
     }
+
+    // // DROP CURRENT VALUE | WTF???
+    // // DROPS THE VARIABLE FOR SOME REASON..... SHOULD DO THAT ONLY ON WHOLE VARIABLE REASSIGNMENT
+    // IR_typeuse* type = malloc(sizeof(IR_typeuse));
+    // *type = P_variable_type_lookup(p, origin_name, name);
+    // P_emit(p, (IR_instr){
+    //            .ty = IR_INST_TY__DROP,
+    //            .info.drop = {
+    //                .var_name = name_spanned,
+    //                .dest = dest,
+    //                .type = type,
+    //            }
+    //        }, (IR_instr_error_info){.kind = IR_IEI_none});
 }
 
 
@@ -2695,33 +2930,33 @@ void P_get_top_fn(Parser* p) {
         IR_typeuse* ttype = malloc(sizeof(IR_typeuse));
         *ttype = args.array[n].type;
         P_emit(p, (IR_instr){
-            .ty = IR_INST_TY__VAR_DECL,
-            .info.var_decl = {
-                .var_name = args.array[n].name,
-                .dest = t,
-                .type = ttype
-            }
-        }, (IR_instr_error_info){
-            .kind = IR_IEI_variable_declaration,
-            .info.variable_declaration = {
-                .name = args.array[n].name.span,
-                .type = ttype->full_typeuse_span,
-                .expr = TS_merge(&args.array[n].name.span, &ttype->full_typeuse_span),
-                .whole = TS_merge(&args.array[n].name.span, &ttype->full_typeuse_span)
-            }
-        });
+                   .ty = IR_INST_TY__VAR_DECL,
+                   .info.var_decl = {
+                       .var_name = args.array[n].name,
+                       .dest = t,
+                       .type = ttype
+                   }
+               }, (IR_instr_error_info){
+                   .kind = IR_IEI_variable_declaration,
+                   .info.variable_declaration = {
+                       .name = args.array[n].name.span,
+                       .type = ttype->full_typeuse_span,
+                       .expr = TS_merge(&args.array[n].name.span, &ttype->full_typeuse_span),
+                       .whole = TS_merge(&args.array[n].name.span, &ttype->full_typeuse_span)
+                   }
+               });
 
         // ADD TO SCOPE
         if (p->compilation_scope.len == 0) {
             P_compilation_scope_LIST_push(&p->compilation_scope, (P_compilation_scope){
-                .variables = P_variable_record_LIST_new()
-            });
+                                              .variables = P_variable_record_LIST_new()
+                                          });
         }
         P_variable_record_LIST_push(&P_compilation_scope_LIST_peek_last(&p->compilation_scope)->variables,
-            (P_variable_record){
-                .name = args.array[n].name,
-                .type = args.array[n].type
-            }
+                                    (P_variable_record){
+                                        .name = args.array[n].name,
+                                        .type = args.array[n].type
+                                    }
         );
     }
 

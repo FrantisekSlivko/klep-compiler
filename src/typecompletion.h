@@ -169,7 +169,7 @@ TC_TypeTable close_type_table(
 );
 
 void print_TC_typeid(const TC_typeid* restrict ty, const khash_t(sv_u64_map)* restrict identifier_map, const TC_TypeTable* restrict nct);
-
+SV format_TC_typeid(const TC_typeid* restrict ty, const khash_t(sv_u64_map)* restrict identifier_map, const TC_TypeTable* restrict nct);
 
 bool CMP_IR_typeuse(const IR_typeuse* a, const IR_typeuse* b);
 
