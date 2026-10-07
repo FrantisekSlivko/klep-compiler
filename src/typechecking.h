@@ -21,4 +21,6 @@ void TC_typecheck_and_lower(
     TC_typeid_LIST* restrict type_needing_destructor
 );
 
+void init__compiler_builtin__tc_types(khash_t(sv_u64_map)* restrict identifier_map, uint64_t* restrict identifier_map_cnt, const TargetInfo* restrict target_info);
+
 #endif //KLEPCOMPILER_TYPECHECKING_H

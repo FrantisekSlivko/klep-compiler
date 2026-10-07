@@ -41,7 +41,7 @@ List<List<Option<Ref<Int>>>> inference_nightmare(Slice<Int> base_ptr) {
     return [
         // Index 0: Standard inference
         [
-            new Option::Some(base_ptr),
+            new Option::Some(base_ptr[0]),
             new Option::None
         ],
 
@@ -106,4 +106,11 @@ Void uint_loop() {
     while (i < 10) {
         i += 1;
     }
+}
+
+Void list_and_arrays(){
+    Array<Char, 5> s = "abcde";
+    List<Char> s2 = "hello world";
+    Int len = s.len;
+    Int len2 = s2.len;
 }

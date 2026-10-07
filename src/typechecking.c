@@ -577,31 +577,31 @@ typedef struct {
 
 init_prefixed_list_type(TC_arg)
 
-/// on success returns TRUE, and CAST from source to dest can be emitted
-bool try_to_cast_to(const TC_typeid* source, const TC_typeid* dest) {
-    switch (source->ty) {
-        case TC_TY_Primitive: {
-            if (dest->ty != TC_TY_Primitive && dest->ty != TC_TY_Enum) return false;
-            // dest->info.primitive;
-            return true;
-        }
-        case TC_TY_Enum: {
-            if (dest->ty != TC_TY_Primitive && dest->ty != TC_TY_Enum) return false;
-            UNIMPLEMENTED("try_to_cast_to for TC_TY_Enum")
-        }
-
-        case TC_TY_Void:
-        case TC_TY_Struct:
-        case TC_TY_Ref:
-        case TC_TY_Array:
-        case TC_TY_List:
-        case TC_TY_Box:
-        case TC_TY_Slice:
-        case TC_TY_External_Type:
-            return false;
-    }
-    UNREACHABLE()
-}
+// /// on success returns TRUE, and CAST from source to dest can be emitted
+// bool try_to_cast_to(const TC_typeid* source, const TC_typeid* dest) {
+//     switch (source->ty) {
+//         case TC_TY_Primitive: {
+//             if (dest->ty != TC_TY_Primitive && dest->ty != TC_TY_Enum) return false;
+//             // dest->info.primitive;
+//             return true;
+//         }
+//         case TC_TY_Enum: {
+//             if (dest->ty != TC_TY_Primitive && dest->ty != TC_TY_Enum) return false;
+//             UNIMPLEMENTED("try_to_cast_to for TC_TY_Enum")
+//         }
+//
+//         case TC_TY_Void:
+//         case TC_TY_Struct:
+//         case TC_TY_Ref:
+//         case TC_TY_Array:
+//         case TC_TY_List:
+//         case TC_TY_Box:
+//         case TC_TY_Slice:
+//         case TC_TY_External_Type:
+//             return false;
+//     }
+//     UNREACHABLE()
+// }
 
 typedef struct {
     size_t block;
@@ -800,64 +800,64 @@ init_prefixed_list_type(TC_Entry)
 //     return new_temporal;
 // }
 
-void RAII_emit_typed_destructor(
-    const TC_typeid* restrict type,
-    const size_t in_obj_ptr_temporal,
-    const size_t block_id,
-    const size_t instr_nth,
-    const TC_TypeTable* restrict nct,
-    TC_Entry_LIST* restrict temporals_map,
-    TC_typeid_LIST* restrict type_needing_destructor,
-    const khash_t(sv_u64_map)* restrict identifier_map
-) {
-    NEW_INSTR_BEGIN
-    printf("NEW_INSTR: CALL_TYPE_DESTRUCTOR{");
-    print_TC_typeid(type, identifier_map, nct);
-    printf("} %%%lu\n", in_obj_ptr_temporal);
-    NEW_INSTR_END
-
-    TC_typeid_LIST_push(type_needing_destructor, *type);
-}
-
-void RAII_drop(
-    const TC_typeid* restrict type,
-    const size_t in_obj_ptr_temporal,
-    const size_t block_id,
-    const size_t instr_nth,
-    const TC_TypeTable* restrict nct,
-    TC_Entry_LIST* restrict temporals_map,
-    TC_typeid_LIST* restrict type_needing_destructor,
-    const khash_t(sv_u64_map)* restrict identifier_map
-) {
-    switch (type->ty) {
-        case TC_TY_Void:
-        case TC_TY_Primitive:
-        case TC_TY_Ref:
-        case TC_TY_Slice: {
-            NEW_INSTR_BEGIN
-            printf("NEW_INSTR: FREE_HEAP_PTR %%%lu\n", in_obj_ptr_temporal);
-            NEW_INSTR_END
-        }
-        case TC_TY_External_Type: return;
-
-
-        case TC_TY_Box: {
-            // BOX is just an owned heap ptr
-            RAII_drop(type->info.contained, in_obj_ptr_temporal, block_id, instr_nth, nct, temporals_map,
-                      type_needing_destructor, identifier_map);
-            break;
-        }
-
-        case TC_TY_List:
-        case TC_TY_Struct:
-        case TC_TY_Enum:
-        case TC_TY_Array: {
-            RAII_emit_typed_destructor(type, in_obj_ptr_temporal, block_id, instr_nth, nct, temporals_map,
-                                       type_needing_destructor, identifier_map);
-            break;
-        }
-    }
-}
+// void RAII_emit_typed_destructor(
+//     const TC_typeid* restrict type,
+//     const size_t in_obj_ptr_temporal,
+//     const size_t block_id,
+//     const size_t instr_nth,
+//     const TC_TypeTable* restrict nct,
+//     TC_Entry_LIST* restrict temporals_map,
+//     TC_typeid_LIST* restrict type_needing_destructor,
+//     const khash_t(sv_u64_map)* restrict identifier_map
+// ) {
+//     NEW_INSTR_BEGIN
+//     printf("NEW_INSTR: CALL_TYPE_DESTRUCTOR{");
+//     print_TC_typeid(type, identifier_map, nct);
+//     printf("} %%%lu\n", in_obj_ptr_temporal);
+//     NEW_INSTR_END
+//
+//     TC_typeid_LIST_push(type_needing_destructor, *type);
+// }
+//
+// void RAII_drop(
+//     const TC_typeid* restrict type,
+//     const size_t in_obj_ptr_temporal,
+//     const size_t block_id,
+//     const size_t instr_nth,
+//     const TC_TypeTable* restrict nct,
+//     TC_Entry_LIST* restrict temporals_map,
+//     TC_typeid_LIST* restrict type_needing_destructor,
+//     const khash_t(sv_u64_map)* restrict identifier_map
+// ) {
+//     switch (type->ty) {
+//         case TC_TY_Void:
+//         case TC_TY_Primitive:
+//         case TC_TY_Ref:
+//         case TC_TY_Slice: {
+//             NEW_INSTR_BEGIN
+//             printf("NEW_INSTR: FREE_HEAP_PTR %%%lu\n", in_obj_ptr_temporal);
+//             NEW_INSTR_END
+//         }
+//         case TC_TY_External_Type: return;
+//
+//
+//         case TC_TY_Box: {
+//             // BOX is just an owned heap ptr
+//             RAII_drop(type->info.contained, in_obj_ptr_temporal, block_id, instr_nth, nct, temporals_map,
+//                       type_needing_destructor, identifier_map);
+//             break;
+//         }
+//
+//         case TC_TY_List:
+//         case TC_TY_Struct:
+//         case TC_TY_Enum:
+//         case TC_TY_Array: {
+//             RAII_emit_typed_destructor(type, in_obj_ptr_temporal, block_id, instr_nth, nct, temporals_map,
+//                                        type_needing_destructor, identifier_map);
+//             break;
+//         }
+//     }
+// }
 
 
 
@@ -1223,27 +1223,14 @@ void type_inference_pass_over_fn(
                     }
                     const TC_typeid dest_type = temporals_map->array[instr.info.make_array.dest.val].type;
                     // get inner array type
-                    size_t unwrap_cnt = 0;
                     TC_typeid inner = dest_type;
-                    while (inner.ty == TC_TY_Ref || inner.ty == TC_TY_Box || inner.ty == TC_TY_Array || inner.ty == TC_TY_List || inner.ty == TC_TY_Slice) {
-                        switch (inner.ty) {
-                            case TC_TY_Ref:
-                            case TC_TY_Box:
-                            case TC_TY_Slice:
-                            case TC_TY_List: {
-                                inner = *inner.info.contained;
-                                unwrap_cnt++;
-                                break;
-                            }
-                            case TC_TY_Array: {
-                                inner = *inner.info.t_array.contained;
-                                unwrap_cnt++;
-                                break;
-                            }
-                            default: {break;}
+                    while (inner.ty == TC_TY_Ref || inner.ty == TC_TY_Box) inner = *inner.info.contained;
+                    if (inner.ty == TC_TY_Array || inner.ty == TC_TY_List || inner.ty == TC_TY_Slice) {
+                        if (inner.ty == TC_TY_Array) {
+                            inner = *inner.info.t_array.contained;
+                        } else {
+                            inner = *inner.info.contained;
                         }
-                    }
-                    if (unwrap_cnt > 0) {
                         for(size_t n=0; n < instr.info.make_array.items->len; n++) {
                             const IR_temporal item = instr.info.make_array.items->array[n];
                             if (!temporals_map->array[item.val].known_temporal) {
@@ -1380,7 +1367,7 @@ void type_inference_pass_over_fn(
                         type = resolve_tc_type(instr.info.make_struct.type, nct, target_info, source_info);
                     }
 
-                    if (type.ty != TC_TY_Enum) break;
+                    if (type.ty != TC_TY_Struct) break;
 
                     // Anchor the destination temporal
                     temporals_map->array[instr.info.make_struct.dest.val] = (TC_Entry){
@@ -1394,7 +1381,7 @@ void type_inference_pass_over_fn(
 
                     for (size_t n=0; n < instr.info.make_struct.args->len; n++) {
                         const IR_named_value arg = instr.info.make_struct.args->array[n];
-                        if (temporals_map->array[arg.value.val].known_temporal) continue;
+                        // if (temporals_map->array[arg.value.val].known_temporal) continue;
                         for (size_t k=0; k < st->fields.len; k++) {
                             if(st->fields.array[k].name.identifier == arg.name.identifier) {
                                 temporals_map->array[arg.value.val] = (TC_Entry) {
@@ -2488,6 +2475,126 @@ IR_temporal perf_autos(
     }
 }
 
+
+SizeAlign calc_size_of(const TC_typeid* type, const TC_TypeTable* restrict nct, const TargetInfo* restrict target_info) {
+    switch (type->ty) {
+        case TC_TY_Void: INTERNAL_ERROR("SIZEOF_ VOID")
+        case TC_TY_Primitive: {
+            return (SizeAlign) { TC_Primitive_TY_size(type->info.primitive), TC_Primitive_TY_size(type->info.primitive)};
+        }
+        case TC_TY_Slice: {
+            return (SizeAlign) { target_info->ptr_size * 2, target_info->ptr_size }; // { ptr; len; }
+        }
+        case TC_TY_Struct: {
+            return (SizeAlign) { nct->structs.array[type->info.type_id].layout.size, nct->structs.array[type->info.type_id].layout.align };
+        }
+        case TC_TY_Enum: {
+            return (SizeAlign) { nct->enums.array[type->info.type_id].size, nct->enums.array[type->info.type_id].align };
+        }
+        case TC_TY_Ref:
+        case TC_TY_Box: {
+            return (SizeAlign) {target_info->ptr_size, target_info->ptr_size};
+        }
+        case TC_TY_Array: {
+            const SizeAlign inner = calc_size_of(type->info.t_array.contained, nct, target_info);
+            return (SizeAlign) {
+                type->info.t_array.array_size * inner.size,
+                inner.align
+            };
+        }
+        case TC_TY_List: {
+            return (SizeAlign) {target_info->ptr_size * 3, target_info->ptr_size }; // { ptr; len; cap; }
+        }
+        case TC_TY_External_Type: INTERNAL_ERROR("SIZEOF_ EXTERNAL_TYPE")
+    }
+    UNREACHABLE()
+}
+
+
+
+static TC_structdef compiler_builtin__list_tc_structdef;
+static TC_structdef compiler_builtin__slice_tc_structdef;
+
+
+void init__compiler_builtin__tc_types(khash_t(sv_u64_map)* restrict identifier_map, uint64_t* restrict identifier_map_cnt, const TargetInfo* restrict target_info) {
+
+
+    {
+        const SV list_name = SV_from_str_len("List", 4);
+        const SV list_len = SV_from_str_len("len", 3);
+        const SV sv_uint32 = SV_from_str_len("Uint32", 6);
+
+        TC_field_LIST list_fields = TC_field_LIST_new_with_capacity(1);
+        TC_field_LIST_push(&list_fields, (TC_field) {
+            .name = (SpannedIdentifier) {
+                .identifier = SV_to_identifier(identifier_map, identifier_map_cnt, &list_len),
+                .span = (TokenSpan) { .sv = list_len}
+            },
+            .type = (TC_typeid) {
+                .ty = TC_TY_Primitive,
+                .info.primitive = TC_Primitive__Uint32,
+                .full_typeuse_span = (TokenSpan) { .sv=sv_uint32 }
+            }
+        });
+
+        // { ptr; len; cap; }
+        // only len is exposed
+        uint32_t* list_field_offsets = malloc(sizeof(uint32_t));
+        *list_field_offsets = target_info->ptr_size;
+
+        compiler_builtin__list_tc_structdef = (TC_structdef) {
+            .name = (SpannedIdentifier) {
+                .identifier = SV_to_identifier(identifier_map, identifier_map_cnt,  &list_name),
+                .span = (TokenSpan) { .sv = list_name },
+            },
+            .fields = list_fields,
+            .layout = (TC_struct_layout) {
+                .size = target_info->ptr_size * 3,
+                .align = target_info->ptr_size,
+                .field_offsets = list_field_offsets
+           }
+        };
+    }
+
+
+    {
+        const SV slice_name = SV_from_str_len("Slice", 5);
+        const SV slice_len = SV_from_str_len("len", 3);
+        const SV sv_uint32 = SV_from_str_len("Uint32", 6);
+
+        TC_field_LIST slice_fields = TC_field_LIST_new_with_capacity(1);
+        TC_field_LIST_push(&slice_fields, (TC_field) {
+            .name = (SpannedIdentifier) {
+                .identifier = SV_to_identifier(identifier_map, identifier_map_cnt, &slice_len),
+                .span = (TokenSpan) { .sv = slice_len}
+            },
+            .type = (TC_typeid) {
+                .ty = TC_TY_Primitive,
+                .info.primitive = TC_Primitive__Uint32,
+                .full_typeuse_span = (TokenSpan) { .sv=sv_uint32 }
+            }
+        });
+
+        // { ptr; len; }
+        // only len is exposed
+        uint32_t* list_field_offsets = malloc(sizeof(uint32_t));
+        *list_field_offsets = target_info->ptr_size;
+
+        compiler_builtin__slice_tc_structdef = (TC_structdef) {
+            .name = (SpannedIdentifier) {
+                .identifier = SV_to_identifier(identifier_map, identifier_map_cnt, &slice_name),
+                .span = (TokenSpan) { .sv = slice_name}
+            },
+            .fields = slice_fields,
+            .layout = (TC_struct_layout) {
+                .size = target_info->ptr_size * 2,
+                .align = target_info->ptr_size,
+                .field_offsets = list_field_offsets
+           }
+        };
+    }
+}
+
 void lowering_and_emission_pass_over_fn(
     const IR_func fn,
     const khash_t(sv_u64_map)* restrict identifier_map,
@@ -2805,8 +2912,9 @@ void lowering_and_emission_pass_over_fn(
 
                     uint64_t out_temporal = instr.info.math_cmp_boolean_op.dest.val;
                     if (
-                        temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type.ty != TC_TY_Primitive ||
-                        temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type.info.primitive != res.t.info.primitive
+                        temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].known_temporal &&
+                        (temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type.ty != TC_TY_Primitive ||
+                        temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type.info.primitive != res.t.info.primitive)
                     ) {
                         out_temporal = highest_temporal++;
 
@@ -2864,6 +2972,15 @@ void lowering_and_emission_pass_over_fn(
                         // print_TC_typeid(&temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type, identifier_map, nct);
                         // printf(">(%%%lu) [IMPLICIT]\n", out_temporal);
                         printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT]\n", instr.info.math_cmp_boolean_op.dest.val, SV_v_args(dest_t_sv), out_temporal);
+                    }
+
+                    if (!temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].known_temporal) {
+                        temporals_map->array[instr.info.math_cmp_boolean_op.dest.val] = (TC_Entry) {
+                            .known_temporal = true,
+                            .type = res.t,
+                            .is_addressable = false,
+                            .is_value_known = false,
+                        };
                     }
                     break;
                 }
@@ -3089,16 +3206,6 @@ void lowering_and_emission_pass_over_fn(
                     }
                     break;
                 }
-                case IR_INST_TY__BRANCH:
-                    break;
-                case IR_INST_TY__JUMP:
-                    break;
-                case IR_INST_TY__RETURN_VOID:
-                    break;
-                case IR_INST_TY__RETURN:
-                    break;
-                case IR_INST_TY__GET_STRUCT_FIELD_PTR:
-                    break;
                 case IR_INST_TY__INDEX_PTR: {
 
                     // 1. What are we indexing into? (e.g., %11 which is List<Char>)
@@ -3162,20 +3269,73 @@ void lowering_and_emission_pass_over_fn(
                         instr.info.index_ptr.index_val.val);
                     break;
                 }
-                case IR_INST_TY__READ_PTR:
+                case IR_INST_TY__READ_PTR: {
+                    printf("   %%%lu = READ_PTR %%%lu\n", instr.info.read_ptr.dest.val, instr.info.read_ptr.ptr.val);
                     break;
-                case IR_INST_TY__FN_CALL_RETVOID:
-                    break;
-                case IR_INST_TY__FN_CALL_RETVAL:
-                    break;
+                }
                 case IR_INST_TY__MAKE_STRUCT: {
                     const TC_typeid struct_type = temporals_map->array[instr.info.make_struct.dest.val].type;
                     if (struct_type.ty != TC_TY_Struct) {
                         INTERNAL_ERROR()
                     }
                     const TC_structdef sdef = nct->structs.array[struct_type.info.type_id];
-                    // TODO: this
-                    printf("   %%%lu = MAKE_STRUCT (%u size, %u align) { ... } \n", instr.info.make_struct.dest.val, sdef.layout.size, sdef.layout.align);
+                    IR_temporal_LIST args = IR_temporal_LIST_new_with_capacity(sdef.fields.len);
+                    for (size_t n = 0; n < sdef.fields.len; n++) {
+                        IR_temporal_LIST_push(&args, (IR_temporal) { .val = 0 });
+                    }
+
+                    for (size_t k = 0; k < instr.info.make_struct.args->len; k++) {
+                        const IR_named_value arg = instr.info.make_struct.args->array[k];
+                        bool found = false;
+                        for (size_t n = 0; n < sdef.fields.len; n++) {
+                            if (sdef.fields.array[n].name.identifier == arg.name.identifier) {
+                                if (args.array[n].val != 0) {
+                                    // INTERNAL_ERROR("duplicate field");
+                                    const SV msg = SV_from_str("duplicate field");
+                                    syntax_error(&source_info->source, &source_info->source_filename, &arg.name.span.sv, &msg);
+                                    exit(1);
+                                }
+
+                                if (!temporals_map->array[arg.value.val].known_temporal) {
+                                    INTERNAL_ERROR("UNKNOWN");
+                                }
+                                const TC_typeid arg_t = temporals_map->array[arg.value.val].type;
+                                const IR_temporal out = perf_autos(
+                                    &arg.value,
+                                    &arg_t,
+                                    &sdef.fields.array[n].type,
+                                    &highest_temporal,
+                                    identifier_map,
+                                    nct,
+                                    temporals_map,
+                                    source_info,
+                                    &fn.error_info_list.array[instr.error_info_index].info.make_struct.values[k].sv,
+                                    &temporals_map_values
+                                );
+                                args.array[n] = out;
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (!found) {
+                            INTERNAL_ERROR("type error")
+                        }
+                        // arg.name.identifier
+                    }
+
+                    for (size_t n = 0; n < sdef.fields.len; n++) {
+                        if (args.array[n].val == 0) {
+                            INTERNAL_ERROR("missing arg for struct construction")
+                        }
+                    }
+
+                    printf("   %%%lu = MAKE_STRUCT (%u size, %u align) { ", instr.info.make_struct.dest.val, sdef.layout.size, sdef.layout.align);
+                    for (size_t n = 0; n < sdef.fields.len; n++) {
+                        printf("%%%lu at %u", args.array[n].val, sdef.layout.field_offsets[n]);
+                        if (n + 1 != sdef.fields.len) printf(", ");
+                        else printf(" ");
+                    }
+                    printf("}\n");
                     break;
                 }
                 case IR_INST_TY__MAKE_ENUM: {
@@ -3230,8 +3390,240 @@ void lowering_and_emission_pass_over_fn(
                     break;
                 }
                 case IR_INST_TY__MAKE_ARRAY: {
+                    // 1. case -> dest known
+                    // 2, case -> dest unknown
+                    if (!temporals_map->array[instr.info.make_array.dest.val].known_temporal) {
+                        INTERNAL_ERROR("MAKE_ARRAY UNKNOWN DEST")
+                    }
+                    const TC_typeid dest_t = temporals_map->array[instr.info.make_array.dest.val].type;
+                    TC_typeid base_type = dest_t;
+                    while (base_type.ty != TC_TY_Array && base_type.ty != TC_TY_List) {
+                        switch (base_type.ty) {
+                            case TC_TY_Ref:
+                            case TC_TY_Box: {
+                                base_type = *base_type.info.contained;
+                                break;
+                            }
+                            default:
+                                INTERNAL_ERROR("INTERNAL TYPE ERROR")
+                        }
+                    }
+                    TC_typeid inner_type;
+                    switch (base_type.ty) {
+                        case TC_TY_Array: {
+                            inner_type = *base_type.info.t_array.contained;
+                            break;
+                        }
+                        case TC_TY_List: {
+                            inner_type = *base_type.info.contained;
+                            break;
+                        }
+                        default: INTERNAL_ERROR("INTERNAL TYPE ERROR")
+                    }
+
+                    IR_temporal_LIST items = IR_temporal_LIST_new_with_capacity(instr.info.make_array.items->len);
+                    for (size_t n=0; n < instr.info.make_array.items->len; n++) {
+                        const IR_temporal item = instr.info.make_array.items->array[n];
+                        const TC_typeid item_t = temporals_map->array[item.val].type;
+                        const IR_temporal out = perf_autos(
+                            &item,
+                            &item_t,
+                            &inner_type,
+                            &highest_temporal,
+                            identifier_map,
+                            nct,
+                            temporals_map,
+                            source_info,
+                            &fn.error_info_list.array[instr.error_info_index].info.make_array.items[n].sv,
+                            &temporals_map_values
+                        );
+                        IR_temporal_LIST_push(&items, out);
+                    }
+
+                    const SizeAlign sa = calc_size_of(&base_type, nct, target_info);
+                    const SizeAlign it_sa = calc_size_of(&inner_type, nct, target_info);
+                    printf("   %%%lu = MAKE_ARRAY (stack: size %lu, align %lu) ", instr.info.make_array.dest.val, sa.size, sa.align);
+                    if (base_type.ty == TC_TY_Array) {
+                        printf("{STACK ARRAY}");
+                    } else if (base_type.ty == TC_TY_List) {
+                        printf("{HEAP ARRAY}");
+                        // instr.info.make_array.items->len;
+
+                        printf(" {%lu bytes on heap, %lu align}", it_sa.size * instr.info.make_array.items->len, it_sa.align);
+                    } else {
+                        INTERNAL_ERROR("unknown list type");
+                    }
+                    printf(" [ ");
+                    for (size_t n = 0; n < items.len; n++) {
+                        printf("%%%lu", items.array[n].val);
+                        if (n + 1 != items.len) printf(", ");
+                        else printf(" ");
+                    }
+                    printf("]\n");
+
                     break;
                 }
+                case IR_INST_TY__BRANCH: {
+                    const TC_typeid t = temporals_map->array[instr.info.branch.cond.val].type;
+
+                    const IR_temporal out = perf_bool(
+                        &instr.info.branch.cond,
+                        &t,
+                        &highest_temporal,
+                        temporals_map
+                    );
+                    printf("   BRANCH <Bool> %%%lu, Block %lu, Block %lu\n", out.val, instr.info.branch.branch_true, instr.info.branch.branch_false);
+                    break;
+                }
+                case IR_INST_TY__JUMP: {
+                    printf("   JUMP Block %lu\n", instr.info.jump.block);
+                    break;
+                }
+                case IR_INST_TY__RETURN_VOID: {
+                    printf("   RETURN\n");
+                    break;
+                }
+                case IR_INST_TY__RETURN: {
+                    if (fn.fn_ret_t.tt_ty == IR_TY_Void) {
+                        const SV msg = SV_from_str_len("expected no value on return based on function signature", 55);
+                        type_error(&source_info->source, &source_info->source_filename, &fn.error_info_list.array[instr.error_info_index].info.return_value.expr.sv, &msg);
+                        exit(1);
+                    }
+                    const TC_typeid t = resolve_tc_type(&fn.fn_ret_t, nct, target_info, source_info);
+                    const TC_typeid intake_t = temporals_map->array[instr.info.return_value.val].type;
+                    const IR_temporal out = perf_autos(&instr.info.return_value, &intake_t, &t, &highest_temporal, identifier_map, nct, temporals_map, source_info, &fn.error_info_list.array[instr.error_info_index].info.return_value.expr.sv, &temporals_map_values);
+                    const SV out_t_sv = format_TC_typeid(&t, identifier_map, nct);
+                    printf("   RETURN <"SV_format"> %%%lu\n", SV_v_args(out_t_sv), out.val);
+                    break;
+                }
+                case IR_INST_TY__GET_STRUCT_FIELD_PTR: {
+                    // instr.info.get_struct_field_ptr.struct_ptr
+                    const TC_typeid struct_ptr_t = temporals_map->array[instr.info.get_struct_field_ptr.struct_ptr.val].type;
+                    const SV struct_ptr_t_sv = format_TC_typeid(&struct_ptr_t, identifier_map, nct);
+                    if (struct_ptr_t.ty != TC_TY_Ref && !temporals_map->array[instr.info.get_struct_field_ptr.struct_ptr.val].is_addressable) {
+                        INTERNAL_ERROR("expected REF<T> or addressable value")
+                    }
+                    const TC_typeid struct_t = struct_ptr_t.ty == TC_TY_Ref ? *struct_ptr_t.info.contained : struct_ptr_t;
+                    const SV struct_t_sv = format_TC_typeid(&struct_t, identifier_map, nct);
+                    const TC_typeid dest_t = temporals_map->array[instr.info.get_struct_field_ptr.dest.val].type;
+
+                    bool break_out = false;
+                    TC_structdef sdef;
+                    switch (struct_t.ty) {
+                        case TC_TY_Struct: {
+                            sdef = nct->structs.array[struct_t.info.type_id];
+                            break;
+                        }
+                        case TC_TY_List: {
+                            sdef = compiler_builtin__list_tc_structdef;
+                            break;
+                        }
+                        case TC_TY_Slice: {
+                            sdef = compiler_builtin__slice_tc_structdef;
+                            break;
+                        }
+                        case TC_TY_Array: {
+                            // coerce info.t_array.len->temporla
+                            // UNIMPLEMENTED("ARRAY.len")
+
+                            if (!SV_pv_cmp_eq(&instr.info.get_struct_field_ptr.field_name.span.sv, "len", 3)) {
+                                const size_t MAX_SIZE = 512;
+                                char* r_msg = malloc(sizeof(char)*MAX_SIZE);
+                                int len = snprintf(r_msg, MAX_SIZE, "struct "C_BOLD"Array"C_RESET" does not have field '"SV_format"'", SV_v_args(instr.info.get_struct_field_ptr.field_name.span.sv));
+                                const SV msg = SV_from_str_len(r_msg, len);
+                                syntax_error(&source_info->source, &source_info->source_filename, &instr.info.get_struct_field_ptr.field_name.span.sv, &msg);
+                                exit(1);
+                            }
+
+                            // reuse Uint32 type from len of list
+                            const TC_typeid field_t = compiler_builtin__list_tc_structdef.fields.array[0].type;
+                            if (is_type_eq(&field_t, &dest_t)) {
+                                const SV dest_t_sv = format_TC_typeid(&dest_t, identifier_map, nct);
+                                const SV field_t_sv = format_TC_typeid(&field_t, identifier_map, nct);
+
+                                const size_t MAX_SIZE = 512;
+                                char* r_msg = malloc(sizeof(char)*MAX_SIZE);
+                                int len = snprintf(r_msg, MAX_SIZE, "expected value of type "C_BOLD""SV_format""C_RESET" but got "C_BOLD""SV_format""C_RESET"", SV_v_args(dest_t_sv), SV_v_args(field_t_sv));
+                                const SV msg = SV_from_str_len(r_msg, len);
+
+                                type_error(&source_info->source, &source_info->source_filename, &fn.error_info_list.array[instr.error_info_index].info.get_struct_field.whole.sv, &msg);
+                                exit(1);
+                            }
+
+
+                            printf("   %%%lu = CONST_INT <Uint32> (%u)\n", instr.info.get_struct_field_ptr.dest.val, struct_t.info.t_array.array_size);
+
+                            break_out = true;
+                            break;
+                        }
+                        default: {
+                            const size_t MAX_SIZE = 512;
+                            char* r_msg = malloc(sizeof(char)*MAX_SIZE);
+                            int len = snprintf(r_msg, MAX_SIZE, "expected structure, but provided value has type "C_BOLD""SV_format""C_RESET, SV_v_args(struct_t_sv));
+                            const SV msg = SV_from_str_len(r_msg, len);
+                            type_error(&source_info->source, &source_info->source_filename, &fn.error_info_list.array[instr.error_info_index].info.get_struct_field.origin.sv, &msg);
+                            exit(1);
+                            break;
+                        }
+                    }
+                    if (break_out) {
+                        break;
+                    }
+
+
+                    bool found = false;
+                    for (size_t n = 0; n < sdef.fields.len; n++) {
+                        if(sdef.fields.array[n].name.identifier == instr.info.get_struct_field_ptr.field_name.identifier) {
+
+                            // todo: load type; coerce to dest
+                            const TC_typeid field_t = sdef.fields.array[n].type;
+                            const SV field_t_sv = format_TC_typeid(&field_t, identifier_map, nct);
+                            const SizeAlign field_sz = calc_size_of(&field_t, nct, target_info);
+
+
+                            if (is_type_eq(&field_t, &dest_t)) {
+                                const SV dest_t_sv = format_TC_typeid(&dest_t, identifier_map, nct);
+
+                                const size_t MAX_SIZE = 512;
+                                char* r_msg = malloc(sizeof(char)*MAX_SIZE);
+                                int len = snprintf(r_msg, MAX_SIZE, "expected value of type "C_BOLD""SV_format""C_RESET" but got "C_BOLD""SV_format""C_RESET"", SV_v_args(dest_t_sv), SV_v_args(field_t_sv));
+                                const SV msg = SV_from_str_len(r_msg, len);
+
+                                type_error(&source_info->source, &source_info->source_filename, &fn.error_info_list.array[instr.error_info_index].info.get_struct_field.whole.sv, &msg);
+                                exit(1);
+                            }
+
+                            // %n = GET_STRUCT_PTR offset x bytes, read size x bytes, read type <>, ptr %x, ptr type <>
+                            printf("   %%%lu = GET_STRUCT_FIELD_PTR offset %u bytes, read size %lu bytes, read align %lu bytes, read type "SV_format", ptr %%%lu, ptr type "SV_format"\n",
+                                instr.info.get_struct_field_ptr.dest.val,
+                                sdef.layout.field_offsets[n],
+                                field_sz.size,
+                                field_sz.align,
+                                SV_v_args(field_t_sv),
+                                instr.info.get_struct_field_ptr.struct_ptr.val,
+                                SV_v_args(struct_ptr_t_sv)
+                            );
+
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        const size_t MAX_SIZE = 512;
+                        char* r_msg = malloc(sizeof(char)*MAX_SIZE);
+                        int len = snprintf(r_msg, MAX_SIZE, "struct "C_BOLD""SV_format""C_RESET" does not have field '"SV_format"'", SV_v_args(struct_t_sv), SV_v_args(instr.info.get_struct_field_ptr.field_name.span.sv));
+                        const SV msg = SV_from_str_len(r_msg, len);
+                        syntax_error(&source_info->source, &source_info->source_filename, &instr.info.get_struct_field_ptr.field_name.span.sv, &msg);
+                        exit(1);
+                    }
+
+
+                    break;
+                }
+                case IR_INST_TY__FN_CALL_RETVOID:
+                    break;
+                case IR_INST_TY__FN_CALL_RETVAL:
+                    break;
             }
         }
     }
@@ -3277,27 +3669,6 @@ void TC_typecheck_and_lower(
         }
 
         lowering_and_emission_pass_over_fn(fn, identifier_map, functions, external_functions, nct, target_info, source_info, &temporals, type_needing_destructor);
-
-        // printf("-------------------\n");
-        // for (size_t t = 1; t < temporals.len; t++) {
-        //     const TC_Entry e = temporals.array[t];
-        //     if (!e.known_temporal) {
-        //         printf("  %%%zu UNKNOWN\n", t);
-        //         continue;
-        //     }
-        //     if (e.type.ty == TC_TY_Void) {
-        //         printf("ERROR: VOID TYPE %%%zu\n", t);
-        //         continue;
-        //     }
-        //     printf("   %%%zu = {", t);
-        //     print_TC_typeid(&e.type, identifier_map, nct);
-        //     printf("}\n");
-        // }
-
-        // lowering_and_emission_pass_over_fn(fn, )
-
-
-        // TC_typecheck_and_lower_fn(functions->array[n], identifier_map, functions, external_functions, nct, target_info, source_info, type_needing_destructor);
 
         TC_Entry_LIST_free(&temporals);
     }

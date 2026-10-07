@@ -132,7 +132,7 @@ SV format_TC_typeid_inner(const SV buffer, const TC_typeid* restrict ty, const k
             // printf("Array<");
             const SV b1 = append_and_advance_buff(&buffer, MAKE_SV_LIT("Array<"));
             const SV b2 = format_TC_typeid_inner(b1, ty->info.t_array.contained, identifier_map, nct);
-            const int len = snprintf((char*)b2.start, b2.len, ", %u>", ty->info.type_id);
+            const int len = snprintf((char*)b2.start, b2.len, ", %u>", ty->info.t_array.array_size);
             // printf(", %u>", ty->info.t_array.array_size);
             const SV b3 = (SV){.start = b2.start + len, .len = b2.len - len };;
             // break;

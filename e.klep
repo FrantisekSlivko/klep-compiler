@@ -166,8 +166,6 @@ Int stress_test() {
 
 
 Void list_test() {
-    // String x = 10;
     List<Float64> f = [3.13+0.3];
     Ref<List<Char>> c = "abc";
-
 }

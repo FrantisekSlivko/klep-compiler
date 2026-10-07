@@ -53,5 +53,10 @@ TC_TypeTable parse(SVList* restrict tokens,
     CFFI_IR_extern_fn_LIST* restrict external_functions
 );
 
+Identifier SV_to_identifier(
+    khash_t(sv_u64_map)* restrict identifier_map,
+    uint64_t* restrict identifier_map_cnt,
+    const Token restrict t
+);
 
 #endif //KLEPCOMPILER_PARSER_H

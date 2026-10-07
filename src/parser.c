@@ -10,6 +10,7 @@
 
 #include "khash.h"
 #include "typecompletion.h"
+#include "typechecking.h"
 
 
 #define P_require_semicolon() P_require_next_be(p, TT_Semicolon, SV_from_str_len(";", 1));
@@ -143,6 +144,19 @@ Token P_require_next_be(Parser* p, const TokenType t, const SV cmp) {
 // -------------------------------------------
 
 
+Identifier SV_to_identifier(khash_t(sv_u64_map)* restrict identifier_map, uint64_t* restrict identifier_map_cnt, const Token restrict t) {
+    const khiter_t kf = kh_get(sv_u64_map, identifier_map, *t);
+    if (kf != kh_end(identifier_map)) {
+        return kh_value(identifier_map, kf); // found
+    }
+
+    int ret;
+    const khiter_t k = kh_put(sv_u64_map, identifier_map, *t, &ret);
+    const Identifier id = (*identifier_map_cnt)++;
+    kh_value(identifier_map, k) = id;
+    return id;
+}
+
 Identifier P_to_identifier(Parser* restrict p, const Token restrict t) {
     const char c1 = *t->start;
     if (!(('a' <= c1 && c1 <= 'z') || ('A' <= c1 && c1 <= 'Z'))) {
@@ -150,17 +164,10 @@ Identifier P_to_identifier(Parser* restrict p, const Token restrict t) {
         P_syntax_error(p, t, msg);
         exit(1);
     }
-    const khiter_t kf = kh_get(sv_u64_map, p->identifier_map, *t);
-    if (kf != kh_end(p->identifier_map)) {
-        return kh_value(p->identifier_map, kf); // found
-    }
-
-    int ret;
-    const khiter_t k = kh_put(sv_u64_map, p->identifier_map, *t, &ret);
-    const Identifier id = p->identifier_map_cnt++;
-    kh_value(p->identifier_map, k) = id;
-    return id;
+    return SV_to_identifier(p->identifier_map, &p->identifier_map_cnt, t);
 }
+
+
 
 
 SV SV_from_identifiermap_lookup(const khash_t(sv_u64_map)* identifier_map, const uint64_t identifier) {
@@ -3507,6 +3514,8 @@ TC_TypeTable parse(
         },
         CFFI_IR_extern_fn_LIST_new()
     };
+
+    init__compiler_builtin__tc_types(p.identifier_map, &p.identifier_map_cnt, &target_info);
 
 
     // ---------------------------------------------------------------------------------
