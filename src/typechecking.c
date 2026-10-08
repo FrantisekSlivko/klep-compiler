@@ -7,6 +7,8 @@
 #include "utils/color.h"
 #include <ctype.h>
 
+#include "mir.h"
+
 #define NEW_INSTR_BEGIN printf(C_GREEN);
 #define NEW_INSTR_END printf(C_RESET);
 
@@ -34,7 +36,7 @@ bool CMP_tc_typeid(const TC_typeid* restrict a, const TC_typeid* restrict b) {
 }
 
 bool is_type_eq(const TC_typeid* a, const TC_typeid* b) {
-    if ((ptrdiff_t)a == (ptrdiff_t)b) return true;
+    if ((ptrdiff_t) a == (ptrdiff_t) b) return true;
     if (a->ty != b->ty) return false;
     switch (a->ty) {
         case TC_TY_Void: return true;
@@ -274,7 +276,9 @@ TC_typeid resolve_tc_type(
             const SV msg = SV_from_str_len("unknow type", 11);
             syntax_error(&source_info->source, &source_info->source_filename, &type->info.named.span.sv, &msg);
             if (SV_pv_cmp_eq(&type->info.named.span.sv, "String", 6)) {
-                const SV msg2 = SV_from_str("String as type does not exist, you can use "C_BOLD"Slice<Char>"C_RESET", "C_BOLD"List<Char>"C_RESET", "C_BOLD"Array<Char, N>"C_RESET" instead");
+                const SV msg2 = SV_from_str(
+                    "String as type does not exist, you can use "C_BOLD"Slice<Char>"C_RESET", "C_BOLD"List<Char>"C_RESET
+                    ", "C_BOLD"Array<Char, N>"C_RESET" instead");
                 hint_standalone(&msg2);
             }
             exit(1);
@@ -373,7 +377,7 @@ TC_typeid resolve_tc_type(
                     }
                 }
                 // if (args_match) {
-                    // continue;
+                // continue;
                 // }
                 if (!arguments_are_identical) {
                     continue; // Mismatch! Move on to check the next generic in the cache.
@@ -860,7 +864,6 @@ init_prefixed_list_type(TC_Entry)
 // }
 
 
-
 void type_inference_pass_over_fn(
     const IR_func fn,
     const khash_t(sv_u64_map)* restrict identifier_map,
@@ -903,7 +906,7 @@ void type_inference_pass_over_fn(
         TC_Entry_LIST_push(temporals_map, (TC_Entry){
                                .known_temporal = true,
                                .type = args.array[n].type,
-                                .is_addressable = false
+                               .is_addressable = false
                            });
     }
 
@@ -944,17 +947,17 @@ void type_inference_pass_over_fn(
                 case IR_INST_TY__CONST_INT: {
                     // set as INT32 if unknown temporal and make the pass repeat
                     if (!temporals_map->array[instr.info.const_int.dest.val].known_temporal) {
-                        temporals_map->array[instr.info.const_int.dest.val] = (TC_Entry) {
+                        temporals_map->array[instr.info.const_int.dest.val] = (TC_Entry){
                             .known_temporal = true,
-                            .type = (TC_typeid) {
+                            .type = (TC_typeid){
                                 .ty = TC_TY_Primitive,
                                 .info.primitive = TC_Primitive__Int32,
-                                .full_typeuse_span = (TokenSpan) { .sv=SV_from_str_len("Int32", 5) }
+                                .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Int32", 5)}
                             },
                             .is_value_known = false,
                             .is_addressable = false
                         };
-                        block_id = (ptrdiff_t)fn.blocks.len; // no -1, because of (block_id--) in the for loop
+                        block_id = (ptrdiff_t) fn.blocks.len; // no -1, because of (block_id--) in the for loop
                         perf_jump = true;
                     }
                     break;
@@ -962,17 +965,17 @@ void type_inference_pass_over_fn(
                 case IR_INST_TY__CONST_FLOAT: {
                     // set as FLOAT32 if unknown temporal and make the pass repeat
                     if (!temporals_map->array[instr.info.const_int.dest.val].known_temporal) {
-                        temporals_map->array[instr.info.const_int.dest.val] = (TC_Entry) {
+                        temporals_map->array[instr.info.const_int.dest.val] = (TC_Entry){
                             .known_temporal = true,
-                            .type = (TC_typeid) {
+                            .type = (TC_typeid){
                                 .ty = TC_TY_Primitive,
                                 .info.primitive = TC_Primitive__Float32,
-                                .full_typeuse_span = (TokenSpan) { .sv=SV_from_str_len("Float32", 7) }
+                                .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Float32", 7)}
                             },
                             .is_value_known = false,
                             .is_addressable = false
                         };
-                        block_id = (ptrdiff_t)fn.blocks.len; // no -1, because of (block_id--) in the for loop
+                        block_id = (ptrdiff_t) fn.blocks.len; // no -1, because of (block_id--) in the for loop
                         perf_jump = true;
                     }
                     break;
@@ -980,33 +983,34 @@ void type_inference_pass_over_fn(
                 case IR_INST_TY__CONST_STRING: {
                     if (!temporals_map->array[instr.info.const_int.dest.val].known_temporal) {
                         TC_typeid* inner = malloc(sizeof(TC_typeid));
-                        *inner = (TC_typeid) {
+                        *inner = (TC_typeid){
                             .ty = TC_TY_Primitive,
                             .info.primitive = TC_Primitive__Char,
-                            .full_typeuse_span = (TokenSpan) { .sv = SV_from_str_len("Char", 4) }
+                            .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Char", 4)}
                         };
-                        temporals_map->array[instr.info.const_int.dest.val] = (TC_Entry) {
+                        temporals_map->array[instr.info.const_int.dest.val] = (TC_Entry){
                             .known_temporal = true,
-                            .type = (TC_typeid) {
+                            .type = (TC_typeid){
                                 .ty = TC_TY_Slice,
                                 .info.contained = inner,
-                                .full_typeuse_span = (TokenSpan) { .sv=SV_from_str_len("Slice<Char>", 11) }
+                                .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Slice<Char>", 11)}
                             },
                             .is_value_known = false,
                             .is_addressable = false
                         };
-                        block_id = (ptrdiff_t)fn.blocks.len; // no -1, because of (block_id--) in the for loop
+                        block_id = (ptrdiff_t) fn.blocks.len; // no -1, because of (block_id--) in the for loop
                         perf_jump = true;
                     }
                     break;
                 }
-                case IR_INST_TY__VAR_DECL: { // should be known by now from DROP
+                case IR_INST_TY__VAR_DECL: {
+                    // should be known by now from DROP
                     const TC_typeid t = resolve_tc_type(instr.info.var_decl.type, nct, target_info, source_info);
                     if (!temporals_map->array[instr.info.var_decl.dest.val].known_temporal) {
                         WARN("VAR_DECL with declare unknown temporal")
                     }
 
-                    temporals_map->array[instr.info.var_decl.dest.val] = (TC_Entry) {
+                    temporals_map->array[instr.info.var_decl.dest.val] = (TC_Entry){
                         true,
                         t,
                         false,
@@ -1053,7 +1057,7 @@ void type_inference_pass_over_fn(
                     if (!dest.known_temporal) break;
 
                     if (!temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].known_temporal) {
-                        temporals_map->array[instr.info.math_cmp_boolean_op.src1.val] = (TC_Entry) {
+                        temporals_map->array[instr.info.math_cmp_boolean_op.src1.val] = (TC_Entry){
                             .known_temporal = true,
                             .type = dest.type,
                             .is_value_known = false,
@@ -1062,7 +1066,7 @@ void type_inference_pass_over_fn(
                     }
 
                     if (!temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].known_temporal) {
-                        temporals_map->array[instr.info.math_cmp_boolean_op.src2.val] = (TC_Entry) {
+                        temporals_map->array[instr.info.math_cmp_boolean_op.src2.val] = (TC_Entry){
                             .known_temporal = true,
                             .type = dest.type,
                             .is_value_known = false,
@@ -1074,7 +1078,7 @@ void type_inference_pass_over_fn(
                 }
                 case IR_INST_TY__RETURN: {
                     if (!temporals_map->array[instr.info.return_value.val].known_temporal) {
-                        temporals_map->array[instr.info.return_value.val] = (TC_Entry) {
+                        temporals_map->array[instr.info.return_value.val] = (TC_Entry){
                             .known_temporal = true,
                             .type = ret_t,
                             .is_value_known = false,
@@ -1088,12 +1092,12 @@ void type_inference_pass_over_fn(
                 case IR_INST_TY__OP_AND: {
                     // TODO: what to do here? Do i need <bool> <op> <bool> ???
                     if (!temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].known_temporal) {
-                        temporals_map->array[instr.info.math_cmp_boolean_op.dest.val] = (TC_Entry) {
+                        temporals_map->array[instr.info.math_cmp_boolean_op.dest.val] = (TC_Entry){
                             .known_temporal = true,
-                            .type = (TC_typeid) {
+                            .type = (TC_typeid){
                                 .ty = TC_TY_Primitive,
                                 .info.primitive = TC_Primitive__Bool,
-                                .full_typeuse_span = (TokenSpan){.sv=SV_from_str_len("Bool", 4)},
+                                .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)},
                             },
                             .is_value_known = false,
                             .is_addressable = false
@@ -1101,12 +1105,12 @@ void type_inference_pass_over_fn(
                     }
 
                     if (!temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].known_temporal) {
-                        temporals_map->array[instr.info.math_cmp_boolean_op.src1.val] = (TC_Entry) {
+                        temporals_map->array[instr.info.math_cmp_boolean_op.src1.val] = (TC_Entry){
                             .known_temporal = true,
-                            .type = (TC_typeid) {
+                            .type = (TC_typeid){
                                 .ty = TC_TY_Primitive,
                                 .info.primitive = TC_Primitive__Bool,
-                                .full_typeuse_span = (TokenSpan){.sv=SV_from_str_len("Bool", 4)},
+                                .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)},
                             },
                             .is_value_known = false,
                             .is_addressable = false
@@ -1114,12 +1118,12 @@ void type_inference_pass_over_fn(
                     }
 
                     if (!temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].known_temporal) {
-                        temporals_map->array[instr.info.math_cmp_boolean_op.src2.val] = (TC_Entry) {
+                        temporals_map->array[instr.info.math_cmp_boolean_op.src2.val] = (TC_Entry){
                             .known_temporal = true,
-                            .type = (TC_typeid) {
+                            .type = (TC_typeid){
                                 .ty = TC_TY_Primitive,
                                 .info.primitive = TC_Primitive__Bool,
-                                .full_typeuse_span = (TokenSpan){.sv=SV_from_str_len("Bool", 4)},
+                                .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)},
                             },
                             .is_value_known = false,
                             .is_addressable = false
@@ -1133,48 +1137,26 @@ void type_inference_pass_over_fn(
                 case IR_INST_TY__OP_CMP_LESS_EQ:
                 case IR_INST_TY__OP_CMP_GREATER:
                 case IR_INST_TY__OP_CMP_GREATER_EQ: {
-
                     if (!temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].known_temporal) {
-                        temporals_map->array[instr.info.math_cmp_boolean_op.dest.val] = (TC_Entry) {
+                        temporals_map->array[instr.info.math_cmp_boolean_op.dest.val] = (TC_Entry){
                             .known_temporal = true,
-                            .type = (TC_typeid) {
+                            .type = (TC_typeid){
                                 .ty = TC_TY_Primitive,
                                 .info.primitive = TC_Primitive__Bool,
-                                .full_typeuse_span = (TokenSpan){.sv=SV_from_str_len("Bool", 4)},
+                                .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)},
                             },
                             .is_value_known = false,
                             .is_addressable = false
                         };
                     }
 
-                    // THIS CODE IS OBSOLITE AND BREAKS LINEAR FORWARD PASS
-                    // // if one of args has known type, apply it to another
-                    // if (temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].known_temporal && (!temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].known_temporal)) {
-                    //     temporals_map->array[instr.info.math_cmp_boolean_op.src2.val] = (TC_Entry) {
-                    //         .known_temporal = true,
-                    //         .type = temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type,
-                    //         .is_value_known = false,
-                    //         .is_addressable = false
-                    //     };
-                    // }
-                    //
-                    //
-                    // if (temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].known_temporal && (!temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].known_temporal)) {
-                    //     temporals_map->array[instr.info.math_cmp_boolean_op.src1.val] = (TC_Entry) {
-                    //         .known_temporal = true,
-                    //         .type = temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].type,
-                    //         .is_value_known = false,
-                    //         .is_addressable = false
-                    //     };
-                    // }
-
-
                     break;
                 }
                 case IR_INST_TY__PHI: {
                     bool visited = false;
                     for (size_t n = 0; n < visited_phis.len; n++) {
-                        if ((ptrdiff_t)(visited_phis.array[n].block) == block_id && visited_phis.array[n].instr_nth == instr_nth) {
+                        if ((ptrdiff_t) (visited_phis.array[n].block) == block_id && visited_phis.array[n].instr_nth ==
+                            instr_nth) {
                             visited = true;
                             break;
                         }
@@ -1191,22 +1173,22 @@ void type_inference_pass_over_fn(
                     }
 
                     ptrdiff_t highest_block = block_id;
-                    for (size_t n = 0; n<phi_args->len; n++) {
+                    for (size_t n = 0; n < phi_args->len; n++) {
                         const IR_temporal_block_phi_record arg = phi_args->array[n];
                         if (!temporals_map->array[arg.temp.val].known_temporal) {
-                            temporals_map->array[arg.temp.val] = (TC_Entry) {
+                            temporals_map->array[arg.temp.val] = (TC_Entry){
                                 .known_temporal = true,
                                 .type = dest.type,
                                 .is_value_known = false,
                                 .is_addressable = false
                             };
                         }
-                        if ((ptrdiff_t)(arg.block) > highest_block) {
-                            highest_block = (ptrdiff_t)arg.block;
+                        if ((ptrdiff_t) (arg.block) > highest_block) {
+                            highest_block = (ptrdiff_t) arg.block;
                         }
                     }
 
-                    TC_InstrPos_LIST_push(&visited_phis, (TC_InstrPos) { .block = block_id, .instr_nth = instr_nth });
+                    TC_InstrPos_LIST_push(&visited_phis, (TC_InstrPos){.block = block_id, .instr_nth = instr_nth});
 
                     if (highest_block > block_id) {
                         // printf("block jumping to Block<%ld> (from %ld)\n", highest_block, block_id);
@@ -1231,10 +1213,10 @@ void type_inference_pass_over_fn(
                         } else {
                             inner = *inner.info.contained;
                         }
-                        for(size_t n=0; n < instr.info.make_array.items->len; n++) {
+                        for (size_t n = 0; n < instr.info.make_array.items->len; n++) {
                             const IR_temporal item = instr.info.make_array.items->array[n];
                             if (!temporals_map->array[item.val].known_temporal) {
-                                temporals_map->array[item.val] = (TC_Entry) {
+                                temporals_map->array[item.val] = (TC_Entry){
                                     .known_temporal = true,
                                     .type = inner,
                                     .is_value_known = false,
@@ -1247,12 +1229,12 @@ void type_inference_pass_over_fn(
                 }
                 case IR_INST_TY__BRANCH: {
                     if (!temporals_map->array[instr.info.branch.cond.val].known_temporal) {
-                        temporals_map->array[instr.info.branch.cond.val] = (TC_Entry) {
+                        temporals_map->array[instr.info.branch.cond.val] = (TC_Entry){
                             .known_temporal = true,
-                            .type = (TC_typeid) {
+                            .type = (TC_typeid){
                                 .ty = TC_TY_Primitive,
                                 .info.primitive = TC_Primitive__Bool,
-                                .full_typeuse_span = (TokenSpan){.sv=SV_from_str_len("Bool", 4)},
+                                .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)},
                             },
                             .is_value_known = false,
                             .is_addressable = false
@@ -1264,31 +1246,35 @@ void type_inference_pass_over_fn(
                     if (temporals_map->array[instr.info.get_struct_field_ptr.struct_ptr.val].known_temporal &&
                         !temporals_map->array[instr.info.get_struct_field_ptr.dest.val].known_temporal
                     ) {
-                        const TC_typeid src_struct = temporals_map->array[instr.info.get_struct_field_ptr.struct_ptr.val].type;
+                        const TC_typeid src_struct = temporals_map->array[instr.info.get_struct_field_ptr.struct_ptr.
+                            val].type;
                         TC_typeid inner_src = src_struct;
                         while (inner_src.ty == TC_TY_Ref || inner_src.ty == TC_TY_Ref) {
                             inner_src = *inner_src.info.contained;
                         }
                         if (inner_src.ty == TC_TY_Struct) {
                             const TC_structdef* s = &nct->structs.array[inner_src.info.type_id];
-                            for (size_t n=0; n < s->fields.len; n++) {
-                                if (s->fields.array[n].name.identifier == instr.info.get_struct_field_ptr.field_name.identifier) {
+                            for (size_t n = 0; n < s->fields.len; n++) {
+                                if (s->fields.array[n].name.identifier == instr.info.get_struct_field_ptr.field_name.
+                                    identifier) {
                                     TC_typeid* ref_inner = malloc(sizeof(TC_typeid));
                                     *ref_inner = s->fields.array[n].type;
 
                                     const size_t MAX_SIZE = 128;
-                                    char* new_type_name = malloc(sizeof(char)*MAX_SIZE);
-                                    const int out_len = snprintf(new_type_name, MAX_SIZE, "Ref<"SV_format">", SV_v_args(ref_inner->full_typeuse_span.sv));
-                                    new_type_name = realloc(new_type_name, sizeof(char)*out_len);
+                                    char* new_type_name = malloc(sizeof(char) * MAX_SIZE);
+                                    const int out_len = snprintf(new_type_name, MAX_SIZE, "Ref<"SV_format">",
+                                                                 SV_v_args(ref_inner->full_typeuse_span.sv));
+                                    new_type_name = realloc(new_type_name, sizeof(char) * out_len);
                                     const SV new_type = SV_from_str_len(new_type_name, out_len);
 
 
                                     temporals_map->array[instr.info.get_struct_field_ptr.dest.val] = (TC_Entry){
                                         .known_temporal = true,
-                                        .type = (TC_typeid) {
+                                        .type = (TC_typeid){
                                             .ty = TC_TY_Ref,
                                             .info.contained = ref_inner,
-                                            .full_typeuse_span = (TokenSpan) {.sv = new_type}, //ref_inner->full_typeuse_span
+                                            .full_typeuse_span = (TokenSpan){.sv = new_type},
+                                            //ref_inner->full_typeuse_span
                                         },
                                         .is_value_known = false,
                                         .is_addressable = false
@@ -1309,23 +1295,24 @@ void type_inference_pass_over_fn(
                         *out = dest;
 
                         const size_t MAX_SIZE = 128;
-                        char* new_type_name = malloc(sizeof(char)*MAX_SIZE);
-                        const int out_len = snprintf(new_type_name, MAX_SIZE, "Ref<"SV_format">", SV_v_args(dest.full_typeuse_span.sv));
-                        new_type_name = realloc(new_type_name, sizeof(char)*out_len);
+                        char* new_type_name = malloc(sizeof(char) * MAX_SIZE);
+                        const int out_len = snprintf(new_type_name, MAX_SIZE, "Ref<"SV_format">",
+                                                     SV_v_args(dest.full_typeuse_span.sv));
+                        new_type_name = realloc(new_type_name, sizeof(char) * out_len);
                         const SV new_type = SV_from_str_len(new_type_name, out_len);
 
                         temporals_map->array[instr.info.read_ptr.ptr.val] = (TC_Entry){
                             .known_temporal = true,
-                            .type = (TC_typeid) {
+                            .type = (TC_typeid){
                                 .ty = TC_TY_Ref,
                                 .info.contained = out,
-                                .full_typeuse_span = (TokenSpan) {.sv = new_type}, //ref_inner->full_typeuse_span
+                                .full_typeuse_span = (TokenSpan){.sv = new_type}, //ref_inner->full_typeuse_span
                             },
                             .is_value_known = false,
                             .is_addressable = false
                         };
                     } else if (temporals_map->array[instr.info.read_ptr.ptr.val].known_temporal &&
-                        !temporals_map->array[instr.info.read_ptr.dest.val].known_temporal
+                               !temporals_map->array[instr.info.read_ptr.dest.val].known_temporal
                     ) {
                         TC_typeid inner = temporals_map->array[instr.info.read_ptr.ptr.val].type;
                         size_t unwrap_cnt = 0;
@@ -1334,7 +1321,7 @@ void type_inference_pass_over_fn(
                             inner = *inner.info.contained;
                         }
                         if (unwrap_cnt > 0) {
-                            temporals_map->array[instr.info.read_ptr.dest.val] = (TC_Entry) {
+                            temporals_map->array[instr.info.read_ptr.dest.val] = (TC_Entry){
                                 .known_temporal = true,
                                 .type = inner,
                                 .is_value_known = false,
@@ -1379,12 +1366,12 @@ void type_inference_pass_over_fn(
 
                     const TC_structdef* st = &nct->structs.array[type.info.type_id];
 
-                    for (size_t n=0; n < instr.info.make_struct.args->len; n++) {
+                    for (size_t n = 0; n < instr.info.make_struct.args->len; n++) {
                         const IR_named_value arg = instr.info.make_struct.args->array[n];
                         // if (temporals_map->array[arg.value.val].known_temporal) continue;
-                        for (size_t k=0; k < st->fields.len; k++) {
-                            if(st->fields.array[k].name.identifier == arg.name.identifier) {
-                                temporals_map->array[arg.value.val] = (TC_Entry) {
+                        for (size_t k = 0; k < st->fields.len; k++) {
+                            if (st->fields.array[k].name.identifier == arg.name.identifier) {
+                                temporals_map->array[arg.value.val] = (TC_Entry){
                                     .known_temporal = true,
                                     .type = st->fields.array[k].type,
                                     .is_value_known = false,
@@ -1399,14 +1386,19 @@ void type_inference_pass_over_fn(
                 case IR_INST_TY__FN_CALL_RETVOID:
                 case IR_INST_TY__FN_CALL_RETVAL: {
                     // check args
-                    const IR_temporal_LIST* lk = instr.ty == IR_INST_TY__FN_CALL_RETVAL ? instr.info.fn_call_retval.args : instr.info.fn_call_retvoid.args;
-                    const Identifier name = instr.ty == IR_INST_TY__FN_CALL_RETVAL ? instr.info.fn_call_retval.name.identifier : instr.info.fn_call_retvoid.name.identifier;
+                    const IR_temporal_LIST* lk = instr.ty == IR_INST_TY__FN_CALL_RETVAL
+                                                     ? instr.info.fn_call_retval.args
+                                                     : instr.info.fn_call_retvoid.args;
+                    const Identifier name = instr.ty == IR_INST_TY__FN_CALL_RETVAL
+                                                ? instr.info.fn_call_retval.name.identifier
+                                                : instr.info.fn_call_retvoid.name.identifier;
 
                     for (size_t n = 0; n < functions->len; n++) {
                         if (functions->array[n].fn_name.identifier == name) {
                             if (instr.ty == IR_INST_TY__FN_CALL_RETVAL) {
-                                const TC_typeid t = resolve_tc_type(&functions->array[n].fn_ret_t, nct, target_info, source_info);
-                                temporals_map->array[instr.info.fn_call_retval.dest.val] = (TC_Entry) {
+                                const TC_typeid t = resolve_tc_type(&functions->array[n].fn_ret_t, nct, target_info,
+                                                                    source_info);
+                                temporals_map->array[instr.info.fn_call_retval.dest.val] = (TC_Entry){
                                     .known_temporal = true,
                                     .type = t,
                                     .is_value_known = false,
@@ -1416,18 +1408,17 @@ void type_inference_pass_over_fn(
                             if (lk->len == functions->array[n].args.len) {
                                 for (size_t k = 0; k < lk->len; k++) {
                                     if (!temporals_map->array[lk->array[k].val].known_temporal) {
-                                        const TC_typeid type = resolve_tc_type(&functions->array[n].args.array[k].type, nct, target_info, source_info);
-                                        temporals_map->array[lk->array[k].val] = (TC_Entry) {
+                                        const TC_typeid type = resolve_tc_type(
+                                            &functions->array[n].args.array[k].type, nct, target_info, source_info);
+                                        temporals_map->array[lk->array[k].val] = (TC_Entry){
                                             .known_temporal = true,
                                             .type = type,
                                             .is_value_known = false,
                                             .is_addressable = false
                                         };
                                     }
-
                                 }
                             }
-
                         }
                     }
                     break;
@@ -1435,7 +1426,8 @@ void type_inference_pass_over_fn(
                 case IR_INST_TY__INDEX_PTR: {
                     if (!temporals_map->array[instr.info.index_ptr.dest.val].known_temporal &&
                         temporals_map->array[instr.info.index_ptr.array_ptr.val].known_temporal
-                    ) { // dest unknown, array known
+                    ) {
+                        // dest unknown, array known
                         // const TC_typeid array_ptr = temporals_map->array[instr.info.index_ptr.array_ptr.val].type;
                         TC_typeid* inner_type = &temporals_map->array[instr.info.index_ptr.array_ptr.val].type;
                         bool run = true;
@@ -1468,16 +1460,16 @@ void type_inference_pass_over_fn(
                         }
                         if (unpacked_array) {
                             const size_t MAX_SIZE = 256;
-                            char* t_sv = malloc(sizeof(char)*MAX_SIZE);
+                            char* t_sv = malloc(sizeof(char) * MAX_SIZE);
                             const SV inner_t_sv = format_TC_typeid(inner_type, identifier_map, nct);
                             const int t_len = snprintf(t_sv, MAX_SIZE, "Ref<"SV_format">", SV_v_args(inner_t_sv));
 
-                            temporals_map->array[instr.info.index_ptr.dest.val] = (TC_Entry) {
+                            temporals_map->array[instr.info.index_ptr.dest.val] = (TC_Entry){
                                 .known_temporal = true,
-                                .type = (TC_typeid) {
+                                .type = (TC_typeid){
                                     .ty = TC_TY_Ref,
                                     .info.contained = inner_type,
-                                    .full_typeuse_span = (TokenSpan) {.sv=(SV){.start=t_sv, .len=t_len}}
+                                    .full_typeuse_span = (TokenSpan){.sv = (SV){.start = t_sv, .len = t_len}}
                                 },
                                 .is_value_known = false,
                                 .is_addressable = false
@@ -1485,12 +1477,12 @@ void type_inference_pass_over_fn(
                         }
                     }
                     if (!temporals_map->array[instr.info.index_ptr.index_val.val].known_temporal) {
-                        temporals_map->array[instr.info.index_ptr.index_val.val] = (TC_Entry) {
+                        temporals_map->array[instr.info.index_ptr.index_val.val] = (TC_Entry){
                             .known_temporal = true,
-                            .type = (TC_typeid) {
+                            .type = (TC_typeid){
                                 .ty = TC_TY_Primitive,
                                 .info.primitive = TC_Primitive__Uint32,
-                                .full_typeuse_span = (TokenSpan) {.sv = SV_from_str_len("Uint32", 6)}
+                                .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Uint32", 6)}
                             },
                             .is_value_known = false,
                             .is_addressable = false
@@ -1503,7 +1495,7 @@ void type_inference_pass_over_fn(
                     // instr.info.store_ptr.ptr
                     // instr.info.store_ptr.value
                     if (temporals_map->array[instr.info.store_ptr.ptr.val].known_temporal &&
-                            !temporals_map->array[instr.info.store_ptr.value.val].known_temporal
+                        !temporals_map->array[instr.info.store_ptr.value.val].known_temporal
                     ) {
                         // ptr known, value not
                         const TC_typeid ptr_type = temporals_map->array[instr.info.store_ptr.ptr.val].type;
@@ -1524,7 +1516,7 @@ void type_inference_pass_over_fn(
                             }
                         }
                         if (unpacked) {
-                            temporals_map->array[instr.info.store_ptr.value.val] = (TC_Entry) {
+                            temporals_map->array[instr.info.store_ptr.value.val] = (TC_Entry){
                                 .known_temporal = true,
                                 .type = inner_type,
                                 .is_value_known = false,
@@ -1545,13 +1537,13 @@ void type_inference_pass_over_fn(
                 case IR_INST_TY__EXPLICIT_CAST: {
                     // EXPLICIT CAST HAS TYPE PRIORITY
                     // if (!temporals_map->array[instr.info.explicit_cast.dest.val].known_temporal) {
-                        const TC_typeid t = resolve_tc_type(instr.info.explicit_cast.type, nct, target_info, source_info);
-                        temporals_map->array[instr.info.explicit_cast.dest.val] = (TC_Entry) {
-                            .known_temporal = true,
-                            .type = t,
-                            .is_value_known = false,
-                            .is_addressable = false
-                        };
+                    const TC_typeid t = resolve_tc_type(instr.info.explicit_cast.type, nct, target_info, source_info);
+                    temporals_map->array[instr.info.explicit_cast.dest.val] = (TC_Entry){
+                        .known_temporal = true,
+                        .type = t,
+                        .is_value_known = false,
+                        .is_addressable = false
+                    };
                     // }
                     break;
                 }
@@ -1593,11 +1585,12 @@ void type_inference_pass_over_fn(
 
 
                     // const TC_enumdef* en = &nct->enums.array[type.info.type_id];
-                    for (size_t v=0; v < en->variants.len; v++) {
-                        if (en->variants.array[v].name.identifier == instr.info.make_enum.variant && en->variants.array[v].values_len == instr.info.make_enum.args->len) {
+                    for (size_t v = 0; v < en->variants.len; v++) {
+                        if (en->variants.array[v].name.identifier == instr.info.make_enum.variant && en->variants.array[
+                                v].values_len == instr.info.make_enum.args->len) {
                             for (size_t a = 0; a < instr.info.make_enum.args->len; a++) {
                                 if (!temporals_map->array[instr.info.make_enum.args->array[a].val].known_temporal) {
-                                    temporals_map->array[instr.info.make_enum.args->array[a].val] = (TC_Entry) {
+                                    temporals_map->array[instr.info.make_enum.args->array[a].val] = (TC_Entry){
                                         .known_temporal = true,
                                         .type = en->variants.array[v].values[a],
                                         .is_value_known = false,
@@ -1608,6 +1601,59 @@ void type_inference_pass_over_fn(
                             break;
                         }
                     }
+                    break;
+                }
+                case IR_INST_TY__MATCH_META__TARGET: {
+                    // nothing
+                    break;
+                }
+                case IR_INST_TY__MATCH_META__MATCH: {
+                    if (!temporals_map->array[instr.info.match_meta__match.target.val].known_temporal) break;
+                    const TC_typeid target_t = temporals_map->array[instr.info.match_meta__match.target.val].type;
+
+                    // propagate type to pattern binds
+                    for (size_t n = 0; n < instr.info.match_meta__match.patterns.len; n++) {
+                        const Pattern p = instr.info.match_meta__match.patterns.array[n];
+                        switch (p.kind) {
+                            case PAT_LITERAL_INT:
+                            case PAT_LITERAL_FLOAT:
+                            case PAT_WILDCARD:
+                                break;
+                            case PAT_BINDING: {
+                                // p.binding
+                                break;
+                            }
+                            case PAT_VARIANT:
+                                break;
+                        }
+                    }
+
+                    break;
+                }
+                case IR_INST_TY__ENUM_VALUE_EXTRACT: {
+                    if (!temporals_map->array[instr.info.enum_value_extract.enum_src.val].known_temporal) break;
+                    const TC_typeid src_t = temporals_map->array[instr.info.enum_value_extract.enum_src.val].type;
+                    TC_typeid inner_t = src_t;
+                    while (src_t.ty == TC_TY_Ref || src_t.ty == TC_TY_Box) inner_t = *inner_t.info.contained;
+                    if (inner_t.ty != TC_TY_Enum) break;
+                    if (instr.info.enum_value_extract.enum_name.identifier != nct->enums.array[inner_t.info.type_id].name.identifier)
+                        break;
+
+                    const TC_enumdef edef = nct->enums.array[inner_t.info.type_id];
+                    for (size_t n = 0; n < edef.variants.len; n++) {
+                        if (edef.variants.array[n].name.identifier == instr.info.enum_value_extract.variant_name.identifier) {
+                            if (edef.variants.array[n].values_len > instr.info.enum_value_extract.value_nth) {
+                                temporals_map->array[instr.info.enum_value_extract.dest.val] = (TC_Entry) {
+                                    .known_temporal = true,
+                                    .type = edef.variants.array[n].values[instr.info.enum_value_extract.value_nth],
+                                    .is_value_known = false,
+                                    .is_addressable = false
+                                };
+                            }
+                        }
+                    }
+
+
                     break;
                 }
             }
@@ -1622,9 +1668,10 @@ typedef struct {
 } IR_temporal_and_TC_type;
 
 // while Ref<T>, unpack
-IR_temporal_and_TC_type perf_auto_deref(const TC_typeid* type, const IR_temporal* intake, size_t* highest_temporal, TC_Entry_LIST* temporals_map) {
+IR_temporal_and_TC_type perf_auto_deref(const TC_typeid* type, const IR_temporal* intake, size_t* highest_temporal,
+                                        TC_Entry_LIST* temporals_map) {
     if (type->ty != TC_TY_Ref) {
-        return (IR_temporal_and_TC_type){ .temporal = *intake, .type = *type };
+        return (IR_temporal_and_TC_type){.temporal = *intake, .type = *type};
     }
     TC_typeid t = *type;
     uint64_t te = intake->val;
@@ -1636,15 +1683,16 @@ IR_temporal_and_TC_type perf_auto_deref(const TC_typeid* type, const IR_temporal
         if (new_temporal + 1 > temporals_map->cap) {
             TC_Entry_LIST_inflate(temporals_map, new_temporal + 5);
         }
-        temporals_map->array[new_temporal] = (TC_Entry) {
+        temporals_map->array[new_temporal] = (TC_Entry){
             .type = t,
             .known_temporal = true,
             .is_value_known = false,
             .is_addressable = false,
         };
     }
-    return (IR_temporal_and_TC_type){ .temporal = (IR_temporal){ .val = te }, .type = t};
+    return (IR_temporal_and_TC_type){.temporal = (IR_temporal){.val = te}, .type = t};
 }
+
 typedef struct {
     IR_temporal a;
     IR_temporal b;
@@ -1685,7 +1733,7 @@ TC_typeid get_common_numeric_type(const TC_typeid t1, const TC_typeid t2) {
                 case TC_Primitive__Int32:
                 case TC_Primitive__Int64: {
                     // INVALID
-                    return (TC_typeid) { .ty=TC_TY_Void };
+                    return (TC_typeid){.ty = TC_TY_Void};
                 }
                 case TC_Primitive__Uint8:
                 case TC_Primitive__Uint16:
@@ -1699,7 +1747,7 @@ TC_typeid get_common_numeric_type(const TC_typeid t1, const TC_typeid t2) {
                 case TC_Primitive__Float32:
                 case TC_Primitive__Float64: {
                     // INVALID
-                    return (TC_typeid) { .ty=TC_TY_Void };
+                    return (TC_typeid){.ty = TC_TY_Void};
                 }
                 case TC_Primitive__Char:
                 case TC_Primitive__Bool: {
@@ -1715,7 +1763,7 @@ TC_typeid get_common_numeric_type(const TC_typeid t1, const TC_typeid t2) {
                 case TC_Primitive__Int32:
                 case TC_Primitive__Int64: {
                     // INVALID
-                    return (TC_typeid) { .ty=TC_TY_Void };
+                    return (TC_typeid){.ty = TC_TY_Void};
                 }
                 case TC_Primitive__Uint8:
                 case TC_Primitive__Uint16: {
@@ -1731,7 +1779,7 @@ TC_typeid get_common_numeric_type(const TC_typeid t1, const TC_typeid t2) {
                 case TC_Primitive__Float32:
                 case TC_Primitive__Float64: {
                     // INVALID
-                    return (TC_typeid) { .ty=TC_TY_Void };
+                    return (TC_typeid){.ty = TC_TY_Void};
                 }
                 case TC_Primitive__Char:
                 case TC_Primitive__Bool: {
@@ -1747,7 +1795,7 @@ TC_typeid get_common_numeric_type(const TC_typeid t1, const TC_typeid t2) {
                 case TC_Primitive__Int32:
                 case TC_Primitive__Int64: {
                     // INVALID
-                    return (TC_typeid) { .ty=TC_TY_Void };
+                    return (TC_typeid){.ty = TC_TY_Void};
                 }
                 case TC_Primitive__Uint8: {
                     return t1;
@@ -1763,7 +1811,7 @@ TC_typeid get_common_numeric_type(const TC_typeid t1, const TC_typeid t2) {
                 case TC_Primitive__Float32:
                 case TC_Primitive__Float64: {
                     // INVALID
-                    return (TC_typeid) { .ty=TC_TY_Void };
+                    return (TC_typeid){.ty = TC_TY_Void};
                 }
                 case TC_Primitive__Char:
                 case TC_Primitive__Bool: {
@@ -1779,7 +1827,7 @@ TC_typeid get_common_numeric_type(const TC_typeid t1, const TC_typeid t2) {
                 case TC_Primitive__Int32:
                 case TC_Primitive__Int64: {
                     // INVALID
-                    return (TC_typeid) { .ty=TC_TY_Void };
+                    return (TC_typeid){.ty = TC_TY_Void};
                 }
                 case TC_Primitive__Uint8: {
                     INTERNAL_ERROR()
@@ -1793,7 +1841,7 @@ TC_typeid get_common_numeric_type(const TC_typeid t1, const TC_typeid t2) {
                 case TC_Primitive__Float32:
                 case TC_Primitive__Float64: {
                     // INVALID
-                    return (TC_typeid) { .ty=TC_TY_Void };
+                    return (TC_typeid){.ty = TC_TY_Void};
                 }
                 case TC_Primitive__Char:
                 case TC_Primitive__Bool: {
@@ -1818,12 +1866,12 @@ TC_typeid get_common_numeric_type(const TC_typeid t1, const TC_typeid t2) {
                 case TC_Primitive__Uint32:
                 case TC_Primitive__Uint64: {
                     // INVALID
-                    return (TC_typeid) { .ty=TC_TY_Void };
+                    return (TC_typeid){.ty = TC_TY_Void};
                 }
                 case TC_Primitive__Float32:
                 case TC_Primitive__Float64: {
                     // INVALID
-                    return (TC_typeid) { .ty=TC_TY_Void };
+                    return (TC_typeid){.ty = TC_TY_Void};
                 }
                 case TC_Primitive__Char:
                 case TC_Primitive__Bool: {
@@ -1850,12 +1898,12 @@ TC_typeid get_common_numeric_type(const TC_typeid t1, const TC_typeid t2) {
                 case TC_Primitive__Uint32:
                 case TC_Primitive__Uint64: {
                     // INVALID
-                    return (TC_typeid) { .ty=TC_TY_Void };
+                    return (TC_typeid){.ty = TC_TY_Void};
                 }
                 case TC_Primitive__Float32:
                 case TC_Primitive__Float64: {
                     // INVALID
-                    return (TC_typeid) { .ty=TC_TY_Void };
+                    return (TC_typeid){.ty = TC_TY_Void};
                 }
                 case TC_Primitive__Char:
                 case TC_Primitive__Bool: {
@@ -1882,12 +1930,12 @@ TC_typeid get_common_numeric_type(const TC_typeid t1, const TC_typeid t2) {
                 case TC_Primitive__Uint32:
                 case TC_Primitive__Uint64: {
                     // INVALID
-                    return (TC_typeid) { .ty=TC_TY_Void };
+                    return (TC_typeid){.ty = TC_TY_Void};
                 }
                 case TC_Primitive__Float32:
                 case TC_Primitive__Float64: {
                     // INVALID
-                    return (TC_typeid) { .ty=TC_TY_Void };
+                    return (TC_typeid){.ty = TC_TY_Void};
                 }
                 case TC_Primitive__Char:
                 case TC_Primitive__Bool: {
@@ -1912,12 +1960,12 @@ TC_typeid get_common_numeric_type(const TC_typeid t1, const TC_typeid t2) {
                 case TC_Primitive__Uint32:
                 case TC_Primitive__Uint64: {
                     // INVALID
-                    return (TC_typeid) { .ty=TC_TY_Void };
+                    return (TC_typeid){.ty = TC_TY_Void};
                 }
                 case TC_Primitive__Float32:
                 case TC_Primitive__Float64: {
                     // INVALID
-                    return (TC_typeid) { .ty=TC_TY_Void };
+                    return (TC_typeid){.ty = TC_TY_Void};
                 }
                 case TC_Primitive__Char:
                 case TC_Primitive__Bool: {
@@ -1937,7 +1985,7 @@ TC_typeid get_common_numeric_type(const TC_typeid t1, const TC_typeid t2) {
                 case TC_Primitive__Uint32:
                 case TC_Primitive__Uint64: {
                     // INVALID
-                    return (TC_typeid) { .ty=TC_TY_Void };
+                    return (TC_typeid){.ty = TC_TY_Void};
                 }
                 case TC_Primitive__Float32: {
                     INTERNAL_ERROR()
@@ -1949,7 +1997,7 @@ TC_typeid get_common_numeric_type(const TC_typeid t1, const TC_typeid t2) {
                 case TC_Primitive__Char:
                 case TC_Primitive__Bool: {
                     // INVALID
-                    return (TC_typeid) { .ty=TC_TY_Void };
+                    return (TC_typeid){.ty = TC_TY_Void};
                 }
             }
             INTERNAL_ERROR("control flow")
@@ -1965,7 +2013,7 @@ TC_typeid get_common_numeric_type(const TC_typeid t1, const TC_typeid t2) {
                 case TC_Primitive__Uint32:
                 case TC_Primitive__Uint64: {
                     // INVALID
-                    return (TC_typeid) { .ty=TC_TY_Void };
+                    return (TC_typeid){.ty = TC_TY_Void};
                 }
                 case TC_Primitive__Float32: {
                     return t1;
@@ -1977,7 +2025,7 @@ TC_typeid get_common_numeric_type(const TC_typeid t1, const TC_typeid t2) {
                 case TC_Primitive__Char:
                 case TC_Primitive__Bool: {
                     // INVALID
-                    return (TC_typeid) { .ty=TC_TY_Void };
+                    return (TC_typeid){.ty = TC_TY_Void};
                 }
             }
             INTERNAL_ERROR("control flow")
@@ -1998,7 +2046,7 @@ TC_typeid get_common_numeric_type(const TC_typeid t1, const TC_typeid t2) {
                 case TC_Primitive__Float32:
                 case TC_Primitive__Float64: {
                     // INVALID
-                    return (TC_typeid) { .ty=TC_TY_Void };
+                    return (TC_typeid){.ty = TC_TY_Void};
                 }
                 case TC_Primitive__Char: {
                     return t2;
@@ -2012,7 +2060,7 @@ TC_typeid get_common_numeric_type(const TC_typeid t1, const TC_typeid t2) {
     }
 
     // returns INVALID
-    return (TC_typeid) { .ty=TC_TY_Void };
+    return (TC_typeid){.ty = TC_TY_Void};
 }
 
 /// returns TRUE when possible
@@ -2026,14 +2074,15 @@ bool can_be_explicit_casted(const TC_typeid* from, const TC_typeid* to) {
 }
 
 
-bool can_const_narrow(const uint64_t temporal, const TC_typeid* to, const TC_Entry_LIST* temporals_map, const TC_Value_LIST* temporals_map_values) {
+bool can_const_narrow(const uint64_t temporal, const TC_typeid* to, const TC_Entry_LIST* temporals_map,
+                      const TC_Value_LIST* temporals_map_values) {
     const TC_Entry* entry = &temporals_map->array[temporal];
 
     // If the compiler doesn't know the exact value at compile time, we must reject it.
     if (!entry->is_value_known) return false;
     if (to->ty != TC_TY_Primitive) return false;
 
-    if (temporal+1 > temporals_map_values->cap) {
+    if (temporal + 1 > temporals_map_values->cap) {
         return false;
     }
     if (temporals_map_values->array[temporal].kind != TC_VK_Int) {
@@ -2043,14 +2092,14 @@ bool can_const_narrow(const uint64_t temporal, const TC_typeid* to, const TC_Ent
     const int64_t val = temporals_map_values->array[temporal].Int;
 
     switch (to->info.primitive) {
-        case TC_Primitive__Int8:   return val >= -128 && val <= 127;
-        case TC_Primitive__Uint8:  return val >= 0 && val <= 255;
-        case TC_Primitive__Int16:  return val >= -32768 && val <= 32767;
+        case TC_Primitive__Int8: return val >= -128 && val <= 127;
+        case TC_Primitive__Uint8: return val >= 0 && val <= 255;
+        case TC_Primitive__Int16: return val >= -32768 && val <= 32767;
         case TC_Primitive__Uint16: return val >= 0 && val <= 65535;
-        case TC_Primitive__Int32:  return val >= -2147483648LL && val <= 2147483647LL;
+        case TC_Primitive__Int32: return val >= -2147483648LL && val <= 2147483647LL;
         case TC_Primitive__Uint32: return val >= 0 && val <= 4294967295LL;
-        case TC_Primitive__Char:   return val >= 0 && val <= 255; // Or 1114111 for Unicode
-            // Int64/Uint64 are already caught by implicit cast or are the max size anyway
+        case TC_Primitive__Char: return val >= 0 && val <= 255; // Or 1114111 for Unicode
+        // Int64/Uint64 are already caught by implicit cast or are the max size anyway
         default: return false;
     }
     INTERNAL_ERROR("control flow error")
@@ -2077,17 +2126,22 @@ bool can_be_implicit_casted(const TC_typeid* from, const TC_typeid* to) {
                 return to->info.primitive == TC_Primitive__Int64;
             }
             case TC_Primitive__Uint8: {
-                const bool is_valid_unsigned = (to->info.primitive >= TC_Primitive__Uint8 && to->info.primitive <= TC_Primitive__Uint64);
-                const bool is_safe_signed = (to->info.primitive >= TC_Primitive__Int16 && to->info.primitive <= TC_Primitive__Int64);
+                const bool is_valid_unsigned = (to->info.primitive >= TC_Primitive__Uint8 && to->info.primitive <=
+                                                TC_Primitive__Uint64);
+                const bool is_safe_signed = (to->info.primitive >= TC_Primitive__Int16 && to->info.primitive <=
+                                             TC_Primitive__Int64);
                 return is_valid_unsigned || is_safe_signed;
             }
             case TC_Primitive__Uint16: {
-                const bool is_valid_unsigned = (to->info.primitive >= TC_Primitive__Uint16 && to->info.primitive <= TC_Primitive__Uint64);
-                const bool is_safe_signed = (to->info.primitive >= TC_Primitive__Int32 && to->info.primitive <= TC_Primitive__Int64);
+                const bool is_valid_unsigned = (to->info.primitive >= TC_Primitive__Uint16 && to->info.primitive <=
+                                                TC_Primitive__Uint64);
+                const bool is_safe_signed = (to->info.primitive >= TC_Primitive__Int32 && to->info.primitive <=
+                                             TC_Primitive__Int64);
                 return is_valid_unsigned || is_safe_signed;
             }
             case TC_Primitive__Uint32: {
-                const bool is_valid_unsigned = (to->info.primitive >= TC_Primitive__Uint32 && to->info.primitive <= TC_Primitive__Uint64);
+                const bool is_valid_unsigned = (to->info.primitive >= TC_Primitive__Uint32 && to->info.primitive <=
+                                                TC_Primitive__Uint64);
                 const bool is_safe_signed = (to->info.primitive == TC_Primitive__Int64);
                 return is_valid_unsigned || is_safe_signed;
             }
@@ -2103,9 +2157,8 @@ bool can_be_implicit_casted(const TC_typeid* from, const TC_typeid* to) {
             case TC_Primitive__Char:
             case TC_Primitive__Bool: {
                 return
-                    (to->info.primitive >= TC_Primitive__Int8 && to->info.primitive <= TC_Primitive__Int64) ||
-                    (to->info.primitive >= TC_Primitive__Uint8 && to->info.primitive <= TC_Primitive__Uint64)
-                ;
+                        (to->info.primitive >= TC_Primitive__Int8 && to->info.primitive <= TC_Primitive__Int64) ||
+                        (to->info.primitive >= TC_Primitive__Uint8 && to->info.primitive <= TC_Primitive__Uint64);
             }
         }
     }
@@ -2125,7 +2178,6 @@ DoubleIR_temporal_and_TC_typeid perf_numeric_promotion(
     TC_Entry_LIST* temporals_map,
     const TC_Value_LIST* temporals_map_values
 ) {
-
     const TC_typeid safe_a_type = *a_type;
     const TC_typeid safe_b_type = *b_type;
 
@@ -2176,15 +2228,15 @@ DoubleIR_temporal_and_TC_typeid perf_numeric_promotion(
         if (is_error) {
             *is_out_error = true;
             *is_out_error_incompatible_number_relation = false;
-            return (DoubleIR_temporal_and_TC_typeid) {
-                .a = (IR_temporal) { .val=error_a },
-                .b = (IR_temporal) { .val=error_b },
-                .t = (TC_typeid) { .ty=TC_TY_Void }
+            return (DoubleIR_temporal_and_TC_typeid){
+                .a = (IR_temporal){.val = error_a},
+                .b = (IR_temporal){.val = error_b},
+                .t = (TC_typeid){.ty = TC_TY_Void}
             };
         }
     }
 
-    TC_typeid target_op_type = { .ty = TC_TY_Void };
+    TC_typeid target_op_type = {.ty = TC_TY_Void};
 
     // 1. CONSTANT PRIORITY RESOLUTION
     // Check if either side is a known compile-time value
@@ -2192,11 +2244,13 @@ DoubleIR_temporal_and_TC_typeid perf_numeric_promotion(
     const bool b_known = temporals_map->array[derefered_b.temporal.val].is_value_known;
 
     // If A is a variable and B is a constant that fits into A's type
-    if (!a_known && b_known && can_const_narrow(derefered_b.temporal.val, &derefered_a.type, temporals_map, temporals_map_values)) {
+    if (!a_known && b_known && can_const_narrow(derefered_b.temporal.val, &derefered_a.type, temporals_map,
+                                                temporals_map_values)) {
         target_op_type = derefered_a.type;
     }
     // If B is a variable and A is a constant that fits into B's type
-    else if (!b_known && a_known && can_const_narrow(derefered_a.temporal.val, &derefered_b.type, temporals_map, temporals_map_values)) {
+    else if (!b_known && a_known && can_const_narrow(derefered_a.temporal.val, &derefered_b.type, temporals_map,
+                                                     temporals_map_values)) {
         target_op_type = derefered_b.type;
     }
     // 2. STANDARD PROMOTION
@@ -2207,7 +2261,8 @@ DoubleIR_temporal_and_TC_typeid perf_numeric_promotion(
         if (target_op_type.ty == TC_TY_Void) {
             if (can_const_narrow(derefered_a.temporal.val, &derefered_b.type, temporals_map, temporals_map_values)) {
                 target_op_type = derefered_b.type;
-            } else if (can_const_narrow(derefered_b.temporal.val, &derefered_a.type, temporals_map, temporals_map_values)) {
+            } else if (can_const_narrow(derefered_b.temporal.val, &derefered_a.type, temporals_map,
+                                        temporals_map_values)) {
                 target_op_type = derefered_a.type;
             }
         }
@@ -2217,9 +2272,9 @@ DoubleIR_temporal_and_TC_typeid perf_numeric_promotion(
         // incompatible integers -> between each other
         *is_out_error = true;
         *is_out_error_incompatible_number_relation = true;
-        return (DoubleIR_temporal_and_TC_typeid) {
-            .a = (IR_temporal) {.val=0},
-            .b = (IR_temporal) {.val=0},
+        return (DoubleIR_temporal_and_TC_typeid){
+            .a = (IR_temporal){.val = 0},
+            .b = (IR_temporal){.val = 0},
             .t = target_op_type
         };
     }
@@ -2232,14 +2287,16 @@ DoubleIR_temporal_and_TC_typeid perf_numeric_promotion(
         const uint64_t new_temporal = (*highest_temporal)++;
 
         if (a_known) {
-            printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT CONST-NARROW]\n", new_temporal, SV_v_args(target_op_type.full_typeuse_span.sv), new_a.val);
+            printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT CONST-NARROW]\n", new_temporal,
+                   SV_v_args(target_op_type.full_typeuse_span.sv), new_a.val);
         } else {
-            printf("   %%%lu = CAST<"SV_format">(%%%lu)\n", new_temporal, SV_v_args(target_op_type.full_typeuse_span.sv), new_a.val);
+            printf("   %%%lu = CAST<"SV_format">(%%%lu)\n", new_temporal,
+                   SV_v_args(target_op_type.full_typeuse_span.sv), new_a.val);
         }
         new_a.val = new_temporal;
 
         // IMPORTANT: Register the new temporal so the pipeline doesn't break later!
-        if (temporals_map->cap < new_temporal+1) TC_Entry_LIST_inflate(temporals_map, new_temporal+5);
+        if (temporals_map->cap < new_temporal + 1) TC_Entry_LIST_inflate(temporals_map, new_temporal + 5);
         temporals_map->array[new_temporal] = temporals_map->array[derefered_a.temporal.val];
         temporals_map->array[new_temporal].type = target_op_type;
     }
@@ -2249,30 +2306,32 @@ DoubleIR_temporal_and_TC_typeid perf_numeric_promotion(
         const uint64_t new_temporal = (*highest_temporal)++;
 
         if (b_known) {
-            printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT CONST-NARROW]\n", new_temporal, SV_v_args(target_op_type.full_typeuse_span.sv), new_b.val);
+            printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT CONST-NARROW]\n", new_temporal,
+                   SV_v_args(target_op_type.full_typeuse_span.sv), new_b.val);
         } else {
-            printf("   %%%lu = CAST<"SV_format">(%%%lu)\n", new_temporal, SV_v_args(target_op_type.full_typeuse_span.sv), new_b.val);
+            printf("   %%%lu = CAST<"SV_format">(%%%lu)\n", new_temporal,
+                   SV_v_args(target_op_type.full_typeuse_span.sv), new_b.val);
         }
         new_b.val = new_temporal;
 
         // IMPORTANT: Register the new temporal
-        if (temporals_map->cap < new_temporal+1) TC_Entry_LIST_inflate(temporals_map, new_temporal+1);
+        if (temporals_map->cap < new_temporal + 1) TC_Entry_LIST_inflate(temporals_map, new_temporal + 1);
         temporals_map->array[new_temporal] = temporals_map->array[derefered_b.temporal.val];
         temporals_map->array[new_temporal].type = target_op_type;
     }
 
     *is_out_error = false;
     *is_out_error_incompatible_number_relation = false;
-    return (DoubleIR_temporal_and_TC_typeid) {
+    return (DoubleIR_temporal_and_TC_typeid){
         .a = new_a,
         .b = new_b,
         .t = target_op_type
     };
-
 }
 
 // The Condition Coercer
-IR_temporal perf_bool(const IR_temporal* intake, const TC_typeid* intake_type, size_t* highest_temporal, TC_Entry_LIST* temporals_map) {
+IR_temporal perf_bool(const IR_temporal* intake, const TC_typeid* intake_type, size_t* highest_temporal,
+                      TC_Entry_LIST* temporals_map) {
     const IR_temporal_and_TC_type derefd = perf_auto_deref(intake_type, intake, highest_temporal, temporals_map);
     if (derefd.type.ty == TC_TY_Primitive && derefd.type.info.primitive == TC_Primitive__Bool) {
         return derefd.temporal;
@@ -2286,45 +2345,46 @@ IR_temporal perf_bool(const IR_temporal* intake, const TC_typeid* intake_type, s
         if (new_temporal + 1 > temporals_map->cap) {
             TC_Entry_LIST_inflate(temporals_map, new_temporal + 5);
         }
-        temporals_map->array[new_temporal] = (TC_Entry) {
-            .type = (TC_typeid) {
+        temporals_map->array[new_temporal] = (TC_Entry){
+            .type = (TC_typeid){
                 .ty = TC_TY_Primitive,
                 .info.primitive = TC_Primitive__Bool,
-                .full_typeuse_span = (TokenSpan) {.sv=SV_from_str_len("Bool", 4)}
+                .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)}
             },
             .known_temporal = true,
             .is_value_known = false,
             .is_addressable = false,
         };
 
-        return (IR_temporal) { .val = new_temporal};
+        return (IR_temporal){.val = new_temporal};
     }
 
     INTERNAL_ERROR("typechecking error here....");
 }
 
 
-IR_temporal_and_TC_type perf_auto_ref(const IR_temporal* intake, const TC_typeid* intake_type, size_t* highest_temporal, TC_Entry_LIST* temporals_map) {
+IR_temporal_and_TC_type perf_auto_ref(const IR_temporal* intake, const TC_typeid* intake_type, size_t* highest_temporal,
+                                      TC_Entry_LIST* temporals_map) {
     const uint64_t new_temporal = (*highest_temporal)++;
     printf("   %%%lu = REF_OF %%%lu\n", new_temporal, intake->val);
 
-    const TC_typeid nt = (TC_typeid) {
+    const TC_typeid nt = (TC_typeid){
         .ty = TC_TY_Ref,
-        .info.contained = (TC_typeid*)intake_type,
-        .full_typeuse_span = (TokenSpan) { .sv=intake_type->full_typeuse_span.sv }
+        .info.contained = (TC_typeid *) intake_type,
+        .full_typeuse_span = (TokenSpan){.sv = intake_type->full_typeuse_span.sv}
     };
 
     if (new_temporal + 1 > temporals_map->cap) {
         TC_Entry_LIST_inflate(temporals_map, new_temporal + 5);
     }
-    temporals_map->array[new_temporal] = (TC_Entry) {
+    temporals_map->array[new_temporal] = (TC_Entry){
         .type = nt,
         .known_temporal = true,
         .is_value_known = false,
         .is_addressable = false,
     };
 
-    return (IR_temporal_and_TC_type){ .temporal =  (IR_temporal){.val=new_temporal}, .type = nt};
+    return (IR_temporal_and_TC_type){.temporal = (IR_temporal){.val = new_temporal}, .type = nt};
 }
 
 IR_temporal perf_autos(
@@ -2350,10 +2410,10 @@ IR_temporal perf_autos(
         printf("   %%%lu = READ_PTR %%%lu\n", new_temporal, current_temp);
         current_temp = new_temporal;
         current_type = *current_type.info.contained;
-        if (temporals_map->cap < current_temp+1) {
-            TC_Entry_LIST_inflate(temporals_map, current_temp+5);
+        if (temporals_map->cap < current_temp + 1) {
+            TC_Entry_LIST_inflate(temporals_map, current_temp + 5);
         }
-        temporals_map->array[current_temp] = (TC_Entry) {
+        temporals_map->array[current_temp] = (TC_Entry){
             .known_temporal = true,
             .type = current_type,
             .is_value_known = false,
@@ -2362,7 +2422,7 @@ IR_temporal perf_autos(
     }
 
     if (is_type_eq(&current_type, output_type)) {
-        return (IR_temporal){.val=current_temp};
+        return (IR_temporal){.val = current_temp};
     }
 
     const TC_typeid* target_base = (output_type->ty == TC_TY_Ref) ? (output_type->info.contained) : output_type;
@@ -2394,25 +2454,28 @@ IR_temporal perf_autos(
 
         // Print different debug info if it was a constant narrow
         if (can_narrow) {
-            printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT CONST-NARROW]\n", new_temp, SV_v_args(target_base_sv), current_temp);
+            printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT CONST-NARROW]\n", new_temp, SV_v_args(target_base_sv),
+                   current_temp);
         } else {
-            printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT]\n", new_temp, SV_v_args(target_base_sv), current_temp);
+            printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT]\n", new_temp, SV_v_args(target_base_sv),
+                   current_temp);
         }
 
-        if (temporals_map->cap < new_temp+1) {
-            TC_Entry_LIST_inflate(temporals_map, new_temp+1);
+        if (temporals_map->cap < new_temp + 1) {
+            TC_Entry_LIST_inflate(temporals_map, new_temp + 1);
         }
 
-        if (temporals_map_values->cap < new_temp+1) {
-            TC_Value_LIST_inflate(temporals_map_values, new_temp+1);
+        if (temporals_map_values->cap < new_temp + 1) {
+            TC_Value_LIST_inflate(temporals_map_values, new_temp + 1);
         }
 
         // CRITICAL: Propagate the known value!
         TC_Entry old_entry = temporals_map->array[current_temp];
-        temporals_map->array[new_temp] = (TC_Entry) {
+        temporals_map->array[new_temp] = (TC_Entry){
             .known_temporal = true,
             .type = *target_base,
-            .is_value_known = old_entry.is_value_known, // && temporals_map_values->array[current_temp].kind == TC_VK_Int,
+            .is_value_known = old_entry.is_value_known,
+            // && temporals_map_values->array[current_temp].kind == TC_VK_Int,
             .is_addressable = false,
         };
 
@@ -2433,12 +2496,13 @@ IR_temporal perf_autos(
     }
 
     if (is_type_eq(&current_type, output_type)) {
-        return (IR_temporal){.val=current_temp};
+        return (IR_temporal){.val = current_temp};
     }
 
     // auto-ref
     if (output_type->ty == TC_TY_Ref && is_type_eq(output_type->info.contained, &current_type)) {
-        if (!temporals_map->array[current_temp].is_addressable) { // Cannot take reference of temporary value
+        if (!temporals_map->array[current_temp].is_addressable) {
+            // Cannot take reference of temporary value
             const SV msg = SV_from_str_len("c", 1);
             type_error(&source_info->source, &source_info->source_filename, value_token, &msg);
             INTERNAL_ERROR("TYPE ERROR HERE");
@@ -2449,10 +2513,10 @@ IR_temporal perf_autos(
         current_type = *output_type;
         current_temp = new_temporal;
 
-        if (temporals_map->cap < current_temp+1) {
-            TC_Entry_LIST_inflate(temporals_map, current_temp+5);
+        if (temporals_map->cap < current_temp + 1) {
+            TC_Entry_LIST_inflate(temporals_map, current_temp + 5);
         }
-        temporals_map->array[current_temp] = (TC_Entry) {
+        temporals_map->array[current_temp] = (TC_Entry){
             .known_temporal = true,
             .type = current_type,
             .is_value_known = false,
@@ -2461,14 +2525,16 @@ IR_temporal perf_autos(
     }
 
     if (is_type_eq(output_type, &current_type)) {
-        return (IR_temporal){.val=current_temp};
+        return (IR_temporal){.val = current_temp};
     } else {
         // Type mismatch! Could not coerce...
         const SV in_type = format_TC_typeid(intake_type, identifier_map, nct);
         const SV out_type = format_TC_typeid(output_type, identifier_map, nct);
         const size_t MAX_SIZE = 1024;
-        char* r_msg = malloc(sizeof(char)*MAX_SIZE);
-        int len = snprintf(r_msg, MAX_SIZE, "Type mismatch! Could not coerce "C_BOLD""SV_format""C_RESET" into "C_BOLD""SV_format""C_RESET"", SV_v_args(in_type), SV_v_args(out_type));
+        char* r_msg = malloc(sizeof(char) * MAX_SIZE);
+        int len = snprintf(r_msg, MAX_SIZE,
+                           "Type mismatch! Could not coerce "C_BOLD""SV_format""C_RESET" into "C_BOLD""SV_format""
+                           C_RESET"", SV_v_args(in_type), SV_v_args(out_type));
         const SV msg = SV_from_str_len(r_msg, len);
         type_error(&source_info->source, &source_info->source_filename, value_token, &msg);
         exit(1);
@@ -2476,34 +2542,37 @@ IR_temporal perf_autos(
 }
 
 
-SizeAlign calc_size_of(const TC_typeid* type, const TC_TypeTable* restrict nct, const TargetInfo* restrict target_info) {
+SizeAlign calc_size_of(const TC_typeid* type, const TC_TypeTable* restrict nct,
+                       const TargetInfo* restrict target_info) {
     switch (type->ty) {
         case TC_TY_Void: INTERNAL_ERROR("SIZEOF_ VOID")
         case TC_TY_Primitive: {
-            return (SizeAlign) { TC_Primitive_TY_size(type->info.primitive), TC_Primitive_TY_size(type->info.primitive)};
+            return (SizeAlign){TC_Primitive_TY_size(type->info.primitive), TC_Primitive_TY_size(type->info.primitive)};
         }
         case TC_TY_Slice: {
-            return (SizeAlign) { target_info->ptr_size * 2, target_info->ptr_size }; // { ptr; len; }
+            return (SizeAlign){target_info->ptr_size * 2, target_info->ptr_size}; // { ptr; len; }
         }
         case TC_TY_Struct: {
-            return (SizeAlign) { nct->structs.array[type->info.type_id].layout.size, nct->structs.array[type->info.type_id].layout.align };
+            return (SizeAlign){
+                nct->structs.array[type->info.type_id].layout.size, nct->structs.array[type->info.type_id].layout.align
+            };
         }
         case TC_TY_Enum: {
-            return (SizeAlign) { nct->enums.array[type->info.type_id].size, nct->enums.array[type->info.type_id].align };
+            return (SizeAlign){nct->enums.array[type->info.type_id].size, nct->enums.array[type->info.type_id].align};
         }
         case TC_TY_Ref:
         case TC_TY_Box: {
-            return (SizeAlign) {target_info->ptr_size, target_info->ptr_size};
+            return (SizeAlign){target_info->ptr_size, target_info->ptr_size};
         }
         case TC_TY_Array: {
             const SizeAlign inner = calc_size_of(type->info.t_array.contained, nct, target_info);
-            return (SizeAlign) {
+            return (SizeAlign){
                 type->info.t_array.array_size * inner.size,
                 inner.align
             };
         }
         case TC_TY_List: {
-            return (SizeAlign) {target_info->ptr_size * 3, target_info->ptr_size }; // { ptr; len; cap; }
+            return (SizeAlign){target_info->ptr_size * 3, target_info->ptr_size}; // { ptr; len; cap; }
         }
         case TC_TY_External_Type: INTERNAL_ERROR("SIZEOF_ EXTERNAL_TYPE")
     }
@@ -2511,48 +2580,46 @@ SizeAlign calc_size_of(const TC_typeid* type, const TC_TypeTable* restrict nct, 
 }
 
 
-
 static TC_structdef compiler_builtin__list_tc_structdef;
 static TC_structdef compiler_builtin__slice_tc_structdef;
 
 
-void init__compiler_builtin__tc_types(khash_t(sv_u64_map)* restrict identifier_map, uint64_t* restrict identifier_map_cnt, const TargetInfo* restrict target_info) {
-
-
+void init__compiler_builtin__tc_types(khash_t(sv_u64_map)* restrict identifier_map,
+                                      uint64_t* restrict identifier_map_cnt, const TargetInfo* restrict target_info) {
     {
         const SV list_name = SV_from_str_len("List", 4);
         const SV list_len = SV_from_str_len("len", 3);
         const SV sv_uint32 = SV_from_str_len("Uint32", 6);
 
         TC_field_LIST list_fields = TC_field_LIST_new_with_capacity(1);
-        TC_field_LIST_push(&list_fields, (TC_field) {
-            .name = (SpannedIdentifier) {
-                .identifier = SV_to_identifier(identifier_map, identifier_map_cnt, &list_len),
-                .span = (TokenSpan) { .sv = list_len}
-            },
-            .type = (TC_typeid) {
-                .ty = TC_TY_Primitive,
-                .info.primitive = TC_Primitive__Uint32,
-                .full_typeuse_span = (TokenSpan) { .sv=sv_uint32 }
-            }
-        });
+        TC_field_LIST_push(&list_fields, (TC_field){
+                               .name = (SpannedIdentifier){
+                                   .identifier = SV_to_identifier(identifier_map, identifier_map_cnt, &list_len),
+                                   .span = (TokenSpan){.sv = list_len}
+                               },
+                               .type = (TC_typeid){
+                                   .ty = TC_TY_Primitive,
+                                   .info.primitive = TC_Primitive__Uint32,
+                                   .full_typeuse_span = (TokenSpan){.sv = sv_uint32}
+                               }
+                           });
 
         // { ptr; len; cap; }
         // only len is exposed
         uint32_t* list_field_offsets = malloc(sizeof(uint32_t));
         *list_field_offsets = target_info->ptr_size;
 
-        compiler_builtin__list_tc_structdef = (TC_structdef) {
-            .name = (SpannedIdentifier) {
-                .identifier = SV_to_identifier(identifier_map, identifier_map_cnt,  &list_name),
-                .span = (TokenSpan) { .sv = list_name },
+        compiler_builtin__list_tc_structdef = (TC_structdef){
+            .name = (SpannedIdentifier){
+                .identifier = SV_to_identifier(identifier_map, identifier_map_cnt, &list_name),
+                .span = (TokenSpan){.sv = list_name},
             },
             .fields = list_fields,
-            .layout = (TC_struct_layout) {
+            .layout = (TC_struct_layout){
                 .size = target_info->ptr_size * 3,
                 .align = target_info->ptr_size,
                 .field_offsets = list_field_offsets
-           }
+            }
         };
     }
 
@@ -2563,39 +2630,39 @@ void init__compiler_builtin__tc_types(khash_t(sv_u64_map)* restrict identifier_m
         const SV sv_uint32 = SV_from_str_len("Uint32", 6);
 
         TC_field_LIST slice_fields = TC_field_LIST_new_with_capacity(1);
-        TC_field_LIST_push(&slice_fields, (TC_field) {
-            .name = (SpannedIdentifier) {
-                .identifier = SV_to_identifier(identifier_map, identifier_map_cnt, &slice_len),
-                .span = (TokenSpan) { .sv = slice_len}
-            },
-            .type = (TC_typeid) {
-                .ty = TC_TY_Primitive,
-                .info.primitive = TC_Primitive__Uint32,
-                .full_typeuse_span = (TokenSpan) { .sv=sv_uint32 }
-            }
-        });
+        TC_field_LIST_push(&slice_fields, (TC_field){
+                               .name = (SpannedIdentifier){
+                                   .identifier = SV_to_identifier(identifier_map, identifier_map_cnt, &slice_len),
+                                   .span = (TokenSpan){.sv = slice_len}
+                               },
+                               .type = (TC_typeid){
+                                   .ty = TC_TY_Primitive,
+                                   .info.primitive = TC_Primitive__Uint32,
+                                   .full_typeuse_span = (TokenSpan){.sv = sv_uint32}
+                               }
+                           });
 
         // { ptr; len; }
         // only len is exposed
         uint32_t* list_field_offsets = malloc(sizeof(uint32_t));
         *list_field_offsets = target_info->ptr_size;
 
-        compiler_builtin__slice_tc_structdef = (TC_structdef) {
-            .name = (SpannedIdentifier) {
+        compiler_builtin__slice_tc_structdef = (TC_structdef){
+            .name = (SpannedIdentifier){
                 .identifier = SV_to_identifier(identifier_map, identifier_map_cnt, &slice_name),
-                .span = (TokenSpan) { .sv = slice_name}
+                .span = (TokenSpan){.sv = slice_name}
             },
             .fields = slice_fields,
-            .layout = (TC_struct_layout) {
+            .layout = (TC_struct_layout){
                 .size = target_info->ptr_size * 2,
                 .align = target_info->ptr_size,
                 .field_offsets = list_field_offsets
-           }
+            }
         };
     }
 }
 
-void lowering_and_emission_pass_over_fn(
+MIR_func lowering_and_emission_pass_over_fn(
     const IR_func fn,
     const khash_t(sv_u64_map)* restrict identifier_map,
     const IR_func_LIST* restrict functions,
@@ -2606,40 +2673,46 @@ void lowering_and_emission_pass_over_fn(
     TC_Entry_LIST* restrict temporals_map,
     TC_typeid_LIST* restrict type_needing_destructor
 ) {
-
     printf("LINEAR TYPECHECK AND LOWERING:\n");
 
-    TC_Value_LIST temporals_map_values = TC_Value_LIST_new_with_capacity(fn.highest_temporal_number+1);
-    size_t highest_temporal = fn.highest_temporal_number+1;
+    TC_Value_LIST temporals_map_values = TC_Value_LIST_new_with_capacity(fn.highest_temporal_number + 1);
+    size_t highest_temporal = fn.highest_temporal_number + 1;
 
-    for (ptrdiff_t block_id = 0 ; block_id < (ptrdiff_t) fn.blocks.len; block_id++) {
+    MIR_block_LIST mir_blocks = MIR_block_LIST_new_with_capacity(fn.blocks.len);
+    MIR_temporal_LIST mir_temporals = MIR_temporal_LIST_new_with_capacity(highest_temporal);
+
+    for (ptrdiff_t block_id = 0; block_id < (ptrdiff_t) fn.blocks.len; block_id++) {
         const IR_block block = fn.blocks.array[block_id];
+        MIR_instr_LIST mir_instrs = MIR_instr_LIST_new_with_capacity(block.instructions.len);
+
         printf("  BLOCK %lu:\n", block_id);
         for (size_t instr_nth = 0; instr_nth < block.instructions.len; instr_nth++) {
             const IR_instr instr = block.instructions.array[instr_nth];
 
             switch (instr.ty) {
-                case IR_INST_TY__INVALID:
+                case IR_INST_TY__INVALID: {
+                    INTERNAL_ERROR("IR_INST_TY__INVALID");
                     break;
+                }
                 case IR_INST_TY__PHI: {
                     // Typecheck: Ensure all incoming PHI branches are the exact same type
                     // instr.info.phi.dest.val is the source of truth
                     const TC_typeid dest_t = temporals_map->array[instr.info.phi.dest.val].type;
 
-                    for (size_t n=0; n < instr.info.phi.args->len; n++) {
+                    for (size_t n = 0; n < instr.info.phi.args->len; n++) {
                         const IR_temporal_block_phi_record* record = &instr.info.phi.args->array[n];
 
                         if (!is_type_eq(&dest_t, &temporals_map->array[record->temp.val].type)) {
                             INTERNAL_ERROR("PHI: should not happen because of backward inference pass");
                         }
-
                     }
 
 
                     printf("   %%%lu = PHI { ", instr.info.phi.dest.val);
                     for (size_t n = 0; n < instr.info.phi.args->len; n++) {
-                        printf("<BLOCK %lu, %%%lu>", instr.info.phi.args->array[n].block, instr.info.phi.args->array[n].temp.val);
-                        if (n+1 != instr.info.phi.args->len) printf(", ");
+                        printf("<BLOCK %lu, %%%lu>", instr.info.phi.args->array[n].block,
+                               instr.info.phi.args->array[n].temp.val);
+                        if (n + 1 != instr.info.phi.args->len) printf(", ");
                     }
                     printf("}\n");
                     break;
@@ -2650,14 +2723,15 @@ void lowering_and_emission_pass_over_fn(
                     printf("   DROP <"SV_format"> %%%lu ",SV_v_args(type_sv), instr.info.drop.dest.val);
                     if (t.ty == TC_TY_Primitive) {
                         printf("[STACK]\n");
-                    } else if (t.ty == TC_TY_Ref || t.ty == TC_TY_Slice){
+                    } else if (t.ty == TC_TY_Ref || t.ty == TC_TY_Slice) {
                         printf("[STACK]\n");
                     } else {
                         printf("[STACK+RAII]\n");
                     }
                     break;
                 }
-                case IR_INST_TY__MOVE: { // auto-deref, auto-ref, ...
+                case IR_INST_TY__MOVE: {
+                    // auto-deref, auto-ref, ...
                     const TC_typeid dest_t = temporals_map->array[instr.info.move.dest.val].type;
                     const TC_typeid src_t = temporals_map->array[instr.info.move.src.val].type;
 
@@ -2680,7 +2754,8 @@ void lowering_and_emission_pass_over_fn(
                 case IR_INST_TY__VAR_DECL: {
                     temporals_map->array[instr.info.var_decl.dest.val].is_addressable = true;
                     const TC_typeid t = temporals_map->array[instr.info.var_decl.dest.val].type;
-                    const TC_typeid original_t = resolve_tc_type(instr.info.var_decl.type, nct, target_info, source_info);
+                    const TC_typeid original_t = resolve_tc_type(instr.info.var_decl.type, nct, target_info,
+                                                                 source_info);
                     if (!is_type_eq(&t, &original_t)) {
                         INTERNAL_ERROR("should not happen")
                     }
@@ -2699,7 +2774,6 @@ void lowering_and_emission_pass_over_fn(
                         INTERNAL_ERROR();
                     }
                     TC_typeid expected_ty = *ptr_ty.info.contained; // unwrap_ref_once(ptr_ty);
-
 
 
                     // 3. Coerce the RHS value (e.g. Int32 '72') to match (Char)
@@ -2725,7 +2799,8 @@ void lowering_and_emission_pass_over_fn(
                 case IR_INST_TY__EXPLICIT_CAST: {
                     // can_be_explicit_casted
                     const TC_typeid src = temporals_map->array[instr.info.explicit_cast.src.val].type;
-                    const TC_typeid cast_t = resolve_tc_type(instr.info.explicit_cast.type, nct, target_info, source_info);
+                    const TC_typeid cast_t = resolve_tc_type(instr.info.explicit_cast.type, nct, target_info,
+                                                             source_info);
 
                     const SV cast_t_sv = format_TC_typeid(&cast_t, identifier_map, nct);
 
@@ -2735,13 +2810,14 @@ void lowering_and_emission_pass_over_fn(
                         const SV type = fn.error_info_list.array[instr.error_info_index].info.explicit_cast.type.sv;
 
                         const size_t MAX_SIZE = 1024;
-                        char* r_msg = malloc(sizeof(char)*MAX_SIZE);
+                        char* r_msg = malloc(sizeof(char) * MAX_SIZE);
                         const SV src_s = format_TC_typeid(&src, identifier_map, nct);
-                        int len = snprintf(r_msg, MAX_SIZE, "cannot cast "C_BOLD""SV_format""C_RESET" into "C_BOLD""SV_format""C_RESET"", SV_v_args(src_s), SV_v_args(cast_t_sv));
+                        int len = snprintf(r_msg, MAX_SIZE,
+                                           "cannot cast "C_BOLD""SV_format""C_RESET" into "C_BOLD""SV_format""C_RESET"",
+                                           SV_v_args(src_s), SV_v_args(cast_t_sv));
                         const SV msg = SV_from_str_len(r_msg, len);
                         type_error(&source_info->source, &source_info->source_filename, &expr, &msg);
                         exit(1);
-
                     }
                     const TC_typeid dest_t = temporals_map->array[instr.info.explicit_cast.dest.val].type;
                     const SV dest_t_sv = format_TC_typeid(&dest_t, identifier_map, nct);
@@ -2753,19 +2829,23 @@ void lowering_and_emission_pass_over_fn(
                             TC_Entry_LIST_inflate(temporals_map, out_temporal + 5);
                         }
                         if (!can_be_implicit_casted(&cast_t, &dest_t)) {
-                            const SV whole = fn.error_info_list.array[instr.error_info_index].info.explicit_cast.whole.sv;
+                            const SV whole = fn.error_info_list.array[instr.error_info_index].info.explicit_cast.whole.
+                                    sv;
                             const SV expr = fn.error_info_list.array[instr.error_info_index].info.explicit_cast.expr.sv;
                             const SV type = fn.error_info_list.array[instr.error_info_index].info.explicit_cast.type.sv;
 
                             // expected <T> but found <T>
                             const size_t MAX_SIZE = 1024;
-                            char* r_msg = malloc(sizeof(char)*MAX_SIZE);
-                            int len = snprintf(r_msg, MAX_SIZE, "expected "C_BOLD""SV_format""C_RESET" but found "C_BOLD""SV_format""C_RESET"", SV_v_args(dest_t_sv), SV_v_args(cast_t_sv));
+                            char* r_msg = malloc(sizeof(char) * MAX_SIZE);
+                            int len = snprintf(r_msg, MAX_SIZE,
+                                               "expected "C_BOLD""SV_format""C_RESET" but found "C_BOLD""SV_format""
+                                               C_RESET"", SV_v_args(dest_t_sv), SV_v_args(cast_t_sv));
                             const SV msg = SV_from_str_len(r_msg, len);
                             type_error(&source_info->source, &source_info->source_filename, &whole, &msg);
                             exit(1);
                         } else {
-                            printf("   [D] implicit type conversion from "SV_format" to "SV_format" is possible \n", SV_v_args(cast_t_sv), SV_v_args(dest_t_sv));
+                            printf("   [D] implicit type conversion from "SV_format" to "SV_format" is possible \n",
+                                   SV_v_args(cast_t_sv), SV_v_args(dest_t_sv));
                             // print_TC_typeid(&cast_t, identifier_map, nct);
                             // printf(" to ");
                             // print_TC_typeid(&dest_t, identifier_map, nct);
@@ -2775,15 +2855,17 @@ void lowering_and_emission_pass_over_fn(
                     // printf("   %%%lu = CAST<", out_temporal);
                     // print_TC_typeid(&cast_t, identifier_map, nct);
                     // printf(">(%%%lu) [EXPLICIT]\n", instr.info.explicit_cast.src.val);
-                    printf("   %%%lu = CAST<"SV_format">(%%%lu) [EXPLICIT]\n", out_temporal, SV_v_args(cast_t_sv), instr.info.explicit_cast.src.val);
+                    printf("   %%%lu = CAST<"SV_format">(%%%lu) [EXPLICIT]\n", out_temporal, SV_v_args(cast_t_sv),
+                           instr.info.explicit_cast.src.val);
 
                     if (out_temporal != instr.info.explicit_cast.dest.val) {
                         // printf("   %%%lu = CAST<", instr.info.explicit_cast.dest.val);
                         // print_TC_typeid(&dest_t, identifier_map, nct);
                         // printf(">(%%%lu) [IMPLICIT]\n", out_temporal);
-                        printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT]\n", instr.info.explicit_cast.dest.val, SV_v_args(dest_t_sv), out_temporal);
+                        printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT]\n", instr.info.explicit_cast.dest.val,
+                               SV_v_args(dest_t_sv), out_temporal);
 
-                        temporals_map->array[out_temporal] = (TC_Entry) {
+                        temporals_map->array[out_temporal] = (TC_Entry){
                             .known_temporal = true,
                             .type = dest_t,
                             .is_value_known = false,
@@ -2793,12 +2875,14 @@ void lowering_and_emission_pass_over_fn(
                     break;
                 }
                 case IR_INST_TY__CONST_INT: {
-                    const SV t_sv = format_TC_typeid(&temporals_map->array[instr.info.const_int.dest.val].type, identifier_map, nct);
-                    printf("   %%%lu = CONST_INT <"SV_format"> (%li)\n", instr.info.const_int.dest.val, SV_v_args(t_sv), instr.info.const_int.val);
-                    if (instr.info.const_int.dest.val+1 > temporals_map_values.cap) {
-                        TC_Value_LIST_inflate(&temporals_map_values, instr.info.const_int.dest.val+1);
+                    const SV t_sv = format_TC_typeid(&temporals_map->array[instr.info.const_int.dest.val].type,
+                                                     identifier_map, nct);
+                    printf("   %%%lu = CONST_INT <"SV_format"> (%li)\n", instr.info.const_int.dest.val, SV_v_args(t_sv),
+                           instr.info.const_int.val);
+                    if (instr.info.const_int.dest.val + 1 > temporals_map_values.cap) {
+                        TC_Value_LIST_inflate(&temporals_map_values, instr.info.const_int.dest.val + 1);
                     }
-                    temporals_map_values.array[instr.info.const_int.dest.val] = (TC_Value) {
+                    temporals_map_values.array[instr.info.const_int.dest.val] = (TC_Value){
                         .kind = TC_VK_Int,
                         .Int = instr.info.const_int.val
                     };
@@ -2806,12 +2890,14 @@ void lowering_and_emission_pass_over_fn(
                     break;
                 }
                 case IR_INST_TY__CONST_FLOAT: {
-                    const SV t_sv = format_TC_typeid(&temporals_map->array[instr.info.const_float.dest.val].type, identifier_map, nct);
-                    printf("   %%%lu = CONST_FLOAT <"SV_format"> (%lf)\n", instr.info.const_float.dest.val, SV_v_args(t_sv), instr.info.const_float.val);
-                    if (instr.info.const_float.dest.val+1 > temporals_map_values.cap) {
-                        TC_Value_LIST_inflate(&temporals_map_values, instr.info.const_float.dest.val+1);
+                    const SV t_sv = format_TC_typeid(&temporals_map->array[instr.info.const_float.dest.val].type,
+                                                     identifier_map, nct);
+                    printf("   %%%lu = CONST_FLOAT <"SV_format"> (%lf)\n", instr.info.const_float.dest.val,
+                           SV_v_args(t_sv), instr.info.const_float.val);
+                    if (instr.info.const_float.dest.val + 1 > temporals_map_values.cap) {
+                        TC_Value_LIST_inflate(&temporals_map_values, instr.info.const_float.dest.val + 1);
                     }
-                    temporals_map_values.array[instr.info.const_float.dest.val] = (TC_Value) {
+                    temporals_map_values.array[instr.info.const_float.dest.val] = (TC_Value){
                         .kind = TC_VK_Float,
                         .Float = instr.info.const_float.val
                     };
@@ -2819,9 +2905,11 @@ void lowering_and_emission_pass_over_fn(
                     break;
                 }
                 case IR_INST_TY__CONST_STRING: {
-                    const SV t_sv = format_TC_typeid(&temporals_map->array[instr.info.const_string.dest.val].type, identifier_map, nct);
+                    const SV t_sv = format_TC_typeid(&temporals_map->array[instr.info.const_string.dest.val].type,
+                                                     identifier_map, nct);
                     const SV val = SV_from_identifiermap_lookup(identifier_map, instr.info.const_string.string);
-                    printf("   %%%lu = CONST_STRING <"SV_format"> (\"", instr.info.const_string.dest.val, SV_v_args(t_sv));
+                    printf("   %%%lu = CONST_STRING <"SV_format"> (\"", instr.info.const_string.dest.val,
+                           SV_v_args(t_sv));
                     for (size_t i = 0; i < val.len; i++) {
                         unsigned char c = val.start[i];
                         if (c == '\n') printf("\\n");
@@ -2864,20 +2952,28 @@ void lowering_and_emission_pass_over_fn(
                         // const SV msg = SV_from_str_len("type "" could not be coerced to a numerical type", 40);
                         if (error_a) {
                             const size_t MAX_SIZE = 1024;
-                            char* r_msg = malloc(sizeof(char)*MAX_SIZE);
+                            char* r_msg = malloc(sizeof(char) * MAX_SIZE);
                             // const SV a_type_sv = temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type.full_typeuse_span.sv;
-                            const SV a_type_sv = format_TC_typeid(&temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type, identifier_map, nct);
-                            int len = snprintf(r_msg, MAX_SIZE, "type "C_BOLD""SV_format""C_RESET" could not be coerced to a numerical type", SV_v_args(a_type_sv));
+                            const SV a_type_sv = format_TC_typeid(
+                                &temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type, identifier_map,
+                                nct);
+                            int len = snprintf(r_msg, MAX_SIZE,
+                                               "type "C_BOLD""SV_format""C_RESET
+                                               " could not be coerced to a numerical type", SV_v_args(a_type_sv));
                             const SV msg = SV_from_str_len(r_msg, len);
                             type_error(&source_info->source, &source_info->source_filename, &val1_sv, &msg);
                             free(r_msg);
                         }
                         if (error_b) {
                             const size_t MAX_SIZE = 1024;
-                            char* r_msg = malloc(sizeof(char)*MAX_SIZE);
+                            char* r_msg = malloc(sizeof(char) * MAX_SIZE);
                             // const SV b_type_sv = temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].type.full_typeuse_span.sv;
-                            const SV b_type_sv = format_TC_typeid(&temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].type, identifier_map, nct);
-                            int len = snprintf(r_msg, MAX_SIZE, "type "C_BOLD""SV_format""C_RESET" could not be coerced to a numerical type", SV_v_args(b_type_sv));
+                            const SV b_type_sv = format_TC_typeid(
+                                &temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].type, identifier_map,
+                                nct);
+                            int len = snprintf(r_msg, MAX_SIZE,
+                                               "type "C_BOLD""SV_format""C_RESET
+                                               " could not be coerced to a numerical type", SV_v_args(b_type_sv));
                             const SV msg = SV_from_str_len(r_msg, len);
                             type_error(&source_info->source, &source_info->source_filename, &val2_sv, &msg);
                             free(r_msg);
@@ -2889,15 +2985,19 @@ void lowering_and_emission_pass_over_fn(
                         const SV whole = fn.error_info_list.array[instr.error_info_index].info.math_operation.whole.sv;
                         const SV op = fn.error_info_list.array[instr.error_info_index].info.math_operation.op.sv;
 
-                        const SV a_type = format_TC_typeid(&temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type, identifier_map, nct);
-                        const SV b_type = format_TC_typeid(&temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].type, identifier_map, nct);
+                        const SV a_type = format_TC_typeid(
+                            &temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type, identifier_map, nct);
+                        const SV b_type = format_TC_typeid(
+                            &temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].type, identifier_map, nct);
 
                         const size_t MAX_SIZE = 1024;
-                        char* r_msg = malloc(sizeof(char)*MAX_SIZE);
-                        int len = snprintf(r_msg, MAX_SIZE,"cannot apply operator '"SV_format"' to mismatched types "C_BOLD""SV_format""C_RESET" and "C_BOLD""SV_format""C_RESET"",
-                            SV_v_args(op),
-                            SV_v_args(a_type),
-                            SV_v_args(b_type)
+                        char* r_msg = malloc(sizeof(char) * MAX_SIZE);
+                        int len = snprintf(r_msg, MAX_SIZE,
+                                           "cannot apply operator '"SV_format"' to mismatched types "C_BOLD""SV_format""
+                                           C_RESET" and "C_BOLD""SV_format""C_RESET"",
+                                           SV_v_args(op),
+                                           SV_v_args(a_type),
+                                           SV_v_args(b_type)
                         );
                         const SV msg = SV_from_str_len(r_msg, len);
                         type_error(&source_info->source, &source_info->source_filename, &whole, &msg);
@@ -2908,30 +3008,37 @@ void lowering_and_emission_pass_over_fn(
                     }
 
                     const SV res_t_sv = format_TC_typeid(&res.t, identifier_map, nct);
-                    const SV dest_t_sv = format_TC_typeid(&temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type, identifier_map, nct);
+                    const SV dest_t_sv = format_TC_typeid(
+                        &temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type, identifier_map, nct);
 
                     uint64_t out_temporal = instr.info.math_cmp_boolean_op.dest.val;
                     if (
                         temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].known_temporal &&
                         (temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type.ty != TC_TY_Primitive ||
-                        temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type.info.primitive != res.t.info.primitive)
+                         temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type.info.primitive != res.t.info
+                         .primitive)
                     ) {
                         out_temporal = highest_temporal++;
 
 
-                        if (!can_be_implicit_casted(&res.t, &temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type)) {
-                            const SV whole = fn.error_info_list.array[instr.error_info_index].info.math_operation.whole.sv;
+                        if (!can_be_implicit_casted(
+                            &res.t, &temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type)) {
+                            const SV whole = fn.error_info_list.array[instr.error_info_index].info.math_operation.whole.
+                                    sv;
 
                             // expected <T> but found <T>
                             const size_t MAX_SIZE = 1024;
-                            char* r_msg = malloc(sizeof(char)*MAX_SIZE);
+                            char* r_msg = malloc(sizeof(char) * MAX_SIZE);
 
-                            int len = snprintf(r_msg, MAX_SIZE, "expected "C_BOLD""SV_format""C_RESET" but found "C_BOLD""SV_format""C_RESET"", SV_v_args(dest_t_sv) ,SV_v_args(res_t_sv));
+                            int len = snprintf(r_msg, MAX_SIZE,
+                                               "expected "C_BOLD""SV_format""C_RESET" but found "C_BOLD""SV_format""
+                                               C_RESET"", SV_v_args(dest_t_sv),SV_v_args(res_t_sv));
                             const SV msg = SV_from_str_len(r_msg, len);
                             type_error(&source_info->source, &source_info->source_filename, &whole, &msg);
                             exit(1);
                         } else {
-                            printf("   [D] implicit type conversion from "SV_format" to "SV_format" is possible \n", SV_v_args(res_t_sv), SV_v_args(dest_t_sv));
+                            printf("   [D] implicit type conversion from "SV_format" to "SV_format" is possible \n",
+                                   SV_v_args(res_t_sv), SV_v_args(dest_t_sv));
                             // print_TC_typeid(&res.t, identifier_map, nct);
                             // printf(" to ");
                             // print_TC_typeid(&temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type, identifier_map, nct);
@@ -2971,11 +3078,12 @@ void lowering_and_emission_pass_over_fn(
                         // printf("   %%%lu = CAST<", instr.info.math_cmp_boolean_op.dest.val);
                         // print_TC_typeid(&temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type, identifier_map, nct);
                         // printf(">(%%%lu) [IMPLICIT]\n", out_temporal);
-                        printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT]\n", instr.info.math_cmp_boolean_op.dest.val, SV_v_args(dest_t_sv), out_temporal);
+                        printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT]\n",
+                               instr.info.math_cmp_boolean_op.dest.val, SV_v_args(dest_t_sv), out_temporal);
                     }
 
                     if (!temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].known_temporal) {
-                        temporals_map->array[instr.info.math_cmp_boolean_op.dest.val] = (TC_Entry) {
+                        temporals_map->array[instr.info.math_cmp_boolean_op.dest.val] = (TC_Entry){
                             .known_temporal = true,
                             .type = res.t,
                             .is_addressable = false,
@@ -2990,13 +3098,15 @@ void lowering_and_emission_pass_over_fn(
                     const TC_typeid src2_t = temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].type;
                     const TC_typeid dest_t = temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type;
 
-                    const IR_temporal src1_it = perf_bool(&instr.info.math_cmp_boolean_op.src1, &src1_t, &highest_temporal, temporals_map);
-                    const IR_temporal src2_it = perf_bool(&instr.info.math_cmp_boolean_op.src2, &src2_t, &highest_temporal, temporals_map);
+                    const IR_temporal src1_it = perf_bool(&instr.info.math_cmp_boolean_op.src1, &src1_t,
+                                                          &highest_temporal, temporals_map);
+                    const IR_temporal src2_it = perf_bool(&instr.info.math_cmp_boolean_op.src2, &src2_t,
+                                                          &highest_temporal, temporals_map);
 
                     static TC_typeid bool_t = {
                         .ty = TC_TY_Primitive,
                         .info.primitive = TC_Primitive__Bool,
-                        .full_typeuse_span = {.sv = { "Bool", 4 }}
+                        .full_typeuse_span = {.sv = {"Bool", 4}}
                     };
 
                     uint64_t out_temporal = instr.info.math_cmp_boolean_op.dest.val;
@@ -3006,7 +3116,7 @@ void lowering_and_emission_pass_over_fn(
                         if (out_temporal + 1 > temporals_map->cap) {
                             TC_Entry_LIST_inflate(temporals_map, out_temporal + 5);
                         }
-                        temporals_map->array[out_temporal] = (TC_Entry) {
+                        temporals_map->array[out_temporal] = (TC_Entry){
                             .type = dest_t,
                             .known_temporal = true,
                             .is_value_known = false,
@@ -3027,10 +3137,12 @@ void lowering_and_emission_pass_over_fn(
                     printf("   %%%lu = ", out_temporal);
                     switch (instr.ty) {
                         case IR_INST_TY__OP_OR: {
-                            printf("OP_OR"); break;
+                            printf("OP_OR");
+                            break;
                         }
                         case IR_INST_TY__OP_AND: {
-                            printf("OP_AND"); break;
+                            printf("OP_AND");
+                            break;
                         }
                         default: INTERNAL_ERROR()
                     }
@@ -3070,10 +3182,10 @@ void lowering_and_emission_pass_over_fn(
                     );
 
                     // RESULT OF OPERATION IS BOOL TYPE
-                    const TC_typeid res_t = (TC_typeid) {
-                        .ty =  TC_TY_Primitive,
+                    const TC_typeid res_t = (TC_typeid){
+                        .ty = TC_TY_Primitive,
                         .info.primitive = TC_Primitive__Bool,
-                        .full_typeuse_span = (TokenSpan) {.sv =SV_from_str_len("Bool", 4) }
+                        .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)}
                     };
 
 
@@ -3088,20 +3200,28 @@ void lowering_and_emission_pass_over_fn(
                         // const SV msg = SV_from_str_len("type "" could not be coerced to a numerical type", 40);
                         if (error_a) {
                             const size_t MAX_SIZE = 1024;
-                            char* r_msg = malloc(sizeof(char)*MAX_SIZE);
+                            char* r_msg = malloc(sizeof(char) * MAX_SIZE);
                             // const SV a_type_sv = temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type.full_typeuse_span.sv;
-                            const SV a_type_sv = format_TC_typeid(&temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type, identifier_map, nct);
-                            int len = snprintf(r_msg, MAX_SIZE, "type "C_BOLD""SV_format""C_RESET" could not be coerced to a numerical type", SV_v_args(a_type_sv));
+                            const SV a_type_sv = format_TC_typeid(
+                                &temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type, identifier_map,
+                                nct);
+                            int len = snprintf(r_msg, MAX_SIZE,
+                                               "type "C_BOLD""SV_format""C_RESET
+                                               " could not be coerced to a numerical type", SV_v_args(a_type_sv));
                             const SV msg = SV_from_str_len(r_msg, len);
                             type_error(&source_info->source, &source_info->source_filename, &val1_sv, &msg);
                             free(r_msg);
                         }
                         if (error_b) {
                             const size_t MAX_SIZE = 1024;
-                            char* r_msg = malloc(sizeof(char)*MAX_SIZE);
+                            char* r_msg = malloc(sizeof(char) * MAX_SIZE);
                             // const SV b_type_sv = temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].type.full_typeuse_span.sv;
-                            const SV b_type_sv = format_TC_typeid(&temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].type, identifier_map, nct);
-                            int len = snprintf(r_msg, MAX_SIZE, "type "C_BOLD""SV_format""C_RESET" could not be coerced to a numerical type", SV_v_args(b_type_sv));
+                            const SV b_type_sv = format_TC_typeid(
+                                &temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].type, identifier_map,
+                                nct);
+                            int len = snprintf(r_msg, MAX_SIZE,
+                                               "type "C_BOLD""SV_format""C_RESET
+                                               " could not be coerced to a numerical type", SV_v_args(b_type_sv));
                             const SV msg = SV_from_str_len(r_msg, len);
                             type_error(&source_info->source, &source_info->source_filename, &val2_sv, &msg);
                             free(r_msg);
@@ -3113,15 +3233,19 @@ void lowering_and_emission_pass_over_fn(
                         const SV whole = fn.error_info_list.array[instr.error_info_index].info.math_operation.whole.sv;
                         const SV op = fn.error_info_list.array[instr.error_info_index].info.math_operation.op.sv;
 
-                        const SV a_type = format_TC_typeid(&temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type, identifier_map, nct);
-                        const SV b_type = format_TC_typeid(&temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].type, identifier_map, nct);
+                        const SV a_type = format_TC_typeid(
+                            &temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type, identifier_map, nct);
+                        const SV b_type = format_TC_typeid(
+                            &temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].type, identifier_map, nct);
 
                         const size_t MAX_SIZE = 1024;
-                        char* r_msg = malloc(sizeof(char)*MAX_SIZE);
-                        int len = snprintf(r_msg, MAX_SIZE,"cannot apply operator '"SV_format"' to mismatched types "C_BOLD""SV_format""C_RESET" and "C_BOLD""SV_format""C_RESET"",
-                            SV_v_args(op),
-                            SV_v_args(a_type),
-                            SV_v_args(b_type)
+                        char* r_msg = malloc(sizeof(char) * MAX_SIZE);
+                        int len = snprintf(r_msg, MAX_SIZE,
+                                           "cannot apply operator '"SV_format"' to mismatched types "C_BOLD""SV_format""
+                                           C_RESET" and "C_BOLD""SV_format""C_RESET"",
+                                           SV_v_args(op),
+                                           SV_v_args(a_type),
+                                           SV_v_args(b_type)
                         );
                         const SV msg = SV_from_str_len(r_msg, len);
                         type_error(&source_info->source, &source_info->source_filename, &whole, &msg);
@@ -3132,34 +3256,41 @@ void lowering_and_emission_pass_over_fn(
                     }
 
                     const SV res_t_sv = SV_from_str_len("Bool", 4); //format_TC_typeid(&res.t, identifier_map, nct);
-                    const SV dest_t_sv = format_TC_typeid(&temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type, identifier_map, nct);
+                    const SV dest_t_sv = format_TC_typeid(
+                        &temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type, identifier_map, nct);
 
                     uint64_t out_temporal = instr.info.math_cmp_boolean_op.dest.val;
                     if (
                         temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type.ty != TC_TY_Primitive ||
-                        temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type.info.primitive != TC_Primitive__Bool
+                        temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type.info.primitive !=
+                        TC_Primitive__Bool
                     ) {
                         out_temporal = highest_temporal++;
 
 
-                        if (!can_be_implicit_casted(&res_t, &temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type)) {
-                            const SV whole = fn.error_info_list.array[instr.error_info_index].info.math_operation.whole.sv;
+                        if (!can_be_implicit_casted(
+                            &res_t, &temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type)) {
+                            const SV whole = fn.error_info_list.array[instr.error_info_index].info.math_operation.whole.
+                                    sv;
 
                             // expected <T> but found <T>
                             const size_t MAX_SIZE = 1024;
-                            char* r_msg = malloc(sizeof(char)*MAX_SIZE);
+                            char* r_msg = malloc(sizeof(char) * MAX_SIZE);
 
-                            int len = snprintf(r_msg, MAX_SIZE, "expected "C_BOLD""SV_format""C_RESET" but found "C_BOLD""SV_format""C_RESET"", SV_v_args(dest_t_sv) ,SV_v_args(res_t_sv));
+                            int len = snprintf(r_msg, MAX_SIZE,
+                                               "expected "C_BOLD""SV_format""C_RESET" but found "C_BOLD""SV_format""
+                                               C_RESET"", SV_v_args(dest_t_sv),SV_v_args(res_t_sv));
                             const SV msg = SV_from_str_len(r_msg, len);
                             type_error(&source_info->source, &source_info->source_filename, &whole, &msg);
                             exit(1);
                         } else {
-                            printf("   [D] implicit type conversion from "SV_format" to "SV_format" is possible \n", SV_v_args(res_t_sv), SV_v_args(dest_t_sv));
+                            printf("   [D] implicit type conversion from "SV_format" to "SV_format" is possible \n",
+                                   SV_v_args(res_t_sv), SV_v_args(dest_t_sv));
 
-                            if (temporals_map->cap < out_temporal+1) {
-                                TC_Entry_LIST_inflate(temporals_map, out_temporal+5);
+                            if (temporals_map->cap < out_temporal + 1) {
+                                TC_Entry_LIST_inflate(temporals_map, out_temporal + 5);
                             }
-                            temporals_map->array[out_temporal] = (TC_Entry) {
+                            temporals_map->array[out_temporal] = (TC_Entry){
                                 .known_temporal = true,
                                 .type = temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type,
                                 .is_value_known = false,
@@ -3202,12 +3333,12 @@ void lowering_and_emission_pass_over_fn(
                     printf(" <"SV_format"> %%%lu, %%%lu\n", SV_v_args(res_t_sv), res.a.val, res.b.val);
 
                     if (out_temporal != instr.info.math_cmp_boolean_op.dest.val) {
-                        printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT]\n", instr.info.math_cmp_boolean_op.dest.val, SV_v_args(dest_t_sv), out_temporal);
+                        printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT]\n",
+                               instr.info.math_cmp_boolean_op.dest.val, SV_v_args(dest_t_sv), out_temporal);
                     }
                     break;
                 }
                 case IR_INST_TY__INDEX_PTR: {
-
                     // 1. What are we indexing into? (e.g., %11 which is List<Char>)
                     const TC_typeid source_list_ty = temporals_map->array[instr.info.index_ptr.array_ptr.val].type;
                     const SV source_list_ty_sv = format_TC_typeid(&source_list_ty, identifier_map, nct);
@@ -3225,16 +3356,18 @@ void lowering_and_emission_pass_over_fn(
                         case TC_TY_Enum: {
                             // type error
                             const size_t MAX_SIZE = 1024;
-                            char* r_msg = malloc(sizeof(char)*MAX_SIZE);
-                            int len = snprintf(r_msg, MAX_SIZE, "type "C_BOLD""SV_format""C_RESET" cannot be indexed", SV_v_args(source_list_ty_sv));
+                            char* r_msg = malloc(sizeof(char) * MAX_SIZE);
+                            int len = snprintf(r_msg, MAX_SIZE, "type "C_BOLD""SV_format""C_RESET" cannot be indexed",
+                                               SV_v_args(source_list_ty_sv));
                             const SV msg = SV_from_str_len(r_msg, len);
-                            type_error(&source_info->source, &source_info->source_filename, &fn.error_info_list.array[instr.error_info_index].info.index_array.index_expr.sv, &msg);
+                            type_error(&source_info->source, &source_info->source_filename,
+                                       &fn.error_info_list.array[instr.error_info_index].info.index_array.index_expr.sv,
+                                       &msg);
                             free(r_msg);
                             exit(1);
                         }
                         case TC_TY_List:
-                        case TC_TY_Slice:
-                             {
+                        case TC_TY_Slice: {
                             element_ty = source_list_ty.info.contained;
                             break;
                         }
@@ -3248,15 +3381,15 @@ void lowering_and_emission_pass_over_fn(
                     // 3. Wrap it in a Reference! ('Ref<Char>')
                     // TC_typeid ref_ty = wrap_in_ref(element_ty);
                     const size_t MAX_SIZE = 256;
-                    char* rs = malloc(sizeof(char)*MAX_SIZE);
+                    char* rs = malloc(sizeof(char) * MAX_SIZE);
                     int len = snprintf(rs, MAX_SIZE, "Ref<"SV_format">", SV_v_args(ele_sv));
                     rs = realloc(rs, len);
                     const SV ref_span = SV_from_str_len(rs, len);
 
                     const TC_typeid ref_ty = (TC_typeid){
                         .ty = TC_TY_Ref,
-                        .info.contained = (TC_typeid*)element_ty,
-                        .full_typeuse_span = (TokenSpan){.sv=ref_span}
+                        .info.contained = (TC_typeid *) element_ty,
+                        .full_typeuse_span = (TokenSpan){.sv = ref_span}
                     };
 
                     // 4. Assign this type to the destination temporal (%13)
@@ -3264,9 +3397,9 @@ void lowering_and_emission_pass_over_fn(
 
                     // 5. Emit the instruction
                     printf("   %%%lu = INDEX_PTR %%%lu [ %%%lu ]\n",
-                        instr.info.index_ptr.dest.val,
-                        instr.info.index_ptr.array_ptr.val,
-                        instr.info.index_ptr.index_val.val);
+                           instr.info.index_ptr.dest.val,
+                           instr.info.index_ptr.array_ptr.val,
+                           instr.info.index_ptr.index_val.val);
                     break;
                 }
                 case IR_INST_TY__READ_PTR: {
@@ -3281,7 +3414,7 @@ void lowering_and_emission_pass_over_fn(
                     const TC_structdef sdef = nct->structs.array[struct_type.info.type_id];
                     IR_temporal_LIST args = IR_temporal_LIST_new_with_capacity(sdef.fields.len);
                     for (size_t n = 0; n < sdef.fields.len; n++) {
-                        IR_temporal_LIST_push(&args, (IR_temporal) { .val = 0 });
+                        IR_temporal_LIST_push(&args, (IR_temporal){.val = 0});
                     }
 
                     for (size_t k = 0; k < instr.info.make_struct.args->len; k++) {
@@ -3292,7 +3425,8 @@ void lowering_and_emission_pass_over_fn(
                                 if (args.array[n].val != 0) {
                                     // INTERNAL_ERROR("duplicate field");
                                     const SV msg = SV_from_str("duplicate field");
-                                    syntax_error(&source_info->source, &source_info->source_filename, &arg.name.span.sv, &msg);
+                                    syntax_error(&source_info->source, &source_info->source_filename, &arg.name.span.sv,
+                                                 &msg);
                                     exit(1);
                                 }
 
@@ -3329,7 +3463,8 @@ void lowering_and_emission_pass_over_fn(
                         }
                     }
 
-                    printf("   %%%lu = MAKE_STRUCT (%u size, %u align) { ", instr.info.make_struct.dest.val, sdef.layout.size, sdef.layout.align);
+                    printf("   %%%lu = MAKE_STRUCT (%u size, %u align) { ", instr.info.make_struct.dest.val,
+                           sdef.layout.size, sdef.layout.align);
                     for (size_t n = 0; n < sdef.fields.len; n++) {
                         printf("%%%lu at %u", args.array[n].val, sdef.layout.field_offsets[n]);
                         if (n + 1 != sdef.fields.len) printf(", ");
@@ -3346,20 +3481,23 @@ void lowering_and_emission_pass_over_fn(
                     const TC_enumdef edef = nct->enums.array[enum_type.info.type_id];
                     uint64_t variant_n;
                     bool variant_n_found = false;
-                    for (uint64_t v=0; v < edef.variants.len; v++) {
+                    for (uint64_t v = 0; v < edef.variants.len; v++) {
                         if (edef.variants.array[v].name.identifier == instr.info.make_enum.variant) {
                             variant_n = v;
                             variant_n_found = true;
                             break;
                         }
                     }
-                    if (!variant_n_found) INTERNAL_ERROR()
+                    if (!variant_n_found)
+                        INTERNAL_ERROR()
 
-                    IR_temporal_LIST args = IR_temporal_LIST_new_with_capacity(edef.variants.array[variant_n].values_len);
-                    for (size_t n=0; n < edef.variants.array[variant_n].values_len; n++) {
+                    IR_temporal_LIST args = IR_temporal_LIST_new_with_capacity(
+                        edef.variants.array[variant_n].values_len);
+                    for (size_t n = 0; n < edef.variants.array[variant_n].values_len; n++) {
                         const TC_typeid arg_t = edef.variants.array[variant_n].values[n];
                         const IR_temporal arg_v = instr.info.make_enum.args->array[n];
-                        const TokenSpan arg_span = fn.error_info_list.array[instr.error_info_index].info.make_enum.items[n];
+                        const TokenSpan arg_span = fn.error_info_list.array[instr.error_info_index].info.make_enum.items
+                                [n];
 
                         const TC_typeid arg_v_t = temporals_map->array[arg_v.val].type;
                         const IR_temporal out = perf_autos(
@@ -3376,13 +3514,14 @@ void lowering_and_emission_pass_over_fn(
                         );
                         IR_temporal_LIST_push(&args, out);
                     }
-                    printf("   %%%lu = MAKE_ENUM (size %u, align %u) { .variant_val=%lu", instr.info.make_enum.dest.val, edef.size, edef.align, variant_n);
+                    printf("   %%%lu = MAKE_ENUM (size %u, align %u) { .variant_val=%lu", instr.info.make_enum.dest.val,
+                           edef.size, edef.align, variant_n);
                     if (args.len > 0) printf(", .value=[");
                     else printf(" ");
 
                     for (size_t n = 0; n < args.len; n++) {
                         printf("%%%lu", args.array[n].val);
-                        if (n+1 != args.len) printf(", ");
+                        if (n + 1 != args.len) printf(", ");
                     }
                     if (args.len > 0) printf("] ");
                     printf("}\n");
@@ -3422,7 +3561,7 @@ void lowering_and_emission_pass_over_fn(
                     }
 
                     IR_temporal_LIST items = IR_temporal_LIST_new_with_capacity(instr.info.make_array.items->len);
-                    for (size_t n=0; n < instr.info.make_array.items->len; n++) {
+                    for (size_t n = 0; n < instr.info.make_array.items->len; n++) {
                         const IR_temporal item = instr.info.make_array.items->array[n];
                         const TC_typeid item_t = temporals_map->array[item.val].type;
                         const IR_temporal out = perf_autos(
@@ -3442,14 +3581,16 @@ void lowering_and_emission_pass_over_fn(
 
                     const SizeAlign sa = calc_size_of(&base_type, nct, target_info);
                     const SizeAlign it_sa = calc_size_of(&inner_type, nct, target_info);
-                    printf("   %%%lu = MAKE_ARRAY (stack: size %lu, align %lu) ", instr.info.make_array.dest.val, sa.size, sa.align);
+                    printf("   %%%lu = MAKE_ARRAY (stack: size %lu, align %lu) ", instr.info.make_array.dest.val,
+                           sa.size, sa.align);
                     if (base_type.ty == TC_TY_Array) {
                         printf("{STACK ARRAY}");
                     } else if (base_type.ty == TC_TY_List) {
                         printf("{HEAP ARRAY}");
                         // instr.info.make_array.items->len;
 
-                        printf(" {%lu bytes on heap, %lu align}", it_sa.size * instr.info.make_array.items->len, it_sa.align);
+                        printf(" {%lu bytes on heap, %lu align}", it_sa.size * instr.info.make_array.items->len,
+                               it_sa.align);
                     } else {
                         INTERNAL_ERROR("unknown list type");
                     }
@@ -3472,7 +3613,8 @@ void lowering_and_emission_pass_over_fn(
                         &highest_temporal,
                         temporals_map
                     );
-                    printf("   BRANCH <Bool> %%%lu, Block %lu, Block %lu\n", out.val, instr.info.branch.branch_true, instr.info.branch.branch_false);
+                    printf("   BRANCH <Bool> %%%lu, Block %lu, Block %lu\n", out.val, instr.info.branch.branch_true,
+                           instr.info.branch.branch_false);
                     break;
                 }
                 case IR_INST_TY__JUMP: {
@@ -3486,24 +3628,32 @@ void lowering_and_emission_pass_over_fn(
                 case IR_INST_TY__RETURN: {
                     if (fn.fn_ret_t.tt_ty == IR_TY_Void) {
                         const SV msg = SV_from_str_len("expected no value on return based on function signature", 55);
-                        type_error(&source_info->source, &source_info->source_filename, &fn.error_info_list.array[instr.error_info_index].info.return_value.expr.sv, &msg);
+                        type_error(&source_info->source, &source_info->source_filename,
+                                   &fn.error_info_list.array[instr.error_info_index].info.return_value.expr.sv, &msg);
                         exit(1);
                     }
                     const TC_typeid t = resolve_tc_type(&fn.fn_ret_t, nct, target_info, source_info);
                     const TC_typeid intake_t = temporals_map->array[instr.info.return_value.val].type;
-                    const IR_temporal out = perf_autos(&instr.info.return_value, &intake_t, &t, &highest_temporal, identifier_map, nct, temporals_map, source_info, &fn.error_info_list.array[instr.error_info_index].info.return_value.expr.sv, &temporals_map_values);
+                    const IR_temporal out = perf_autos(&instr.info.return_value, &intake_t, &t, &highest_temporal,
+                                                       identifier_map, nct, temporals_map, source_info,
+                                                       &fn.error_info_list.array[instr.error_info_index].info.
+                                                       return_value.expr.sv, &temporals_map_values);
                     const SV out_t_sv = format_TC_typeid(&t, identifier_map, nct);
                     printf("   RETURN <"SV_format"> %%%lu\n", SV_v_args(out_t_sv), out.val);
                     break;
                 }
                 case IR_INST_TY__GET_STRUCT_FIELD_PTR: {
                     // instr.info.get_struct_field_ptr.struct_ptr
-                    const TC_typeid struct_ptr_t = temporals_map->array[instr.info.get_struct_field_ptr.struct_ptr.val].type;
+                    const TC_typeid struct_ptr_t = temporals_map->array[instr.info.get_struct_field_ptr.struct_ptr.val].
+                            type;
                     const SV struct_ptr_t_sv = format_TC_typeid(&struct_ptr_t, identifier_map, nct);
-                    if (struct_ptr_t.ty != TC_TY_Ref && !temporals_map->array[instr.info.get_struct_field_ptr.struct_ptr.val].is_addressable) {
+                    if (struct_ptr_t.ty != TC_TY_Ref && !temporals_map->array[instr.info.get_struct_field_ptr.struct_ptr
+                            .val].is_addressable) {
                         INTERNAL_ERROR("expected REF<T> or addressable value")
                     }
-                    const TC_typeid struct_t = struct_ptr_t.ty == TC_TY_Ref ? *struct_ptr_t.info.contained : struct_ptr_t;
+                    const TC_typeid struct_t = struct_ptr_t.ty == TC_TY_Ref
+                                                   ? *struct_ptr_t.info.contained
+                                                   : struct_ptr_t;
                     const SV struct_t_sv = format_TC_typeid(&struct_t, identifier_map, nct);
                     const TC_typeid dest_t = temporals_map->array[instr.info.get_struct_field_ptr.dest.val].type;
 
@@ -3528,10 +3678,13 @@ void lowering_and_emission_pass_over_fn(
 
                             if (!SV_pv_cmp_eq(&instr.info.get_struct_field_ptr.field_name.span.sv, "len", 3)) {
                                 const size_t MAX_SIZE = 512;
-                                char* r_msg = malloc(sizeof(char)*MAX_SIZE);
-                                int len = snprintf(r_msg, MAX_SIZE, "struct "C_BOLD"Array"C_RESET" does not have field '"SV_format"'", SV_v_args(instr.info.get_struct_field_ptr.field_name.span.sv));
+                                char* r_msg = malloc(sizeof(char) * MAX_SIZE);
+                                int len = snprintf(r_msg, MAX_SIZE,
+                                                   "struct "C_BOLD"Array"C_RESET" does not have field '"SV_format"'",
+                                                   SV_v_args(instr.info.get_struct_field_ptr.field_name.span.sv));
                                 const SV msg = SV_from_str_len(r_msg, len);
-                                syntax_error(&source_info->source, &source_info->source_filename, &instr.info.get_struct_field_ptr.field_name.span.sv, &msg);
+                                syntax_error(&source_info->source, &source_info->source_filename,
+                                             &instr.info.get_struct_field_ptr.field_name.span.sv, &msg);
                                 exit(1);
                             }
 
@@ -3542,26 +3695,35 @@ void lowering_and_emission_pass_over_fn(
                                 const SV field_t_sv = format_TC_typeid(&field_t, identifier_map, nct);
 
                                 const size_t MAX_SIZE = 512;
-                                char* r_msg = malloc(sizeof(char)*MAX_SIZE);
-                                int len = snprintf(r_msg, MAX_SIZE, "expected value of type "C_BOLD""SV_format""C_RESET" but got "C_BOLD""SV_format""C_RESET"", SV_v_args(dest_t_sv), SV_v_args(field_t_sv));
+                                char* r_msg = malloc(sizeof(char) * MAX_SIZE);
+                                int len = snprintf(r_msg, MAX_SIZE,
+                                                   "expected value of type "C_BOLD""SV_format""C_RESET" but got "C_BOLD
+                                                   ""SV_format""C_RESET"", SV_v_args(dest_t_sv), SV_v_args(field_t_sv));
                                 const SV msg = SV_from_str_len(r_msg, len);
 
-                                type_error(&source_info->source, &source_info->source_filename, &fn.error_info_list.array[instr.error_info_index].info.get_struct_field.whole.sv, &msg);
+                                type_error(&source_info->source, &source_info->source_filename,
+                                           &fn.error_info_list.array[instr.error_info_index].info.get_struct_field.whole
+                                           .sv, &msg);
                                 exit(1);
                             }
 
 
-                            printf("   %%%lu = CONST_INT <Uint32> (%u)\n", instr.info.get_struct_field_ptr.dest.val, struct_t.info.t_array.array_size);
+                            printf("   %%%lu = CONST_INT <Uint32> (%u)\n", instr.info.get_struct_field_ptr.dest.val,
+                                   struct_t.info.t_array.array_size);
 
                             break_out = true;
                             break;
                         }
                         default: {
                             const size_t MAX_SIZE = 512;
-                            char* r_msg = malloc(sizeof(char)*MAX_SIZE);
-                            int len = snprintf(r_msg, MAX_SIZE, "expected structure, but provided value has type "C_BOLD""SV_format""C_RESET, SV_v_args(struct_t_sv));
+                            char* r_msg = malloc(sizeof(char) * MAX_SIZE);
+                            int len = snprintf(r_msg, MAX_SIZE,
+                                               "expected structure, but provided value has type "C_BOLD""SV_format""
+                                               C_RESET, SV_v_args(struct_t_sv));
                             const SV msg = SV_from_str_len(r_msg, len);
-                            type_error(&source_info->source, &source_info->source_filename, &fn.error_info_list.array[instr.error_info_index].info.get_struct_field.origin.sv, &msg);
+                            type_error(&source_info->source, &source_info->source_filename,
+                                       &fn.error_info_list.array[instr.error_info_index].info.get_struct_field.origin.
+                                       sv, &msg);
                             exit(1);
                             break;
                         }
@@ -3573,8 +3735,8 @@ void lowering_and_emission_pass_over_fn(
 
                     bool found = false;
                     for (size_t n = 0; n < sdef.fields.len; n++) {
-                        if(sdef.fields.array[n].name.identifier == instr.info.get_struct_field_ptr.field_name.identifier) {
-
+                        if (sdef.fields.array[n].name.identifier == instr.info.get_struct_field_ptr.field_name.
+                            identifier) {
                             // todo: load type; coerce to dest
                             const TC_typeid field_t = sdef.fields.array[n].type;
                             const SV field_t_sv = format_TC_typeid(&field_t, identifier_map, nct);
@@ -3585,16 +3747,22 @@ void lowering_and_emission_pass_over_fn(
                                 const SV dest_t_sv = format_TC_typeid(&dest_t, identifier_map, nct);
 
                                 const size_t MAX_SIZE = 512;
-                                char* r_msg = malloc(sizeof(char)*MAX_SIZE);
-                                int len = snprintf(r_msg, MAX_SIZE, "expected value of type "C_BOLD""SV_format""C_RESET" but got "C_BOLD""SV_format""C_RESET"", SV_v_args(dest_t_sv), SV_v_args(field_t_sv));
+                                char* r_msg = malloc(sizeof(char) * MAX_SIZE);
+                                int len = snprintf(r_msg, MAX_SIZE,
+                                                   "expected value of type "C_BOLD""SV_format""C_RESET" but got "C_BOLD
+                                                   ""SV_format""C_RESET"", SV_v_args(dest_t_sv), SV_v_args(field_t_sv));
                                 const SV msg = SV_from_str_len(r_msg, len);
 
-                                type_error(&source_info->source, &source_info->source_filename, &fn.error_info_list.array[instr.error_info_index].info.get_struct_field.whole.sv, &msg);
+                                type_error(&source_info->source, &source_info->source_filename,
+                                           &fn.error_info_list.array[instr.error_info_index].info.get_struct_field.whole
+                                           .sv, &msg);
                                 exit(1);
                             }
 
                             // %n = GET_STRUCT_PTR offset x bytes, read size x bytes, read type <>, ptr %x, ptr type <>
-                            printf("   %%%lu = GET_STRUCT_FIELD_PTR offset %u bytes, read size %lu bytes, read align %lu bytes, read type "SV_format", ptr %%%lu, ptr type "SV_format"\n",
+                            printf(
+                                "   %%%lu = GET_STRUCT_FIELD_PTR offset %u bytes, read size %lu bytes, read align %lu bytes, read type "
+                                SV_format", ptr %%%lu, ptr type "SV_format"\n",
                                 instr.info.get_struct_field_ptr.dest.val,
                                 sdef.layout.field_offsets[n],
                                 field_sz.size,
@@ -3610,10 +3778,14 @@ void lowering_and_emission_pass_over_fn(
                     }
                     if (!found) {
                         const size_t MAX_SIZE = 512;
-                        char* r_msg = malloc(sizeof(char)*MAX_SIZE);
-                        int len = snprintf(r_msg, MAX_SIZE, "struct "C_BOLD""SV_format""C_RESET" does not have field '"SV_format"'", SV_v_args(struct_t_sv), SV_v_args(instr.info.get_struct_field_ptr.field_name.span.sv));
+                        char* r_msg = malloc(sizeof(char) * MAX_SIZE);
+                        int len = snprintf(r_msg, MAX_SIZE,
+                                           "struct "C_BOLD""SV_format""C_RESET" does not have field '"SV_format"'",
+                                           SV_v_args(struct_t_sv),
+                                           SV_v_args(instr.info.get_struct_field_ptr.field_name.span.sv));
                         const SV msg = SV_from_str_len(r_msg, len);
-                        syntax_error(&source_info->source, &source_info->source_filename, &instr.info.get_struct_field_ptr.field_name.span.sv, &msg);
+                        syntax_error(&source_info->source, &source_info->source_filename,
+                                     &instr.info.get_struct_field_ptr.field_name.span.sv, &msg);
                         exit(1);
                     }
 
@@ -3621,12 +3793,126 @@ void lowering_and_emission_pass_over_fn(
                     break;
                 }
                 case IR_INST_TY__FN_CALL_RETVOID:
+                case IR_INST_TY__FN_CALL_RETVAL: {
+                    const bool is_retval = (instr.ty == IR_INST_TY__FN_CALL_RETVAL);
+                    const IR_temporal_LIST* raw_args = is_retval
+                                                           ? instr.info.fn_call_retval.args
+                                                           : instr.info.fn_call_retvoid.args;
+                    const Identifier fn_name_id = is_retval
+                                                      ? instr.info.fn_call_retval.name.identifier
+                                                      : instr.info.fn_call_retvoid.name.identifier;
+
+                    // 1. Find the target function
+                    const IR_func* target_fn = NULL;
+                    for (size_t n = 0; n < functions->len; n++) {
+                        if (functions->array[n].fn_name.identifier == fn_name_id) {
+                            target_fn = &functions->array[n];
+                            break;
+                        }
+                    }
+                    if (!target_fn) {
+                        const TokenSpan fn_name_span = is_retval
+                                                      ? instr.info.fn_call_retval.name.span
+                                                      : instr.info.fn_call_retvoid.name.span;
+
+
+                        const SV msg = SV_from_str_len("unknown function", 16);
+
+                        syntax_error(&source_info->source, &source_info->source_filename, &fn_name_span.sv, &msg);
+                        exit(1);
+                    }
+
+                    // 2. Coerce arguments using perf_autos
+                    IR_temporal_LIST coerced_args = IR_temporal_LIST_new_with_capacity(raw_args->len);
+                    TC_typeid_LIST coerced_args_types = TC_typeid_LIST_new_with_capacity(raw_args->len);
+
+                    for (size_t k = 0; k < raw_args->len; k++) {
+                        const IR_temporal arg_temp = raw_args->array[k];
+                        const TC_typeid arg_t = temporals_map->array[arg_temp.val].type;
+                        const TC_typeid expected_t = resolve_tc_type(&target_fn->args.array[k].type, nct,
+                                                                     target_info, source_info);
+
+                        const TokenSpan arg_span = fn.error_info_list.array[instr.error_info_index].info.function_call.args[k];
+
+                        const IR_temporal coerced = perf_autos(
+                            &arg_temp,
+                            &arg_t,
+                            &expected_t,
+                            &highest_temporal,
+                            identifier_map,
+                            nct,
+                            temporals_map,
+                            source_info,
+                            &arg_span.sv,
+                            &temporals_map_values
+                        );
+                        IR_temporal_LIST_push(&coerced_args, coerced);
+                        TC_typeid_LIST_push(&coerced_args_types, expected_t);
+                    }
+
+                    // 3. Handle return value for RETVAL
+                    if (is_retval) {
+                        const TC_typeid expected_ret_t = temporals_map->array[instr.info.fn_call_retval.dest.val].type;
+                        const TC_typeid fn_ret_t = resolve_tc_type(&target_fn->fn_ret_t, nct, target_info, source_info);
+                        const SV expected_ret_t_sv = format_TC_typeid(&expected_ret_t, identifier_map, nct);
+
+                        if (!is_type_eq(&expected_ret_t, &fn_ret_t)) {
+
+                            const SV fn_ret_t_sv = format_TC_typeid(&fn_ret_t, identifier_map, nct);
+
+                            const size_t MAX_SIZE = 512;
+                            char* r_msg = malloc(sizeof(char) * MAX_SIZE);
+                            int len = snprintf(r_msg, MAX_SIZE,
+                                               "expected type "C_BOLD""SV_format""C_RESET" but function '"SV_format"' returns type "C_BOLD""SV_format""C_RESET"",
+                                               SV_v_args(expected_ret_t_sv),
+                                               SV_v_args(target_fn->fn_name.span.sv),
+                                               SV_v_args(fn_ret_t_sv));
+                            const SV msg = SV_from_str_len(r_msg, len);
+                            type_error(&source_info->source, &source_info->source_filename, &fn.error_info_list.array[instr.error_info_index].info.function_call.whole.sv, &msg);
+                            exit(1);
+                        }
+                        printf("   %%%lu <"SV_format"> = ", instr.info.fn_call_retval.dest.val, SV_v_args(expected_ret_t_sv));
+                    } else {
+                        printf("   ");
+                    }
+
+                    // 4. Print / Emit MIR instruction
+                    // ... print function name, destination, and coerced_args ...
+
+                    printf("FUNC_CALL '"SV_format"' [", SV_v_args(target_fn->fn_name.span.sv));
+                    for (size_t n = 0; n < coerced_args.len; n++) {
+                        const SV arg_t_sv = format_TC_typeid(&coerced_args_types.array[n], identifier_map, nct);
+                        printf("%%%lu <"SV_format">", coerced_args.array[n].val, SV_v_args(arg_t_sv));
+                        if (n +1 != coerced_args.len) {
+                            printf(", ");
+                        }
+                    }
+                    printf("]\n");
+
+
                     break;
-                case IR_INST_TY__FN_CALL_RETVAL:
+                }
+                case IR_INST_TY__MATCH_META__TARGET:
+                    break;
+                case IR_INST_TY__MATCH_META__MATCH:
+                    break;
+                case IR_INST_TY__ENUM_VALUE_EXTRACT:
                     break;
             }
         }
+
+        const MIR_block mir_block = (MIR_block){
+            .instructions = mir_instrs
+        };
+        MIR_block_LIST_push(&mir_blocks, mir_block);
     }
+
+    return (MIR_func){
+        .fn_name = fn.fn_name,
+        .blocks = mir_blocks,
+        .highest_temporal_number = highest_temporal,
+        .temporals = mir_temporals
+    };
 }
 
 
@@ -3651,7 +3937,8 @@ void TC_typecheck_and_lower(
 
         TC_Entry_LIST temporals;
 
-        type_inference_pass_over_fn(fn, identifier_map, functions, external_functions, nct, target_info, source_info, &temporals);
+        type_inference_pass_over_fn(fn, identifier_map, functions, external_functions, nct, target_info, source_info,
+                                    &temporals);
 
         for (size_t t = 1; t < temporals.len; t++) {
             const TC_Entry e = temporals.array[t];
@@ -3668,7 +3955,9 @@ void TC_typecheck_and_lower(
             printf("}, {"SV_format"}\n", SV_v_args(e.type.full_typeuse_span.sv));
         }
 
-        lowering_and_emission_pass_over_fn(fn, identifier_map, functions, external_functions, nct, target_info, source_info, &temporals, type_needing_destructor);
+        const MIR_func mir_fn = lowering_and_emission_pass_over_fn(fn, identifier_map, functions, external_functions,
+                                                                   nct, target_info, source_info, &temporals,
+                                                                   type_needing_destructor);
 
         TC_Entry_LIST_free(&temporals);
     }

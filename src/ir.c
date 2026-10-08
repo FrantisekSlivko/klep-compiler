@@ -145,7 +145,8 @@ void print_IR_instr(const IR_instr* restrict instr, const khash_t(sv_u64_map)* r
             break;
         }
         case IR_INST_TY__MAKE_ENUM: {
-            printf("%%%lu = MAKE_ENUM '"SV_format"' ", instr->info.make_enum.dest.val, SV_v_args(instr->info.make_enum.type->full_typeuse_span.sv));
+            const SV variant = SV_from_identifiermap_lookup(identifier_map,instr->info.make_enum.variant);
+            printf("%%%lu = MAKE_ENUM '"SV_format"'::'"SV_format"' ", instr->info.make_enum.dest.val, SV_v_args(instr->info.make_enum.type->full_typeuse_span.sv), SV_v_args(variant));
             if (instr->info.make_enum.args->len == 0) {
                 printf("()");
                 break;
@@ -271,6 +272,21 @@ void print_IR_instr(const IR_instr* restrict instr, const khash_t(sv_u64_map)* r
                 }
             }
             putc(')' ,stdout);
+            break;
+        }
+        case IR_INST_TY__MATCH_META__TARGET: {
+            printf("META: MATCH: TARGET %%%lu", instr->info.match_meta__target.target.val);
+            break;
+        }
+        case IR_INST_TY__MATCH_META__MATCH: {
+            printf("META: MATCH (%%%lu) { ...patterns }", instr->info.match_meta__target.target.val);
+            break;
+        }
+        case IR_INST_TY__ENUM_VALUE_EXTRACT: {
+            printf("%%%lu = ENUM_VALUE_EXTRACT from %%%lu as "SV_format"::"SV_format" %u-nth value",
+                instr->info.enum_value_extract.dest.val,
+                instr->info.enum_value_extract.enum_src.val,
+                SV_v_args(instr->info.enum_value_extract.enum_name.span.sv), SV_v_args(instr->info.enum_value_extract.variant_name.span.sv), instr->info.enum_value_extract.value_nth);
             break;
         }
     }

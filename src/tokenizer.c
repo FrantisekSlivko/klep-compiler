@@ -45,7 +45,8 @@ static inline bool p_is_double_char_token(const char a, const char b) {
            (a == '-' && b == '=') ||
            (a == '*' && b == '=') ||
            (a == '/' && b == '=') ||
-           (a == ':' && b == ':');
+           (a == ':' && b == ':') ||
+           (a == '=' && b == '>');
 
 
            // (a == '<' && b == '<') ||

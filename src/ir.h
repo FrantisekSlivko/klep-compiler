@@ -13,6 +13,49 @@
 
 void print_IR_typeuse(const IR_typeuse* restrict ty, const khash_t(sv_u64_map)* restrict identifier_map);
 
+
+
+
+
+
+typedef enum {
+    PAT_LITERAL_INT,    // 10, true
+    PAT_LITERAL_FLOAT,  // 3.14
+    PAT_BINDING,        // x (new binding)
+    PAT_VARIANT,        // Option::Some(sub_pattern)
+    PAT_WILDCARD,       // _
+} Pattern_Kind;
+
+typedef struct Pattern Pattern;
+
+typedef struct Pattern_LIST {
+    Pattern* array;
+    size_t cap;
+    size_t len;
+} Pattern_LIST;
+
+typedef struct {
+    SpannedIdentifier enum_name;
+    SpannedIdentifier variant_name;
+    Pattern_LIST sub_patterns; // len->0 if no sub_patterns
+} Pattern_Variant;
+
+struct Pattern {
+    Pattern_Kind kind;
+    TokenSpan span;
+    union {
+        int64_t int_literal_val;
+        float64_t float_literal_val;
+        Identifier binding; // For identifiers like `x`
+        Pattern_Variant variant;
+    };
+};
+
+init_prefixed_list_type(Pattern)
+
+
+
+
 typedef struct {
     IR_typeuse type;
     SpannedIdentifier name;
@@ -58,6 +101,9 @@ typedef enum {
     IR_IEI_return_value,
     IR_IEI_store_ptr,
     IR_IEI_move,
+    IR_IEI__MATCH_META__target,
+    IR_IEI__MATCH_META__match,
+    IR_IEI_enum_value_extract,
 } IR_instr_error_info_kind;
 
 typedef struct {
@@ -131,6 +177,15 @@ typedef struct {
         struct {
             TokenSpan value;
         } move;
+        struct {
+            TokenSpan expr;
+        } match_meta__target;
+        struct {
+            TokenSpan target_expr;
+        } match_meta__match;
+        struct {
+            TokenSpan whole;
+        } enum_value_extract;
         void* null;
     } info;
 } IR_instr_error_info;
@@ -210,6 +265,12 @@ typedef enum {
 
     /// dest = MAKE_ENUM p1.optional_typed_name={name, type} ( .p2.array )
     IR_INST_TY__MAKE_ENUM,
+
+    IR_INST_TY__MATCH_META__TARGET,
+    IR_INST_TY__MATCH_META__MATCH,
+
+    /// extracts one of the values inside a enum variant
+    IR_INST_TY__ENUM_VALUE_EXTRACT,
 } IR_instr_TY;
 
 
@@ -310,6 +371,20 @@ typedef struct {
             Identifier variant;
             IR_temporal_LIST* args;
         } make_enum;
+        struct {
+            IR_temporal target;
+        } match_meta__target;
+        struct {
+            IR_temporal target;
+            Pattern_LIST patterns;
+        } match_meta__match;
+        struct {
+            IR_temporal dest;
+            IR_temporal enum_src;
+            SpannedIdentifier enum_name;
+            SpannedIdentifier variant_name;
+            uint32_t value_nth;
+        } enum_value_extract;
     } info;
 } IR_instr;
 
