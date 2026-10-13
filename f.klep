@@ -1,4 +1,6 @@
 
+Void print(Int n) {}
+
 struct A {
     Int32 v1;
     Float32 v2;

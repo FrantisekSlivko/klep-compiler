@@ -289,6 +289,16 @@ void print_IR_instr(const IR_instr* restrict instr, const khash_t(sv_u64_map)* r
                 SV_v_args(instr->info.enum_value_extract.enum_name.span.sv), SV_v_args(instr->info.enum_value_extract.variant_name.span.sv), instr->info.enum_value_extract.value_nth);
             break;
         }
+        case IR_INST_TY__ENUM_VARIANT_NUMBER_EXTRACT: {
+            printf("%%%lu = ENUM_VARIANT_NUMBER of enum %%%lu", instr->info.enum_variant_number_extract.dest.val, instr->info.enum_variant_number_extract.enum_src.val);
+            break;
+        }
+        case IR_INST_TY__ENUM_VARIANT_NUMBER_FROM_TYPE: {
+            const SV enum_name = SV_from_identifiermap_lookup(identifier_map, instr->info.enum_variant_number_from_type.enum_name.identifier);
+            const SV variant_name = SV_from_identifiermap_lookup(identifier_map, instr->info.enum_variant_number_from_type.variant_name.identifier);
+            printf("%%%lu = ENUM_VARIANT_NUMBER of '"SV_format"'::'"SV_format"'", instr->info.enum_variant_number_from_type.dest.val, SV_v_args(enum_name), SV_v_args(variant_name));
+            break;
+        }
     }
 }
 

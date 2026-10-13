@@ -144,7 +144,8 @@ Token P_require_next_be(Parser* p, const TokenType t, const SV cmp) {
 // -------------------------------------------
 
 
-Identifier SV_to_identifier(khash_t(sv_u64_map)* restrict identifier_map, uint64_t* restrict identifier_map_cnt, const Token restrict t) {
+Identifier SV_to_identifier(khash_t(sv_u64_map)* restrict identifier_map, uint64_t* restrict identifier_map_cnt,
+                            const Token restrict t) {
     const khiter_t kf = kh_get(sv_u64_map, identifier_map, *t);
     if (kf != kh_end(identifier_map)) {
         return kh_value(identifier_map, kf); // found
@@ -166,8 +167,6 @@ Identifier P_to_identifier(Parser* restrict p, const Token restrict t) {
     }
     return SV_to_identifier(p->identifier_map, &p->identifier_map_cnt, t);
 }
-
-
 
 
 SV SV_from_identifiermap_lookup(const khash_t(sv_u64_map)* identifier_map, const uint64_t identifier) {
@@ -675,8 +674,6 @@ IR_temporal_with_span P_expr_accesors_wrapper(Parser* p, const IR_temporal_with_
 
             return P_expr_accesors_wrapper(p, (IR_temporal_with_span){result, whole});
         }
-
-
     }
 
     if (nx->len == 1 && nx->start[0] == '[') {
@@ -2298,6 +2295,14 @@ void P_get_while_stmt(Parser* p) {
                                     }
                                     break;
                                 }
+                                case IR_INST_TY__ENUM_VARIANT_NUMBER_EXTRACT: {
+                                    if (instr->info.enum_variant_number_extract.enum_src.val == what_to_replace.val) {
+                                        instr->info.enum_variant_number_extract.enum_src.val = replace_with.val;
+                                    }
+                                    break;
+                                }
+                                case IR_INST_TY__ENUM_VARIANT_NUMBER_FROM_TYPE:
+                                    break;
                             }
                         }
                     }
@@ -2636,8 +2641,6 @@ void P_get_assignment(Parser* p) {
     }
 
 
-
-
     if (is_dest_ptr) {
         P_emit(p, (IR_instr){
                    .ty = IR_INST_TY__STORE_PTR,
@@ -2654,7 +2657,6 @@ void P_get_assignment(Parser* p) {
                    }
                });
     } else {
-
         const IR_temporal move_dest = P_new_temporal(p);
         P_emit(p, (IR_instr){
                    .ty = IR_INST_TY__MOVE,
@@ -2762,21 +2764,26 @@ void P_get_function_call_stmt(Parser* p) {
 
 Pattern* P_get_pattern(Parser* p) {
     P_require_having_next_token(p, TT_Identifier); // or literal/bracket
-    const Token t = P_next_token(p);
+    Token t = P_next_token(p);
 
     Pattern* pat = malloc(sizeof(Pattern));
 
-    pat->span = (TokenSpan){.sv=*t};
+    pat->span = (TokenSpan){.sv = *t};
 
     if (Token_cmp(t, "_")) {
         pat->kind = PAT_WILDCARD;
         return pat;
     }
 
+    const bool is_negative = Token_cmp(t, "-");
+    if (is_negative) {
+        t = P_next_token(p); // consume the minus sign, get the number
+    }
+
     // Check if it's a literal (integer, true/false, etc.)
     if (isdigit(t->start[0]) || Token_cmp(t, "true") || Token_cmp(t, "false")) {
         bool found_dot = false;
-        for (size_t n=1; n < t->len; n++) {
+        for (size_t n = 1; n < t->len; n++) {
             if (t->start[n] == '.') {
                 found_dot = true;
                 break;
@@ -2784,17 +2791,20 @@ Pattern* P_get_pattern(Parser* p) {
         }
         if (found_dot) {
             pat->kind = PAT_LITERAL_FLOAT;
-            pat->float_literal_val = EX_token_to_float(p, t);
+            pat->info.float_literal_val = EX_token_to_float(p, t);
         } else {
             pat->kind = PAT_LITERAL_INT;
-            if (isdigit(t->start[0])) {
-                pat->int_literal_val = EX_token_to_int(p, t);
-            } else if (Token_cmp(t, "true")) {
-                pat->int_literal_val = 1;
-            } else { // false
-                pat->int_literal_val = 0;
+            if (Token_cmp(t, "true")) {
+                pat->info.int_literal_val = 1;
+            } else if (Token_cmp(t, "false")) {
+                pat->info.int_literal_val = 0;
+            } else {
+                int64_t v = EX_token_to_int(p, t);
+                if (is_negative) {
+                    v *= -1;
+                }
+                pat->info.int_literal_val = v;
             }
-
         }
         return pat;
     }
@@ -2805,9 +2815,11 @@ Pattern* P_get_pattern(Parser* p) {
         const Token var_token = P_next_token(p);
 
         pat->kind = PAT_VARIANT;
-        pat->variant.enum_name = (SpannedIdentifier){ P_to_identifier(p, t), (TokenSpan){*t} };
-        pat->variant.variant_name = (SpannedIdentifier){ P_to_identifier(p, var_token), (TokenSpan){*var_token} };
-        pat->variant.sub_patterns = Pattern_LIST_new();
+        pat->info.variant = (Pattern_Variant){
+            .enum_name = (SpannedIdentifier){P_to_identifier(p, t), (TokenSpan){*t}},
+            .variant_name = (SpannedIdentifier){P_to_identifier(p, var_token), (TokenSpan){*var_token}},
+            .sub_patterns = Pattern_LIST_new(),
+        };
 
         // Check for payload like Some(x) or Some(10)
         if (P_has_next(p) && Token_cmp(P_peek_token(p), "(")) {
@@ -2817,7 +2829,7 @@ Pattern* P_get_pattern(Parser* p) {
                 if (!P_has_next(p)) break;
                 if (Token_cmp(P_peek_token(p), ")")) break;
                 const Pattern* pt = P_get_pattern(p);
-                Pattern_LIST_push(&pat->variant.sub_patterns, *pt);
+                Pattern_LIST_push(&pat->info.variant.sub_patterns, *pt);
 
                 if (!P_has_next(p)) break;
                 if (Token_cmp(P_peek_token(p), ")")) break;
@@ -2832,12 +2844,14 @@ Pattern* P_get_pattern(Parser* p) {
 
     // Otherwise, treat any standalone identifier as a NEW binding (e.g., `x`)
     pat->kind = PAT_BINDING;
-    pat->variant.enum_name.identifier = P_to_identifier(p, t);
-    pat->variant.enum_name.span = (TokenSpan){*t};
+    pat->info.binding.name = (SpannedIdentifier){.identifier = P_to_identifier(p, t), .span = (TokenSpan){.sv = *t}};
+
+    pat->info.binding.temp = P_new_temporal(p);
     return pat;
 }
 
-void P_register_pattern_bindings(Parser* restrict p, const Pattern* restrict pat, const IR_typeuse var_type, const IR_temporal temp_val) {
+void P_register_pattern_bindings(Parser* restrict p, Pattern* restrict pat, const IR_typeuse var_type,
+                                 const IR_temporal temp_val) {
     if (!pat) return;
 
     if (pat->kind == PAT_WILDCARD) {
@@ -2845,7 +2859,7 @@ void P_register_pattern_bindings(Parser* restrict p, const Pattern* restrict pat
     }
 
     if (pat->kind == PAT_BINDING) {
-        const SpannedIdentifier bind_name = pat->variant.enum_name; // reused field for binding name
+        const SpannedIdentifier bind_name = pat->info.binding.name;
 
         // 1. Add to current compilation scope so type checking/resolution knows about it
         if (p->compilation_scope.len > 0) {
@@ -2860,154 +2874,312 @@ void P_register_pattern_bindings(Parser* restrict p, const Pattern* restrict pat
 
         // 2. Add to current block's SSA bindings so expressions can look it up
         IR_SSA_binding_LIST* binds = P_get_current_block_bindings(p);
-        bool found = false;
+        // bool found = false;
         for (size_t n = 0; n < binds->len; n++) {
             if (binds->array[n].variable.identifier == bind_name.identifier) {
-                found = true;
-                binds->array[n].bind = temp_val;
-                break;
+                // found = true;
+                // binds->array[n].bind = temp_val;
+                // break;
+                P_syntax_error(p, &bind_name.span.sv, SV_from_str("variable with such name already exists"));
+                exit(1);
             }
         }
-        if (!found) {
-            IR_SSA_binding_LIST_push(binds, (IR_SSA_binding){
-                .variable = bind_name,
-                .bind = temp_val
-            });
-        }
+        // if (!found) {
+        const IR_temporal nd = P_new_temporal(p);
+        IR_SSA_binding_LIST_push(binds, (IR_SSA_binding){
+                                     .variable = bind_name,
+                                     .bind = nd
+                                 });
+        pat->info.binding.temp = nd;
+        // }
     } else if (pat->kind == PAT_VARIANT) {
         // If it's a variant with a sub-pattern (e.g., Some(x)),
         // you would recursively register bindings from the extracted payload temporary.
-        if (pat->variant.sub_patterns.len > 0) {
+        if (pat->info.variant.sub_patterns.len > 0) {
             // Note: In a full implementation, `var_type` and `temp_val` would
             // represent the inner payload's type and extracted temporary value.
 
-            for (size_t n = 0; n < pat->variant.sub_patterns.len; n++) {
-                const Pattern pat_inner = pat->variant.sub_patterns.array[n];
+            for (size_t n = 0; n < pat->info.variant.sub_patterns.len; n++) {
+                Pattern* pat_inner = &pat->info.variant.sub_patterns.array[n];
 
                 // todo: extract from temp_val
                 const IR_temporal nt = P_new_temporal(p);
-                P_emit(p, (IR_instr) {
-                    .ty = IR_INST_TY__ENUM_VALUE_EXTRACT,
-                    .info.enum_value_extract = {
-                        .dest = nt,
-                        .enum_name = pat->variant.enum_name,
-                        .variant_name = pat->variant.variant_name,
-                        .value_nth = n
-                    }
-                }, (IR_instr_error_info) {
-                    .kind = IR_IEI_enum_value_extract,
-                    .info.enum_value_extract = {
-                        .whole = pat->span
-                    }
-                });
+                P_emit(p, (IR_instr){
+                           .ty = IR_INST_TY__ENUM_VALUE_EXTRACT,
+                           .info.enum_value_extract = {
+                               .dest = nt,
+                               .enum_name = pat->info.variant.enum_name,
+                               .variant_name = pat->info.variant.variant_name,
+                               .value_nth = n
+                           }
+                       }, (IR_instr_error_info){
+                           .kind = IR_IEI_enum_value_extract,
+                           .info.enum_value_extract = {
+                               .whole = pat->span
+                           }
+                       });
 
                 const IR_typeuse payload_type = {0};
-                P_register_pattern_bindings(p, &pat_inner, payload_type, nt);
+                P_register_pattern_bindings(p, pat_inner, payload_type, nt);
             }
-
         }
     }
 }
 
 typedef struct {
     Pattern* pat;
+    IR_temporal cond_temp;
+    /// for wildcards and bindings
+    bool is_unconditional;
+
     size_t pre_branch_block;
+    size_t final_eval_block;
     size_t start_block;
     size_t end_block;
+
     IR_SSA_binding_LIST bindings;
+
     bool terminated;
 } P_match_arm_info;
 
 init_prefixed_list_type(P_match_arm_info)
 
 
-void P_match_pattern_branch_emit(Parser* p, const Pattern pattern, const IR_temporal_with_span* target, const TokenSpan* match_kw, const size_t block, const size_t true_block, const size_t false_block) {
-    switch (pattern.kind) {
+typedef struct {
+    size_t block;
+    IR_temporal br_rs;
+    size_t case_nth;
+    size_t true_block;
+} P_match_branch_patch;
+
+init_prefixed_list_type(P_match_branch_patch)
+
+
+IR_temporal P_match_partial_case_eval(Parser* restrict p, const Pattern pat, const IR_temporal in_value_temp,
+                                      const TokenSpan in_value_span, const TokenSpan match_kw,
+                                      P_match_branch_patch_LIST* restrict patches, const size_t case_nth) {
+    const size_t block = P_get_current_block_index(p);
+
+    switch (pat.kind) {
         case PAT_LITERAL_INT: {
             const IR_temporal lit = P_new_temporal(p);
-            P_emit_to_block(p, block, (IR_instr) {
-                .ty = IR_INST_TY__CONST_INT,
-                .info.const_int = {.dest = lit, .val = pattern.int_literal_val }
-            }, (IR_instr_error_info) {
-                .kind = IR_IEI_literal,
-                .info.literal = pattern.span
-            });
+            P_emit_to_block(p, block, (IR_instr){
+                                .ty = IR_INST_TY__CONST_INT,
+                                .info.const_int = {.dest = lit, .val = pat.info.int_literal_val}
+                            }, (IR_instr_error_info){
+                                .kind = IR_IEI_literal,
+                                .info.literal = pat.span
+                            });
 
             const IR_temporal cmp = P_new_temporal(p);
-            P_emit_to_block(p, block, (IR_instr) {
-                .ty = IR_INST_TY__OP_CMP_EQ,
-                .info.math_cmp_boolean_op = {
-                    .dest = cmp,
-                    .src1 = target->temp,
-                    .src2 = lit
-                }
-            }, (IR_instr_error_info) {
-                .kind = IR_IEI_math_operation,
-                .info.math_operation = {
-                    .v1 = target->span,
-                    .v2 = pattern.span,
-                    .op = *match_kw,
-                    .whole = *match_kw,
-                }
-            });
+            P_emit_to_block(p, block, (IR_instr){
+                                .ty = IR_INST_TY__OP_CMP_EQ,
+                                .info.math_cmp_boolean_op = {
+                                    .dest = cmp,
+                                    .src1 = in_value_temp,
+                                    .src2 = lit
+                                }
+                            }, (IR_instr_error_info){
+                                .kind = IR_IEI_math_operation,
+                                .info.math_operation = {
+                                    .v1 = in_value_span,
+                                    .v2 = pat.span,
+                                    .op = match_kw,
+                                    .whole = match_kw,
+                                }
+                            });
 
-            P_emit_to_block(p, block, (IR_instr) {
-                .ty = IR_INST_TY__BRANCH,
-                .info.branch =  {
-                    .cond = cmp,
-                    .branch_true = true_block,
-                    .branch_false = false_block,
-                },
-            }, (IR_instr_error_info) {
-                .kind = IR_IEI_branch,
-                .info.branch = {
-                    .cmp_expr = *match_kw
-                }
-            });
-
-            break;
+            return cmp;
         }
         case PAT_LITERAL_FLOAT: {
-            UNIMPLEMENTED()
-            break;
+            const IR_temporal lit = P_new_temporal(p);
+            P_emit_to_block(p, block, (IR_instr){
+                                .ty = IR_INST_TY__CONST_FLOAT,
+                                .info.const_float = {.dest = lit, .val = pat.info.float_literal_val}
+                            }, (IR_instr_error_info){
+                                .kind = IR_IEI_literal,
+                                .info.literal = pat.span
+                            });
+
+            const IR_temporal cmp = P_new_temporal(p);
+            P_emit_to_block(p, block, (IR_instr){
+                                .ty = IR_INST_TY__OP_CMP_EQ,
+                                .info.math_cmp_boolean_op = {
+                                    .dest = cmp,
+                                    .src1 = in_value_temp,
+                                    .src2 = lit
+                                }
+                            }, (IR_instr_error_info){
+                                .kind = IR_IEI_math_operation,
+                                .info.math_operation = {
+                                    .v1 = in_value_span,
+                                    .v2 = pat.span,
+                                    .op = match_kw,
+                                    .whole = match_kw,
+                                }
+                            });
+
+            return cmp;
         }
         case PAT_BINDING: {
-            UNIMPLEMENTED()
-            break;
+            P_emit_to_block(p, block, (IR_instr){
+                                .ty = IR_INST_TY__MOVE,
+                                .info.move = {.src = in_value_temp, .dest = pat.info.binding.temp}
+                            }, (IR_instr_error_info){
+                                .kind = IR_IEI_move,
+                                .info.move = {
+                                    .value = in_value_span
+                                }
+                            });
+            IR_SSA_binding_LIST* bindings = P_get_current_block_bindings(p);
+            IR_SSA_binding_LIST_push(bindings, (IR_SSA_binding){
+                                         .variable = pat.info.binding.name,
+                                         .bind = pat.info.binding.temp,
+                                     });
+            if (p->compilation_scope.len > 0) {
+                P_variable_record_LIST* l = &p->compilation_scope.array[p->compilation_scope.len - 1].variables;
+                P_variable_record_LIST_push(l, (P_variable_record){
+                                                .name = pat.info.binding.name,
+                                                // .type =
+                                            });
+            }
+            return (IR_temporal){0};
         }
         case PAT_VARIANT: {
-            UNIMPLEMENTED()
-            break;
+            // cmp variant, and subs
+            const SpannedIdentifier enum_name = pat.info.variant.enum_name;
+            const SpannedIdentifier variant_name = pat.info.variant.variant_name;
+            // todo: i need new IR to lookup on typechecking from enum_name+enum_variant a specific variant number of certain size to insert const_int for comparison
+            // target->temp
+            const IR_temporal v1 = P_new_temporal(p);
+            const IR_temporal v2 = P_new_temporal(p);
+
+            P_emit(p, (IR_instr){
+                                .ty = IR_INST_TY__ENUM_VARIANT_NUMBER_EXTRACT,
+                                .info.enum_variant_number_extract = {
+                                    .dest = v1,
+                                    .enum_src = in_value_temp
+                                }
+                            }, (IR_instr_error_info){.kind = IR_IEI_none});
+
+            P_emit(p, (IR_instr){
+                                .ty = IR_INST_TY__ENUM_VARIANT_NUMBER_FROM_TYPE,
+                                .info.enum_variant_number_from_type = {
+                                    .dest = v2,
+                                    .enum_name = enum_name,
+                                    .variant_name = variant_name
+                                }
+                            }, (IR_instr_error_info){.kind = IR_IEI_none});
+
+            const IR_temporal variant_num_cmp_rs = P_new_temporal(p);
+            P_emit(p, (IR_instr){
+                                .ty = IR_INST_TY__OP_CMP_EQ,
+                                .info.math_cmp_boolean_op = {
+                                    .dest = variant_num_cmp_rs,
+                                    .src1 = v1,
+                                    .src2 = v2,
+                                }
+                            }, (IR_instr_error_info){.kind = IR_IEI_none});
+
+            if (pat.info.variant.sub_patterns.len == 0) {
+                return variant_num_cmp_rs;
+            }
+
+            P_append_block_with_bindings(p, IR_SSA_bindings_deep_clone(P_get_current_block_bindings(p)));
+            const size_t vn_true_block = P_get_current_block_index(p);
+
+            // here a branch will go
+            P_match_branch_patch_LIST_push(patches, (P_match_branch_patch){
+                                               .block = block,
+                                               .br_rs = variant_num_cmp_rs,
+                                               .case_nth = case_nth,
+                                               .true_block = vn_true_block
+                                           });
+
+            IR_temporal ot = {0};
+            const Pattern_LIST pl = pat.info.variant.sub_patterns;
+            for (size_t n = 0; n < pl.len; n++) {
+                const IR_temporal exprt_val = P_new_temporal(p);
+
+                P_emit_to_block(p, vn_true_block, (IR_instr){
+                                    .ty = IR_INST_TY__ENUM_VALUE_EXTRACT,
+                                    .info.enum_value_extract = {
+                                        .dest = exprt_val,
+                                        .enum_src = in_value_temp,
+                                        .enum_name = enum_name,
+                                        .variant_name = variant_name,
+                                        .value_nth = n
+                                    }
+                                }, (IR_instr_error_info){});
+
+                const IR_temporal nx = P_match_partial_case_eval(p, pl.array[n], exprt_val, pl.array[n].span, match_kw,
+                                                                 patches, case_nth);
+
+                if (n + 1 != pl.len) {
+                    const size_t current_block = P_get_current_block_index(p);
+
+
+                    // if (n + 1 != pl.len) {
+                    P_append_block_with_bindings(p, IR_SSA_bindings_deep_clone(P_get_current_block_bindings(p)));
+                    const size_t true_block = P_get_current_block_index(p);
+                    // } else {
+                        // true_block = P_get_current_block_index(p) + 1;
+                    // }
+
+
+                    // here a branch will go
+                    P_match_branch_patch_LIST_push(patches, (P_match_branch_patch){
+                                                       .block = current_block,
+                                                       .br_rs = nx,
+                                                       .case_nth = case_nth,
+                                                       .true_block = true_block
+                                                   });
+                } else {
+                    ot = nx;
+                }
+
+
+            }
+
+            // if sub-patterns were just bindings/wildcards, ot.val will be 0.
+            if (ot.val == 0) {
+                return variant_num_cmp_rs;
+            }
+
+
+            return ot;
         }
         case PAT_WILDCARD: {
-            // jump true + bind
-            UNIMPLEMENTED()
-            break;
+            return (IR_temporal){0};
         }
     }
+    UNREACHABLE()
 }
+
 
 void P_get_match_stmt(Parser* p) {
     const Token match_kw_token = P_next_token(p); // consume "match"
-    const TokenSpan match_kw = (TokenSpan) { .sv=*match_kw_token};
+    const TokenSpan match_kw = (TokenSpan){.sv = *match_kw_token};
 
     const IR_temporal_with_span target = P_get_expr(p);
-    P_emit(p, (IR_instr) {
-        .ty = IR_INST_TY__MATCH_META__TARGET,
-        .info.match_meta__target = { .target = target.temp }
-    }, (IR_instr_error_info) {
-        .kind = IR_IEI__MATCH_META__target,
-        .info.match_meta__target = { .expr = target.span }
-    });
+    P_emit(p, (IR_instr){
+               .ty = IR_INST_TY__MATCH_META__TARGET,
+               .info.match_meta__target = {.target = target.temp}
+           }, (IR_instr_error_info){
+               .kind = IR_IEI__MATCH_META__target,
+               .info.match_meta__target = {.expr = target.span}
+           });
 
     const size_t match_start_block = P_get_current_block_index(p);
-    const IR_SSA_binding_LIST base_bindings = *P_get_current_block_bindings(p);
+    const IR_SSA_binding_LIST base_bindings = IR_SSA_bindings_deep_clone(P_get_current_block_bindings(p));
 
     P_require_next_be(p, TT_StartCurlyBracket, SV_from_str_len("{", 1));
 
     P_match_arm_info_LIST arms = P_match_arm_info_LIST_new();
+    P_match_branch_patch_LIST patches = P_match_branch_patch_LIST_new();
 
     bool first = true;
+
     while (1) {
         P_require_having_next_token(p, TT_EndCurlyBracket);
         if (Token_cmp(P_peek_token(p), "}")) {
@@ -3015,7 +3187,8 @@ void P_get_match_stmt(Parser* p) {
             break;
         }
 
-        const Pattern* pat = P_get_pattern(p);
+        Pattern* pat = P_get_pattern(p);
+
 
         const Token arrow = P_next_token(p);
         if (!Token_cmp(arrow, "=>")) {
@@ -3024,8 +3197,13 @@ void P_get_match_stmt(Parser* p) {
         }
 
 
-        const IR_typeuse dummy_type = {0};
-        P_register_pattern_bindings(p, pat, dummy_type, target.temp);
+        // const IR_typeuse dummy_type = {0};
+        // P_register_pattern_bindings(p, pat, dummy_type, target.temp);
+        /*
+         * for binding -> gen pre-block IR except branch before parsing block
+         * for lit and binding -> copy base_bindings
+         * for option -> gen pre-block IR except branch before parsing block
+         */
 
         if (!first) {
             P_append_block_with_bindings(p, IR_SSA_bindings_deep_clone(&base_bindings));
@@ -3033,26 +3211,58 @@ void P_get_match_stmt(Parser* p) {
             first = false;
         }
 
+        // if (!first) {
+        //     switch (pat->kind) {
+        //         case PAT_LITERAL_INT:
+        //         case PAT_LITERAL_FLOAT:
+        //         case PAT_WILDCARD: {
+        //             P_append_block_with_bindings(p, IR_SSA_bindings_deep_clone(&base_bindings));
+        //             break;
+        //         }
+        //         case PAT_BINDING: {
+        //             IR_SSA_binding_LIST bl = IR_SSA_bindings_deep_clone(&base_bindings);
+        //             IR_SSA_binding_LIST_push(&bl, (IR_SSA_binding) {
+        //                 .variable = pat->info.binding.name,
+        //                 .bind = pat->info.binding.temp,
+        //             });
+        //             P_append_block_with_bindings(p, bl);
+        //             break;
+        //         }
+        //         case PAT_VARIANT:
+        //             break;
+        //     }
+        //
+        // } else {
+        //     first = false;
+        // }
+
         const size_t pre_branch_block = P_get_current_block_index(p);
 
+        const IR_temporal out = P_match_partial_case_eval(p, *pat, target.temp, target.span, match_kw,
+                                                          &patches, arms.len);
 
+        const size_t final_eval_block = P_get_current_block_index(p);
 
-        P_append_block_with_bindings(p, IR_SSA_bindings_deep_clone(&base_bindings));
+        P_append_block_with_bindings(p, IR_SSA_bindings_deep_clone(P_get_current_block_bindings(p)));
+
         const size_t start_block = P_get_current_block_index(p);
         P_get_code_section(p);
 
         const size_t arm_end_block = P_get_current_block_index(p);
         const bool terminated = P_block_is_terminated(p, arm_end_block);
-        const IR_SSA_binding_LIST arm_bindings = *P_get_current_block_bindings(p);
+        const IR_SSA_binding_LIST arm_bindings = IR_SSA_bindings_deep_clone(P_get_current_block_bindings(p));
 
         P_match_arm_info_LIST_push(&arms, (P_match_arm_info){
-            .pre_branch_block = pre_branch_block,
-            .start_block = start_block,
-            .end_block = arm_end_block,
-            .bindings = arm_bindings,
-            .terminated = terminated,
-            .pat = (Pattern*)pat,
-        });
+                                       .cond_temp = out,
+                                       .is_unconditional = pat->kind == PAT_WILDCARD || pat->kind == PAT_BINDING, //out.val == 0,
+                                       .pre_branch_block = pre_branch_block,
+                                       .final_eval_block = final_eval_block,
+                                       .start_block = start_block,
+                                       .end_block = arm_end_block,
+                                       .bindings = arm_bindings,
+                                       .terminated = terminated,
+                                       .pat = pat,
+                                   });
 
         if (P_has_next(p) && Token_cmp(P_peek_token(p), ",")) {
             P_next_token(p);
@@ -3079,17 +3289,54 @@ void P_get_match_stmt(Parser* p) {
      */
 
 
-    // P_match_pattern_branch_emit(p, *arms.array[0].pat, &target, &match_kw, match_start_block, arms.array[0].start_block, arms.array[1].pre_branch_block);
-    const size_t first_false_target = (arms.len > 1) ? arms.array[1].pre_branch_block : after_block;
-    P_match_pattern_branch_emit(p, *arms.array[0].pat, &target, &match_kw, match_start_block, arms.array[0].start_block, first_false_target);
+    // // P_match_pattern_branch_emit(p, *arms.array[0].pat, &target, &match_kw, match_start_block, arms.array[0].start_block, arms.array[1].pre_branch_block);
+    // const size_t first_false_target = (arms.len > 1) ? arms.array[1].pre_branch_block : after_block;
+    // P_match_pattern_branch_emit(p, *arms.array[0].pat, &target, &match_kw, match_start_block, arms.array[0].start_block, first_false_target);
+    //
+    // // 2. Loop through the rest of the arms
+    // for (size_t i = 1; i < arms.len; i++) {
+    //     // Determine where to go if this pattern doesn't match (the next arm's pre_branch, or after_block if last)
+    //     const size_t next_false_target = (i + 1 < arms.len) ? arms.array[i + 1].pre_branch_block : after_block;
+    //
+    //     // Emit the comparison check inside THIS arm's pre_branch_block
+    //     P_match_pattern_branch_emit(p, *arms.array[i].pat, &target, &match_kw, arms.array[i].pre_branch_block, arms.array[i].start_block, next_false_target);
+    // }
+    // 1. Emit branches connecting the check blocks
+    for (size_t i = 0; i < arms.len; i++) {
+        const size_t false_target = (i + 1 < arms.len) ? arms.array[i + 1].pre_branch_block : after_block;
 
-    // 2. Loop through the rest of the arms
-    for (size_t i = 1; i < arms.len; i++) {
-        // Determine where to go if this pattern doesn't match (the next arm's pre_branch, or after_block if last)
-        const size_t next_false_target = (i + 1 < arms.len) ? arms.array[i + 1].pre_branch_block : after_block;
+        if (arms.array[i].is_unconditional) {
+            // Wildcards/Bindings always hit their start block unconditionally
+            P_emit_to_block(p, arms.array[i].pre_branch_block, (IR_instr){
+                                .ty = IR_INST_TY__JUMP,
+                                .info.jump = {.block = arms.array[i].start_block}
+                            }, (IR_instr_error_info){.kind = IR_IEI_none});
+            break; // Any code after a wildcard is unreachable anyway!
+        } else {
+            // Emit the conditional branch using our stored cond_temp
+            P_emit_to_block(p, arms.array[i].final_eval_block, (IR_instr){
+                                .ty = IR_INST_TY__BRANCH,
+                                .info.branch = {
+                                    .cond = arms.array[i].cond_temp,
+                                    .branch_true = arms.array[i].start_block,
+                                    .branch_false = false_target
+                                }
+                            }, (IR_instr_error_info){.kind = IR_IEI_branch, .info.branch = {.cmp_expr = match_kw}});
+        }
+    }
 
-        // Emit the comparison check inside THIS arm's pre_branch_block
-        P_match_pattern_branch_emit(p, *arms.array[i].pat, &target, &match_kw, arms.array[i].pre_branch_block, arms.array[i].start_block, next_false_target);
+
+    for (size_t n=0; n < patches.len; n++) {
+        const P_match_branch_patch pt = patches.array[n];
+        const size_t false_block = (pt.case_nth + 1 == arms.len) ? after_block : arms.array[pt.case_nth+1].pre_branch_block;
+        P_emit_to_block(p, pt.block, (IR_instr) {
+            .ty = IR_INST_TY__BRANCH,
+            .info.branch = {
+                .cond = pt.br_rs,
+                .branch_true = pt.true_block,
+                .branch_false = false_block,
+            }
+        }, (IR_instr_error_info){});
     }
 
 
@@ -3099,16 +3346,15 @@ void P_get_match_stmt(Parser* p) {
         if (!arms.array[i].terminated) {
             non_terminated_count++;
             P_emit_to_block(p, arms.array[i].end_block, (IR_instr){
-                .ty = IR_INST_TY__JUMP,
-                .info.jump = {after_block}
-            }, (IR_instr_error_info){.kind = IR_IEI_none});
+                                .ty = IR_INST_TY__JUMP,
+                                .info.jump = {after_block}
+                            }, (IR_instr_error_info){.kind = IR_IEI_none});
 
             // // insert pattern matching at the beginning
             // if (i > 0) {
             //     const size_t nx = i+1 != arms.len ? arms.array[i+1].pre_branch_block : after_block;
             //     P_match_pattern_branch_emit(p, *arms.array[i].pat, &target, &match_kw, arms.array[i].pre_branch_block, arms.array[i].start_block, nx);
             // }
-
         }
     }
 
@@ -3142,9 +3388,9 @@ void P_get_match_stmt(Parser* p) {
 
             if (all_same || non_terminated_count == 1) {
                 IR_SSA_binding_LIST_push(&merged_bindings, (IR_SSA_binding){
-                    .variable = base_bind.variable,
-                    .bind = first_val
-                });
+                                             .variable = base_bind.variable,
+                                             .bind = first_val
+                                         });
             } else {
                 const IR_temporal phi = P_new_temporal(p);
                 IR_temporal_block_phi_record_LIST* phi_args = malloc(sizeof(IR_temporal_block_phi_record_LIST));
@@ -3162,9 +3408,9 @@ void P_get_match_stmt(Parser* p) {
                     }
 
                     IR_temporal_block_phi_record_LIST_push(phi_args, (IR_temporal_block_phi_record){
-                        .block = arms.array[i].end_block,
-                        .temp = arm_val
-                    });
+                                                               .block = arms.array[i].end_block,
+                                                               .temp = arm_val
+                                                           });
                 }
 
                 // ADD THE FALLBACK BLOCK IF IT REACHES AFTER_BLOCK
@@ -3173,28 +3419,28 @@ void P_get_match_stmt(Parser* p) {
                 const size_t fallback_block = arms.array[last_arm_idx].pre_branch_block;
 
                 IR_temporal_block_phi_record_LIST_push(phi_args, (IR_temporal_block_phi_record){
-                    .block = fallback_block,
-                    .temp = base_bind.bind // Fallback block didn't execute an arm, so it uses the base binding value!
-                });
+                                                           .block = fallback_block,
+                                                           .temp = base_bind.bind
+                                                           // Fallback block didn't execute an arm, so it uses the base binding value!
+                                                       });
 
                 P_emit(p, (IR_instr){
-                    .ty = IR_INST_TY__PHI,
-                    .info.phi = {
-                        .dest = phi,
-                        .args = phi_args
-                    }
-                }, (IR_instr_error_info){
-                    .kind = IR_IEI_phi,
-                    .info.phi = {base_bind.variable.span}
-                });
+                           .ty = IR_INST_TY__PHI,
+                           .info.phi = {
+                               .dest = phi,
+                               .args = phi_args
+                           }
+                       }, (IR_instr_error_info){
+                           .kind = IR_IEI_phi,
+                           .info.phi = {base_bind.variable.span}
+                       });
 
                 IR_SSA_binding_LIST_push(&merged_bindings, (IR_SSA_binding){
-                    .variable = base_bind.variable,
-                    .bind = phi
-                });
+                                             .variable = base_bind.variable,
+                                             .bind = phi
+                                         });
             }
         }
-
     }
 
     IR_SSA_binding_LIST* cur_bindings = P_get_current_block_bindings(p);
@@ -3206,18 +3452,18 @@ void P_get_match_stmt(Parser* p) {
     for (size_t n = 0; n < arms.len; n++) {
         Pattern_LIST_push(&patterns, *arms.array[n].pat);
     }
-    P_emit(p, (IR_instr) {
-        .ty = IR_INST_TY__MATCH_META__MATCH,
-        .info.match_meta__match = {
-            .target = target.temp,
-            .patterns = patterns
-        }
-    }, (IR_instr_error_info) {
-        .kind = IR_IEI__MATCH_META__match,
-        .info.match_meta__match = {
-            .target_expr = target.span
-        }
-    });
+    P_emit(p, (IR_instr){
+               .ty = IR_INST_TY__MATCH_META__MATCH,
+               .info.match_meta__match = {
+                   .target = target.temp,
+                   .patterns = patterns
+               }
+           }, (IR_instr_error_info){
+               .kind = IR_IEI__MATCH_META__match,
+               .info.match_meta__match = {
+                   .target_expr = target.span
+               }
+           });
 
     P_match_arm_info_LIST_free(&arms);
 }

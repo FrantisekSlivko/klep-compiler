@@ -902,6 +902,7 @@ SizeAlign calc_type_size(
 
             item->size  = total_size;
             item->align = total_align;
+            item->discriminant_size = disc_size;
 
             in_progress_enums->array[this_in_progress_nth] = SIZE_MAX;
 

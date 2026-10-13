@@ -14,6 +14,9 @@
 void print_IR_typeuse(const IR_typeuse* restrict ty, const khash_t(sv_u64_map)* restrict identifier_map);
 
 
+typedef struct {
+    uint64_t val;
+} IR_temporal;
 
 
 
@@ -46,9 +49,12 @@ struct Pattern {
     union {
         int64_t int_literal_val;
         float64_t float_literal_val;
-        Identifier binding; // For identifiers like `x`
+        struct {
+            SpannedIdentifier name;
+            IR_temporal temp;
+        } binding; // For identifiers like `x`
         Pattern_Variant variant;
-    };
+    } info;
 };
 
 init_prefixed_list_type(Pattern)
@@ -64,9 +70,7 @@ typedef struct {
 init_prefixed_list_type(IR_typename_pair)
 
 
-typedef struct {
-    uint64_t val;
-} IR_temporal;
+
 
 init_prefixed_list_type(IR_temporal)
 
@@ -271,6 +275,12 @@ typedef enum {
 
     /// extracts one of the values inside a enum variant
     IR_INST_TY__ENUM_VALUE_EXTRACT,
+
+    /// extracts variant number from enum value, use for enum comparison
+    IR_INST_TY__ENUM_VARIANT_NUMBER_EXTRACT,
+
+    /// from enum name and variant name -> variant number and size -> gets replaced by CONST_INT
+    IR_INST_TY__ENUM_VARIANT_NUMBER_FROM_TYPE
 } IR_instr_TY;
 
 
@@ -385,6 +395,15 @@ typedef struct {
             SpannedIdentifier variant_name;
             uint32_t value_nth;
         } enum_value_extract;
+        struct {
+            IR_temporal dest;
+            IR_temporal enum_src;
+        } enum_variant_number_extract;
+        struct {
+            IR_temporal dest;
+            SpannedIdentifier enum_name;
+            SpannedIdentifier variant_name;
+        } enum_variant_number_from_type;
     } info;
 } IR_instr;
 

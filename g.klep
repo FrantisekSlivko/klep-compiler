@@ -1,53 +1,95 @@
-
-enum Semaphore {
-    Red,
-    Yellow,
-    Green,
-}
-
-Int add(Int a, Int b) {
-    return a + b;
-}
-
 Void print_str(Slice<Char> str) {
     // dummy fn
 }
 
-Int main() {
-    Int v1 = 5;
-    Int v2 = v1.add(3);
+//
+// enum Semaphore {
+//     Red,
+//     Yellow,
+//     Green,
+// }
+//
+// Int add(Int a, Int b) {
+//     return a + b;
+// }
+//
+//
+// Int main() {
+//     Int v1 = 5;
+//     Int v2 = v1.add(3);
+//     Semaphore s = new Semaphore::Red;
+//     Int8 x = 0;
+//     match x {
+//         0 => {
+//             print_str("zero");
+//             x += 1;
+//         }
+//         1 => {
+//             print_str("one");
+//             x += 2;
+//         }
+//         2 => {
+//             print_str("two");
+//             x += 2;
+//         }
+//         n => {
+//             Int8 k = n + 4;
+//             print_str("any");
+//             if k < 20 {
+//                 print_str("any1");
+//             } else {
+//                 print_str("any2");
+//             }
+//         }
+//     }
+//     Int8 l =  x.add(5);
+//     return 0;
+// }
+//
+//
+//
+// Void enum_match() {
+//     Semaphore s = new Semaphore::Red;
+//     Int8 x = 0;
+//
+//     match s {
+//         Semaphore::Green => {
+//             print_str("Green");
+//             x += 1;
+//         }
+//         Semaphore::Yellow => {
+//             print_str("Yellow");
+//             x += 2;
+//         }
+//         Semaphore::Red => {
+//             print_str("Red");
+//             x += 3;
+//         }
+//     }
+//     Int8 l =  x.add(5);
+// }
 
-    Semaphore s = new Semaphore::Red;
-    Int8 x = 0;
-    // match s {
-    //     Semaphore::Green => {
-    //         print_str("Green");
-    //         x += 1;
-    //     }
-    //     Semaphore::Yellow => {
-    //         print_str("Yellow");
-    //         x += 2;
-    //     }
-    //     Semaphore::Red => {
-    //         print_str("Red");
-    //         x += 3;
-    //     }
-    // }
-    match x {
-        0 => {
-            print_str("zero");
-            x += 1;
+generic enum Option<T> {
+    Some(T),
+    None
+}
+
+Void generic_enum_match_test() {
+    Option<Int> v = new Option::Some(4);
+
+    match v {
+        Option::Some(1) => {print_str("one");}
+        Option::Some(4) => {print_str("four");}
+        Option::Some(n) => {
+            if n > 10 {
+                print_str("big number");
+            } else {
+                print_str("small number");
+            }
         }
-        1 => {
-            print_str("one");
-            x += 2;
-        }
-        2 => {
-            print_str("two");
-            x += 2;
+        Option::None => {
+            print_str("empty?");
         }
     }
-    Int8 l =  x.add(5);
-
-    return 0;
 }
+

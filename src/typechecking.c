@@ -214,6 +214,7 @@ SizeAlign path_size_align_for_materialized_type(
 
             item->size = total_size;
             item->align = total_align;
+            item->discriminant_size = disc_size;
 
             in_progress_enums->array[this_in_progress_nth] = SIZE_MAX;
 
@@ -862,6 +863,70 @@ init_prefixed_list_type(TC_Entry)
 //         }
 //     }
 // }
+
+
+void type_inference_over_match_meta(const Pattern p, TC_Entry_LIST* restrict temporals_map, const TC_typeid* target_t, const TC_typeid* restrict unwrapped_target_t, const TC_TypeTable* restrict nct, const SourceInfo* restrict source_info) {
+    switch (p.kind) {
+        case PAT_LITERAL_INT:
+        case PAT_LITERAL_FLOAT:
+        case PAT_WILDCARD:
+            break;
+        case PAT_BINDING: {
+            temporals_map->array[p.info.binding.temp.val] = (TC_Entry) {
+                .known_temporal = true,
+                .type = *target_t,
+                .is_value_known = false,
+                .is_addressable = false,
+            };
+            break;
+        }
+        case PAT_VARIANT: {
+            if (unwrapped_target_t->ty != TC_TY_Enum) break;
+
+            const TC_enumdef edef = nct->enums.array[unwrapped_target_t->info.type_id];
+            if (edef.name.identifier != p.info.variant.enum_name.identifier) break;
+            bool found = false;
+            size_t ix = 0;
+            for (size_t k = 0; k < edef.variants.len; k++) {
+                if (edef.variants.array[k].name.identifier == p.info.variant.variant_name.identifier) {
+                    found = true;
+                    ix = k;
+                    break;
+                }
+            }
+            if (!found) {
+                const SV msg = SV_from_str_len("unknown enum variant", 20);
+                type_error(&source_info->source, &source_info->source_filename, &p.info.variant.variant_name.span.sv, &msg);
+                exit(1);
+            }
+
+            if (p.info.variant.sub_patterns.len != edef.variants.array[ix].values_len) {
+                const size_t MAX_SIZE = 1024;
+                char* r_msg = malloc(sizeof(char) * MAX_SIZE);
+                int len = snprintf(r_msg, MAX_SIZE, "expected %lu value arguments but found %lu", edef.variants.array[ix].values_len, p.info.variant.sub_patterns.len);
+                const SV msg = SV_from_str_len(r_msg, len);
+                type_error(&source_info->source, &source_info->source_filename, &p.info.variant.variant_name.span.sv, &msg);
+                exit(1);
+            }
+
+            for (size_t n=0; n < p.info.variant.sub_patterns.len; n++) {
+                TC_typeid ut = edef.variants.array[ix].values[n];
+                while (ut.ty == TC_TY_Ref || ut.ty == TC_TY_Box) ut = *ut.info.contained;
+                type_inference_over_match_meta(
+                    p.info.variant.sub_patterns.array[n],
+                    temporals_map,
+                    &edef.variants.array[ix].values[n],
+                    &ut,
+                    nct,
+                    source_info
+                );
+            }
+
+            // WARN("UNIMPLEMENTED: PAT_VARIANT: in IR_INST_TY__MATCH_META__MATCH in type_inference")
+            break;
+        }
+    }
+}
 
 
 void type_inference_pass_over_fn(
@@ -1610,22 +1675,13 @@ void type_inference_pass_over_fn(
                 case IR_INST_TY__MATCH_META__MATCH: {
                     if (!temporals_map->array[instr.info.match_meta__match.target.val].known_temporal) break;
                     const TC_typeid target_t = temporals_map->array[instr.info.match_meta__match.target.val].type;
+                    TC_typeid unwrapped_target_t = target_t;
+                    while (unwrapped_target_t.ty == TC_TY_Ref || unwrapped_target_t.ty == TC_TY_Box) unwrapped_target_t = *unwrapped_target_t.info.contained;
 
                     // propagate type to pattern binds
                     for (size_t n = 0; n < instr.info.match_meta__match.patterns.len; n++) {
                         const Pattern p = instr.info.match_meta__match.patterns.array[n];
-                        switch (p.kind) {
-                            case PAT_LITERAL_INT:
-                            case PAT_LITERAL_FLOAT:
-                            case PAT_WILDCARD:
-                                break;
-                            case PAT_BINDING: {
-                                // p.binding
-                                break;
-                            }
-                            case PAT_VARIANT:
-                                break;
-                        }
+                        type_inference_over_match_meta(p, temporals_map, &target_t, &unwrapped_target_t, nct, source_info);
                     }
 
                     break;
@@ -1654,6 +1710,124 @@ void type_inference_pass_over_fn(
                     }
 
 
+                    break;
+                }
+                case IR_INST_TY__ENUM_VARIANT_NUMBER_EXTRACT: {
+                    if (!temporals_map->array[instr.info.enum_variant_number_extract.enum_src.val].known_temporal) break;
+
+                    TC_typeid enum_t = temporals_map->array[instr.info.enum_variant_number_extract.enum_src.val].type;
+
+                    while (enum_t.ty == TC_TY_Ref || enum_t.ty == TC_TY_Box) enum_t = *enum_t.info.contained;
+
+                    if (enum_t.ty != TC_TY_Enum) {
+                        temporals_map->array[instr.info.enum_variant_number_extract.dest.val] = (TC_Entry) {
+                            .known_temporal = true,
+                            .type = (TC_typeid) {
+                                .ty = TC_TY_Primitive,
+                                .info.primitive = TC_Primitive__Uint32,
+                                .full_typeuse_span = (TokenSpan) {.sv=SV_from_str_len("Uint32", 6)}
+                            },
+                            .is_value_known = false,
+                            .is_addressable = false,
+                        };
+                        break;
+                    }
+
+                    TC_Primitive_TY prim;
+                    SV prim_sv;
+                    switch (nct->enums.array[enum_t.info.type_id].discriminant_size) {
+                        case 1: {
+                            prim = TC_Primitive__Uint8;
+                            prim_sv = SV_from_str_len("Uint8", 5);
+                            break;
+                        }
+                        case 2: {
+                            prim = TC_Primitive__Uint16;
+                            prim_sv = SV_from_str_len("Uint16", 6);
+                            break;
+                        }
+                        case 4: {
+                            prim = TC_Primitive__Uint32;
+                            prim_sv = SV_from_str_len("Uint32", 6);
+                            break;
+                        }
+                        case 8: {
+                            prim = TC_Primitive__Uint64;
+                            prim_sv = SV_from_str_len("Uint64", 6);
+                            break;
+                        }
+                        default: INTERNAL_ERROR()
+                    }
+
+                    temporals_map->array[instr.info.enum_variant_number_extract.dest.val] = (TC_Entry) {
+                        .known_temporal = true,
+                        .type = (TC_typeid) {
+                            .ty = TC_TY_Primitive,
+                            .info.primitive = prim,
+                            .full_typeuse_span = (TokenSpan) {.sv=prim_sv}
+                        },
+                        .is_value_known = false,
+                        .is_addressable = false,
+                    };
+                    break;
+
+
+                    break;
+                }
+                case IR_INST_TY__ENUM_VARIANT_NUMBER_FROM_TYPE: {
+                    // TODO: replace this instr with CONST_INT??
+                    // instr.info.enum_variant_number_from_type.enum_name.identifier
+                    bool found = false;
+                    uint32_t nth = 0;
+                    // for (size_t n = 0; n < nct->name_index.len; n++) {
+                    //     if (
+                    //         nct->name_index.array[n].name == instr.info.enum_variant_number_from_type.enum_name.identifier
+                    //         &&
+                    //         nct->name_index.array[n].kind == TC_NIRK_Enum
+                    //     ) {
+                    //         nth = nct->name_index.array[n].nth;
+                    //         found = true;
+                    //         break;
+                    //     }
+                    // }
+                    for (size_t n = 0; n < nct->enums.len; n++) {
+                        if (nct->enums.array[n].name.identifier == instr.info.enum_variant_number_from_type.enum_name.identifier) {
+                            // nth = nct->name_index.array[n].nth;
+                            nth = n;
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        // type_error()
+                        UNIMPLEMENTED("error here");
+                        exit(1);
+                    }
+
+                    const TC_enumdef edef = nct->enums.array[nth];
+                    uint32_t variant_n = 0;
+                    bool variant_n_found = false;
+                    for (size_t n = 0; n < edef.variants.len; n++) {
+                        if (edef.variants.array[n].name.identifier == instr.info.enum_variant_number_from_type.variant_name.identifier) {
+                            variant_n = n;
+                            variant_n_found = true;
+                            break;
+                        }
+                    }
+                    if (!variant_n_found) {
+                        UNIMPLEMENTED("error here");
+                        exit(1);
+                    }
+
+                    block.instructions.array[instr_nth] = (IR_instr) {
+                        .ty = IR_INST_TY__CONST_INT,
+                        .info.const_int = {
+                            .dest = instr.info.enum_variant_number_from_type.dest,
+                            .val = variant_n
+                        }
+                    };
+                    instr_nth = instr_nth+1; // whould it work??
+                    // printf("todo: IR_INST_TY__ENUM_VARIANT_NUMBER_FROM_TYPE | type inference pass\n");
                     break;
                 }
             }
@@ -2502,10 +2676,10 @@ IR_temporal perf_autos(
     // auto-ref
     if (output_type->ty == TC_TY_Ref && is_type_eq(output_type->info.contained, &current_type)) {
         if (!temporals_map->array[current_temp].is_addressable) {
-            // Cannot take reference of temporary value
-            const SV msg = SV_from_str_len("c", 1);
+            const SV msg = SV_from_str_len("cannot take reference of temporary value", 40);
             type_error(&source_info->source, &source_info->source_filename, value_token, &msg);
-            INTERNAL_ERROR("TYPE ERROR HERE");
+            const SV hint = SV_from_str_len("consider creating variable with that value and than using it here", 0);
+            hint_standalone(&hint);
             exit(1);
         }
         const uint64_t new_temporal = (*highest_temporal)++;
@@ -3892,12 +4066,47 @@ MIR_func lowering_and_emission_pass_over_fn(
 
                     break;
                 }
-                case IR_INST_TY__MATCH_META__TARGET:
+                case IR_INST_TY__MATCH_META__TARGET: {
+                    const TC_typeid target_t = temporals_map->array[instr.info.match_meta__target.target.val].type;
+                    const IR_temporal_and_TC_type res = perf_auto_deref(&target_t, &instr.info.match_meta__target.target, &highest_temporal, temporals_map);
+                    // TC_typeid res_t = target_t;
+                    // while (res_t.ty == TC_TY_Ref || res_t.ty == TC_TY_Box) res_t = *res_t.info.contained;
+
+                    const TC_typeid res_t = res.type;
+
+                    if (res_t.ty != TC_TY_Enum && res_t.ty != TC_TY_Primitive) {
+
+                        const SV target_t_sv = format_TC_typeid(&target_t, identifier_map, nct);
+                        const size_t MAX_SIZE = 512;
+                        char* r_msg = malloc(sizeof(char) * MAX_SIZE);
+                        int len = snprintf(r_msg, MAX_SIZE, "expected either primitive or enum value but got value of type "C_BOLD""SV_format""C_RESET"", SV_v_args(target_t_sv));
+
+                        const SV msg = SV_from_str_len(r_msg, len);
+                        type_error(&source_info->source, &source_info->source_filename, &fn.error_info_list.array[instr.error_info_index].info.match_meta__target.expr.sv, &msg);
+                        exit(1);
+                    }
                     break;
-                case IR_INST_TY__MATCH_META__MATCH:
+                }
+                case IR_INST_TY__MATCH_META__MATCH: {
+
                     break;
-                case IR_INST_TY__ENUM_VALUE_EXTRACT:
+                }
+                case IR_INST_TY__ENUM_VALUE_EXTRACT: {
                     break;
+                }
+                case IR_INST_TY__ENUM_VARIANT_NUMBER_EXTRACT: {
+                    const TC_typeid enum_t = temporals_map->array[instr.info.enum_variant_number_extract.enum_src.val].type;
+                    const IR_temporal_and_TC_type au_t = perf_auto_deref(&enum_t, &instr.info.enum_variant_number_extract.enum_src, &highest_temporal, temporals_map);
+                    if (au_t.type.ty != TC_TY_Enum) {
+                        // type_error(&source_info->source, &source_info->source_filename);
+                        exit(1);
+                    }
+                    break;
+                }
+                case IR_INST_TY__ENUM_VARIANT_NUMBER_FROM_TYPE: {
+                    INTERNAL_ERROR()
+                    break;
+                }
             }
         }
 

@@ -119,7 +119,7 @@ void compile(const SV source, const SV source_filename) {
 
             for (size_t b = 0; b < functions.array[f].blocks.len; b++) {
                 const IR_block* block = &functions.array[f].blocks.array[b];
-                printf("    block %lu,\n", b);
+                printf("    block %lu {\n", b);
                 printf("      binds: { ");
                 for (size_t n = 0; n < block->bindings.len; n++) {
                     const IR_SSA_binding bind = block->bindings.array[n];
