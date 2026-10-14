@@ -60,6 +60,22 @@ void print_hint(const SV* restrict filename, const size_t line_num, const size_t
     putc('\n', stderr);
 }
 
+void print_warn(const SV* restrict filename, const size_t line_num, const size_t char_num, const SV* message, const SV* code_line, const size_t ptr_start, const size_t ptr_len) {
+    fprintf(stderr, "\n");
+
+    fprintf(stderr, ""C_BLUE""SV_format":%lu:%lu:"C_RESET" "C_YELLOW"warn:"C_RESET" "SV_format"\n", SV_p_args(filename), line_num, char_num, SV_p_args(message));
+
+    fprintf(stderr, "  "SV_format"\n", SV_p_args(code_line));
+    fprintf(stderr, "  ");
+    for (size_t n = 0; n < ptr_start; n++ ) {
+        putc(' ', stderr);
+    }
+    for (size_t n = 0; n < ptr_len; n++) {
+        putc('^', stderr);
+    }
+    putc('\n', stderr);
+}
+
 TokenLocation locate_token(const SV* source, const SV* token) {
     size_t line_num = 0;
     const char* r_line_start = source->start;
@@ -135,4 +151,11 @@ void hint_on_code(const SV* source, const SV* restrict source_filename, const SV
 
     const SV line = SV_from_str_len(source->start + tl.line_start, tl.line_len);
     print_hint(source_filename, tl.line_num+1, tl.inline_start+1, message, &line, tl.inline_start, token->len);
+}
+
+void warn_on_code(const SV* source, const SV* restrict source_filename, const SV* token, const SV* message) {
+    const TokenLocation tl = locate_token(source, token);
+
+    const SV line = SV_from_str_len(source->start + tl.line_start, tl.line_len);
+    print_warn(source_filename, tl.line_num+1, tl.inline_start+1, message, &line, tl.inline_start, token->len);
 }

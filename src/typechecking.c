@@ -865,14 +865,16 @@ init_prefixed_list_type(TC_Entry)
 // }
 
 
-void type_inference_over_match_meta(const Pattern p, TC_Entry_LIST* restrict temporals_map, const TC_typeid* target_t, const TC_typeid* restrict unwrapped_target_t, const TC_TypeTable* restrict nct, const SourceInfo* restrict source_info) {
+void type_inference_over_match_meta(const Pattern p, TC_Entry_LIST* restrict temporals_map, const TC_typeid* target_t,
+                                    const TC_typeid* restrict unwrapped_target_t, const TC_TypeTable* restrict nct,
+                                    const SourceInfo* restrict source_info) {
     switch (p.kind) {
         case PAT_LITERAL_INT:
         case PAT_LITERAL_FLOAT:
         case PAT_WILDCARD:
             break;
         case PAT_BINDING: {
-            temporals_map->array[p.info.binding.temp.val] = (TC_Entry) {
+            temporals_map->array[p.info.binding.temp.val] = (TC_Entry){
                 .known_temporal = true,
                 .type = *target_t,
                 .is_value_known = false,
@@ -896,20 +898,23 @@ void type_inference_over_match_meta(const Pattern p, TC_Entry_LIST* restrict tem
             }
             if (!found) {
                 const SV msg = SV_from_str_len("unknown enum variant", 20);
-                type_error(&source_info->source, &source_info->source_filename, &p.info.variant.variant_name.span.sv, &msg);
+                type_error(&source_info->source, &source_info->source_filename, &p.info.variant.variant_name.span.sv,
+                           &msg);
                 exit(1);
             }
 
             if (p.info.variant.sub_patterns.len != edef.variants.array[ix].values_len) {
                 const size_t MAX_SIZE = 1024;
                 char* r_msg = malloc(sizeof(char) * MAX_SIZE);
-                int len = snprintf(r_msg, MAX_SIZE, "expected %lu value arguments but found %lu", edef.variants.array[ix].values_len, p.info.variant.sub_patterns.len);
+                int len = snprintf(r_msg, MAX_SIZE, "expected %lu value arguments but found %lu",
+                                   edef.variants.array[ix].values_len, p.info.variant.sub_patterns.len);
                 const SV msg = SV_from_str_len(r_msg, len);
-                type_error(&source_info->source, &source_info->source_filename, &p.info.variant.variant_name.span.sv, &msg);
+                type_error(&source_info->source, &source_info->source_filename, &p.info.variant.variant_name.span.sv,
+                           &msg);
                 exit(1);
             }
 
-            for (size_t n=0; n < p.info.variant.sub_patterns.len; n++) {
+            for (size_t n = 0; n < p.info.variant.sub_patterns.len; n++) {
                 TC_typeid ut = edef.variants.array[ix].values[n];
                 while (ut.ty == TC_TY_Ref || ut.ty == TC_TY_Box) ut = *ut.info.contained;
                 type_inference_over_match_meta(
@@ -1676,12 +1681,14 @@ void type_inference_pass_over_fn(
                     if (!temporals_map->array[instr.info.match_meta__match.target.val].known_temporal) break;
                     const TC_typeid target_t = temporals_map->array[instr.info.match_meta__match.target.val].type;
                     TC_typeid unwrapped_target_t = target_t;
-                    while (unwrapped_target_t.ty == TC_TY_Ref || unwrapped_target_t.ty == TC_TY_Box) unwrapped_target_t = *unwrapped_target_t.info.contained;
+                    while (unwrapped_target_t.ty == TC_TY_Ref || unwrapped_target_t.ty == TC_TY_Box)
+                        unwrapped_target_t = *unwrapped_target_t.info.contained;
 
                     // propagate type to pattern binds
                     for (size_t n = 0; n < instr.info.match_meta__match.patterns.len; n++) {
                         const Pattern p = instr.info.match_meta__match.patterns.array[n];
-                        type_inference_over_match_meta(p, temporals_map, &target_t, &unwrapped_target_t, nct, source_info);
+                        type_inference_over_match_meta(p, temporals_map, &target_t, &unwrapped_target_t, nct,
+                                                       source_info);
                     }
 
                     break;
@@ -1692,14 +1699,16 @@ void type_inference_pass_over_fn(
                     TC_typeid inner_t = src_t;
                     while (src_t.ty == TC_TY_Ref || src_t.ty == TC_TY_Box) inner_t = *inner_t.info.contained;
                     if (inner_t.ty != TC_TY_Enum) break;
-                    if (instr.info.enum_value_extract.enum_name.identifier != nct->enums.array[inner_t.info.type_id].name.identifier)
+                    if (instr.info.enum_value_extract.enum_name.identifier != nct->enums.array[inner_t.info.type_id].
+                        name.identifier)
                         break;
 
                     const TC_enumdef edef = nct->enums.array[inner_t.info.type_id];
                     for (size_t n = 0; n < edef.variants.len; n++) {
-                        if (edef.variants.array[n].name.identifier == instr.info.enum_value_extract.variant_name.identifier) {
+                        if (edef.variants.array[n].name.identifier == instr.info.enum_value_extract.variant_name.
+                            identifier) {
                             if (edef.variants.array[n].values_len > instr.info.enum_value_extract.value_nth) {
-                                temporals_map->array[instr.info.enum_value_extract.dest.val] = (TC_Entry) {
+                                temporals_map->array[instr.info.enum_value_extract.dest.val] = (TC_Entry){
                                     .known_temporal = true,
                                     .type = edef.variants.array[n].values[instr.info.enum_value_extract.value_nth],
                                     .is_value_known = false,
@@ -1713,19 +1722,21 @@ void type_inference_pass_over_fn(
                     break;
                 }
                 case IR_INST_TY__ENUM_VARIANT_NUMBER_EXTRACT: {
-                    if (!temporals_map->array[instr.info.enum_variant_number_extract.enum_src.val].known_temporal) break;
+                    if (!temporals_map->array[instr.info.enum_variant_number_extract.enum_src.val].known_temporal)
+                        break
+                                ;
 
                     TC_typeid enum_t = temporals_map->array[instr.info.enum_variant_number_extract.enum_src.val].type;
 
                     while (enum_t.ty == TC_TY_Ref || enum_t.ty == TC_TY_Box) enum_t = *enum_t.info.contained;
 
                     if (enum_t.ty != TC_TY_Enum) {
-                        temporals_map->array[instr.info.enum_variant_number_extract.dest.val] = (TC_Entry) {
+                        temporals_map->array[instr.info.enum_variant_number_extract.dest.val] = (TC_Entry){
                             .known_temporal = true,
-                            .type = (TC_typeid) {
+                            .type = (TC_typeid){
                                 .ty = TC_TY_Primitive,
                                 .info.primitive = TC_Primitive__Uint32,
-                                .full_typeuse_span = (TokenSpan) {.sv=SV_from_str_len("Uint32", 6)}
+                                .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Uint32", 6)}
                             },
                             .is_value_known = false,
                             .is_addressable = false,
@@ -1759,12 +1770,12 @@ void type_inference_pass_over_fn(
                         default: INTERNAL_ERROR()
                     }
 
-                    temporals_map->array[instr.info.enum_variant_number_extract.dest.val] = (TC_Entry) {
+                    temporals_map->array[instr.info.enum_variant_number_extract.dest.val] = (TC_Entry){
                         .known_temporal = true,
-                        .type = (TC_typeid) {
+                        .type = (TC_typeid){
                             .ty = TC_TY_Primitive,
                             .info.primitive = prim,
-                            .full_typeuse_span = (TokenSpan) {.sv=prim_sv}
+                            .full_typeuse_span = (TokenSpan){.sv = prim_sv}
                         },
                         .is_value_known = false,
                         .is_addressable = false,
@@ -1791,7 +1802,8 @@ void type_inference_pass_over_fn(
                     //     }
                     // }
                     for (size_t n = 0; n < nct->enums.len; n++) {
-                        if (nct->enums.array[n].name.identifier == instr.info.enum_variant_number_from_type.enum_name.identifier) {
+                        if (nct->enums.array[n].name.identifier == instr.info.enum_variant_number_from_type.enum_name.
+                            identifier) {
                             // nth = nct->name_index.array[n].nth;
                             nth = n;
                             found = true;
@@ -1808,7 +1820,8 @@ void type_inference_pass_over_fn(
                     uint32_t variant_n = 0;
                     bool variant_n_found = false;
                     for (size_t n = 0; n < edef.variants.len; n++) {
-                        if (edef.variants.array[n].name.identifier == instr.info.enum_variant_number_from_type.variant_name.identifier) {
+                        if (edef.variants.array[n].name.identifier == instr.info.enum_variant_number_from_type.
+                            variant_name.identifier) {
                             variant_n = n;
                             variant_n_found = true;
                             break;
@@ -1819,14 +1832,14 @@ void type_inference_pass_over_fn(
                         exit(1);
                     }
 
-                    block.instructions.array[instr_nth] = (IR_instr) {
+                    block.instructions.array[instr_nth] = (IR_instr){
                         .ty = IR_INST_TY__CONST_INT,
                         .info.const_int = {
                             .dest = instr.info.enum_variant_number_from_type.dest,
                             .val = variant_n
                         }
                     };
-                    instr_nth = instr_nth+1; // whould it work??
+                    instr_nth = instr_nth + 1; // whould it work??
                     // printf("todo: IR_INST_TY__ENUM_VARIANT_NUMBER_FROM_TYPE | type inference pass\n");
                     break;
                 }
@@ -2834,6 +2847,358 @@ void init__compiler_builtin__tc_types(khash_t(sv_u64_map)* restrict identifier_m
             }
         };
     }
+}
+
+
+/// returns true if found
+void find_type_param_parallel(const IR_typeuse* restrict t1, const TC_typeid* restrict t2,
+                              const SpannedIdentifier_LIST* restrict generic_args,
+                              TC_GenericArgMap_LIST* restrict out) {
+    if (t2->ty == TC_TY_Void) return; // used for function calls discarding return values
+    switch (t1->tt_ty) {
+        case IR_TY_Void: return;
+        case IR_TY_Primitive: return;
+        case IR_TY_Named: {
+            for (size_t n = 0; n < generic_args->len; n++) {
+                if (generic_args->array[n].identifier == t1->info.named.identifier) {
+                    // t2->ty
+                    bool found = false;
+                    size_t found_nth = 0;
+                    for (size_t k = 0; k < out->len; k++) {
+                        if (out->array[k].generic_name.identifier == generic_args->array[n].identifier) {
+                            found = true;
+                            found_nth = k;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        // add
+                        TC_GenericArgMap_LIST_push(out, (TC_GenericArgMap){
+                                                       .generic_name = generic_args->array[n],
+                                                       .generic_name_t = *t2
+                                                   });
+                    } else {
+                        // cmp -> type consistency
+                        if (!is_type_eq(&out->array[found_nth].generic_name_t, t2)) {
+                            INTERNAL_ERROR("type error here")
+                        }
+                    }
+                }
+            }
+
+            break;
+        }
+        case IR_TY_Ref: {
+            if (t2->ty != TC_TY_Ref) {
+                INTERNAL_ERROR("type error here")
+            }
+            find_type_param_parallel(t1->contained, t2->info.contained, generic_args, out);
+            break;
+        }
+        case IR_TY_Box: {
+            if (t2->ty != TC_TY_Box) {
+                INTERNAL_ERROR("type error here")
+            }
+            find_type_param_parallel(t1->contained, t2->info.contained, generic_args, out);
+            break;
+        }
+        case IR_TY_Slice: {
+            if (t2->ty != TC_TY_Slice) {
+                INTERNAL_ERROR("type error here")
+            }
+            find_type_param_parallel(t1->contained, t2->info.contained, generic_args, out);
+            break;
+        }
+        case IR_TY_Array: {
+            if (t2->ty != TC_TY_Array) {
+                INTERNAL_ERROR("type error here")
+            }
+            if (t1->array_const_size != t2->info.t_array.array_size) {
+                INTERNAL_ERROR("type error here")
+            }
+            find_type_param_parallel(t1->contained, t2->info.t_array.contained, generic_args, out);
+            break;
+        }
+        case IR_TY_List: {
+            if (t2->ty != TC_TY_List) {
+                INTERNAL_ERROR("type error here")
+            }
+            find_type_param_parallel(t1->contained, t2->info.contained, generic_args, out);
+            break;
+        }
+        case IR_TY_Generic: {
+            if (t2->ty != TC_TY_Enum && t2->ty != TC_TY_Struct) {
+                INTERNAL_ERROR("type error here")
+            }
+            UNIMPLEMENTED()
+            /*
+            Ah, I see! Because TC_typeid for structs and enums uses an internal index (type_id) into
+nct->structs or nct->enums, the direct nested type tree is flattened into that ID.
+
+To solve this, you can use the compiler's materialized generics cache (nct->materialized_generics):
+
+ 1 When a generic type is materialized, the compiler stores a TC_materialized_generic_index_record
+   which pairs the original concrete IR_typeuse (e.g., List<Int32> with its actual arguments) with
+   its assigned nth index (type_id).
+ 2 Therefore, when t2 is a TC_TY_Struct or TC_TY_Enum, you can look up nct->materialized_generics
+   using its type_id to retrieve the original concrete IR_typeuse arguments.
+ 3 Once you have those concrete IR_typeuse arguments, you can map them directly to your generic
+   parameters!
+             */
+            // find_type_param_parallel(t1->contained, t2->info.contained, generic_args, out);
+            break;
+        }
+    }
+}
+
+IR_typeuse typeuse_from_tc(const TC_typeid* tc, TC_TypeTable* restrict nct) {
+    switch (tc->ty) {
+        case TC_TY_Void: {
+            return (IR_typeuse){
+                .tt_ty = IR_TY_Void,
+                .full_typeuse_span = tc->full_typeuse_span
+            };
+        }
+        case TC_TY_Primitive: {
+            return (IR_typeuse){
+                .tt_ty = IR_TY_Primitive,
+                .info.primitive = tc->info.primitive,
+                .full_typeuse_span = tc->full_typeuse_span
+            };
+        }
+        case TC_TY_Ref:
+        case TC_TY_Box:
+        case TC_TY_Slice:
+        case TC_TY_List: {
+            IR_typeuse* inner = malloc(sizeof(IR_typeuse));
+            *inner = typeuse_from_tc(tc->info.contained, nct);
+
+            const IR_typeuse_type tt_ty = (tc->ty == TC_TY_Ref)
+                                              ? IR_TY_Ref
+                                              : (tc->ty == TC_TY_Box)
+                                                    ? IR_TY_Box
+                                                    : (tc->ty == TC_TY_Slice)
+                                                          ? IR_TY_Slice
+                                                          : IR_TY_List;
+            return (IR_typeuse){
+                .tt_ty = tt_ty,
+                .contained = inner,
+                .contained_len = 1,
+                .full_typeuse_span = tc->full_typeuse_span
+            };
+        }
+        case TC_TY_Array: {
+            IR_typeuse* inner = malloc(sizeof(IR_typeuse));
+            *inner = typeuse_from_tc(tc->info.t_array.contained, nct);
+            return (IR_typeuse){
+                .tt_ty = IR_TY_Array,
+                .contained = inner,
+                .array_const_size = tc->info.t_array.array_size,
+                .full_typeuse_span = tc->full_typeuse_span
+            };
+        }
+        case TC_TY_Struct:
+        case TC_TY_Enum: {
+            // 1. Check if this struct/enum was a materialized generic
+            for (size_t n = 0; n < nct->materialized_generics.len; n++) {
+                const TC_materialized_generic_index_record mr = nct->materialized_generics.array[n];
+                if (mr.nth == tc->info.type_id) {
+                    if ((tc->ty == TC_TY_Struct && mr.kind == TC_NIRK_Struct) ||
+                        (tc->ty == TC_TY_Enum && mr.kind == TC_NIRK_Enum)) {
+                        return mr.generic; // Returns the original IR_typeuse with generic args!
+                    }
+                }
+            }
+
+            // 2. Otherwise, it's a regular non-generic struct/enum
+            const SpannedIdentifier name = (tc->ty == TC_TY_Struct)
+                                               ? nct->structs.array[tc->info.type_id].name
+                                               : nct->enums.array[tc->info.type_id].name;
+
+            return (IR_typeuse){
+                .tt_ty = IR_TY_Named,
+                .info.named = name,
+                .full_typeuse_span = tc->full_typeuse_span
+            };
+        }
+        case TC_TY_External_Type: {
+            return (IR_typeuse){
+                .tt_ty = IR_TY_Named,
+                .info.named = tc->info.external_type,
+                .full_typeuse_span = tc->full_typeuse_span
+            };
+        }
+    }
+
+
+    UNREACHABLE()
+}
+
+
+IR_typeuse materialization_fn_type_patch(const IR_typeuse* use, const TC_GenericArgMap_LIST* restrict map,
+                                         TC_TypeTable* restrict nct) {
+    switch (use->tt_ty) {
+        case IR_TY_Void:
+        case IR_TY_Primitive: {
+            return *use;
+        }
+        case IR_TY_Named: {
+            for (size_t n = 0; n < map->len; n++) {
+                if (map->array[n].generic_name.identifier == use->info.named.identifier) {
+                    return typeuse_from_tc(&map->array[n].generic_name_t, nct);
+                }
+            }
+            return *use;
+        }
+        case IR_TY_Ref:
+        case IR_TY_Box:
+        case IR_TY_Slice:
+        case IR_TY_List: {
+            IR_typeuse* inner = malloc(sizeof(IR_typeuse));
+            *inner = materialization_fn_type_patch(use->contained, map, nct);
+
+
+            return (IR_typeuse){
+                .tt_ty = use->tt_ty,
+                .info.named = use->info.named,
+                .contained = inner,
+                .contained_len = 1,
+                .full_typeuse_span = use->full_typeuse_span,
+            };
+        }
+        case IR_TY_Array: {
+            IR_typeuse* inner = malloc(sizeof(IR_typeuse));
+            *inner = materialization_fn_type_patch(use->contained, map, nct);
+
+
+            return (IR_typeuse){
+                .tt_ty = use->tt_ty,
+                .info.named = use->info.named,
+                .contained = inner,
+                // .contained_len = 1,
+                .array_const_size = use->array_const_size,
+                .full_typeuse_span = use->full_typeuse_span,
+            };
+        }
+
+        case IR_TY_Generic: {
+            UNIMPLEMENTED()
+        }
+    }
+    UNREACHABLE()
+}
+
+const IR_func* materialize_function(const IR_generic_function* restrict gf, const TC_typeid_LIST found_args_t,
+                                    const TC_typeid* found_ret_t, TC_TypeTable* restrict nct) {
+    // find type args in functions args+ret -> in parallel, unwrap IR_typeuse and TC_typeid types
+    TC_GenericArgMap_LIST map = TC_GenericArgMap_LIST_new_with_capacity(gf->generic_args.len);
+
+    find_type_param_parallel(&gf->fn.fn_ret_t, found_ret_t, &gf->generic_args, &map);
+    for (size_t n = 0; n < found_args_t.len; n++) {
+        if (map.len == gf->generic_args.len) break;
+        find_type_param_parallel(&gf->fn.args.array[n].type, &found_args_t.array[n], &gf->generic_args, &map);
+    }
+
+    if (map.len != gf->generic_args.len) {
+        INTERNAL_ERROR("throw type error here | could not infer type ")
+    }
+
+    for (size_t n = 0; n < nct->materialized_generic_functions.len; n++) {
+        const IR_materialized_generic_function* gd = &nct->materialized_generic_functions.array[n];
+        if (gd->fn_name == gf->fn.fn_name.identifier) {
+            bool is_valid = true;
+            for (size_t k = 0; k < map.len; k++) {
+                for (size_t j = 0; j < gd->map.len; j++) {
+                    if (gd->map.array[j].generic_name.identifier == map.array[k].generic_name.identifier) {
+                        if (!is_type_eq(&gd->map.array[j].generic_name_t, &map.array[k].generic_name_t)) {
+                            is_valid = false;
+                        }
+                        break;
+                    }
+                }
+                if (!is_valid) {
+                    break;
+                }
+            }
+            if (!is_valid) {
+                continue;
+            }
+            return &gd->fn;
+        }
+    }
+
+    // not found -> materialize
+
+    IR_func out_fn = gf->fn;
+    out_fn.blocks = IR_block_LIST_new_with_capacity(gf->fn.blocks.len);
+    for (size_t block_n = 0; block_n < gf->fn.blocks.len; block_n++) {
+        IR_block b = (IR_block){
+            .instructions = IR_instr_LIST_new_with_capacity(gf->fn.blocks.array[block_n].instructions.len),
+            .bindings = IR_SSA_binding_LIST_new_with_capacity(gf->fn.blocks.array[block_n].bindings.len)
+        };
+        for (size_t bb = 0; bb < gf->fn.blocks.array[block_n].bindings.len; bb++) {
+            IR_SSA_binding_LIST_push(&b.bindings, gf->fn.blocks.array[block_n].bindings.array[bb]);
+        }
+        for (size_t ii = 0; ii < gf->fn.blocks.array[block_n].instructions.len; ii++) {
+            IR_instr instr = gf->fn.blocks.array[block_n].instructions.array[ii];
+            switch (instr.ty) {
+                case IR_INST_TY__DROP: {
+                    const IR_typeuse out = materialization_fn_type_patch(instr.info.drop.type, &map, nct);
+                    instr.info.drop.type = malloc(sizeof(IR_typeuse));
+                    *instr.info.drop.type = out;
+                    break;
+                }
+                case IR_INST_TY__VAR_DECL: {
+                    const IR_typeuse out = materialization_fn_type_patch(instr.info.var_decl.type, &map, nct);
+                    instr.info.var_decl.type = malloc(sizeof(IR_typeuse));
+                    *instr.info.var_decl.type = out;
+                    break;
+                }
+                case IR_INST_TY__EXPLICIT_CAST: {
+                    const IR_typeuse out = materialization_fn_type_patch(instr.info.explicit_cast.type, &map, nct);
+                    instr.info.explicit_cast.type = malloc(sizeof(IR_typeuse));
+                    *instr.info.explicit_cast.type = out;
+                }
+                default: {
+                    break;
+                }
+            }
+            IR_instr_LIST_push(&b.instructions, instr);
+        }
+        IR_block_LIST_push(&out_fn.blocks, b);
+    }
+    out_fn.error_info_list = IR_instr_error_info_LIST_new_with_capacity(gf->fn.error_info_list.len);
+    for (size_t e = 0; e < gf->fn.error_info_list.len; e++) {
+        IR_instr_error_info_LIST_push(&out_fn.error_info_list, gf->fn.error_info_list.array[e]);
+    }
+
+    const IR_typeuse patched_ret_t = materialization_fn_type_patch(&gf->fn.fn_ret_t, &map, nct);
+    out_fn.fn_ret_t = patched_ret_t;
+
+    out_fn.args = IR_typename_pair_LIST_new_with_capacity(gf->fn.args.len);
+    for (size_t a = 0; a < gf->fn.args.len; a++) {
+        const IR_typeuse patched_t = materialization_fn_type_patch(&gf->fn.args.array[a].type, &map, nct);
+        IR_typename_pair_LIST_push(&out_fn.args, (IR_typename_pair){
+                                       .type = patched_t,
+                                       .name = gf->fn.args.array[a].name
+                                   });
+    }
+
+    // create new name
+    const size_t new_name_size = sizeof(char) * gf->fn.fn_name.span.sv.len + 20;
+    char* new_name = malloc(new_name_size);
+    int ns = snprintf(new_name, new_name_size, "FN_GT_%lu___"SV_format"", nct->materialized_generic_functions.len + 1,
+                      SV_v_args(out_fn.fn_name.span.sv));
+    out_fn.raw_name = SV_from_str_len(new_name, ns);
+
+    IR_materialized_generic_function_LIST_push(&nct->materialized_generic_functions, (IR_materialized_generic_function){
+                                                   .fn_name = out_fn.fn_name.identifier,
+                                                   .fn = out_fn,
+                                                   .map = map,
+                                               });
+
+    // printf("[INFO] materialized a generic function\n");
+    return &nct->materialized_generic_functions.array[nct->materialized_generic_functions.len - 1].fn;
 }
 
 MIR_func lowering_and_emission_pass_over_fn(
@@ -3976,6 +4341,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                                                       ? instr.info.fn_call_retval.name.identifier
                                                       : instr.info.fn_call_retvoid.name.identifier;
 
+
                     // 1. Find the target function
                     const IR_func* target_fn = NULL;
                     for (size_t n = 0; n < functions->len; n++) {
@@ -3985,9 +4351,38 @@ MIR_func lowering_and_emission_pass_over_fn(
                         }
                     }
                     if (!target_fn) {
+                        // look into generic functions
+                        // generic cash name + <T, T, T,...>
+
+                        const TC_typeid* expected_ret_t = is_retval
+                                                              ? &temporals_map->array[instr.info.fn_call_retval.dest.
+                                                                  val].type
+                                                              : NULL;
+
+                        for (size_t n = 0; n < nct->generic_functions.len; n++) {
+                            if (nct->generic_functions.array[n].fn.fn_name.identifier != fn_name_id) continue;
+
+                            // check materialization
+                            // return function
+                            const IR_generic_function gf = nct->generic_functions.array[n];
+
+                            TC_typeid_LIST found_args_t = TC_typeid_LIST_new_with_capacity(raw_args->len);
+                            for (size_t a = 0; a < raw_args->len; a++) {
+                                const IR_temporal arg_temp = raw_args->array[a];
+                                const TC_typeid arg_t = temporals_map->array[arg_temp.val].type;
+                                TC_typeid_LIST_push(&found_args_t, arg_t);
+                            }
+
+                            const IR_func* rs = materialize_function(&gf, found_args_t, expected_ret_t, nct);
+                            target_fn = rs;
+
+                            break;
+                        }
+                    }
+                    if (!target_fn) {
                         const TokenSpan fn_name_span = is_retval
-                                                      ? instr.info.fn_call_retval.name.span
-                                                      : instr.info.fn_call_retvoid.name.span;
+                                                           ? instr.info.fn_call_retval.name.span
+                                                           : instr.info.fn_call_retvoid.name.span;
 
 
                         const SV msg = SV_from_str_len("unknown function", 16);
@@ -3995,6 +4390,8 @@ MIR_func lowering_and_emission_pass_over_fn(
                         syntax_error(&source_info->source, &source_info->source_filename, &fn_name_span.sv, &msg);
                         exit(1);
                     }
+
+                    const SV raw_fn_name = target_fn->raw_name;
 
                     // 2. Coerce arguments using perf_autos
                     IR_temporal_LIST coerced_args = IR_temporal_LIST_new_with_capacity(raw_args->len);
@@ -4006,7 +4403,8 @@ MIR_func lowering_and_emission_pass_over_fn(
                         const TC_typeid expected_t = resolve_tc_type(&target_fn->args.array[k].type, nct,
                                                                      target_info, source_info);
 
-                        const TokenSpan arg_span = fn.error_info_list.array[instr.error_info_index].info.function_call.args[k];
+                        const TokenSpan arg_span = fn.error_info_list.array[instr.error_info_index].info.function_call.
+                                args[k];
 
                         const IR_temporal coerced = perf_autos(
                             &arg_temp,
@@ -4024,28 +4422,57 @@ MIR_func lowering_and_emission_pass_over_fn(
                         TC_typeid_LIST_push(&coerced_args_types, expected_t);
                     }
 
+                    bool emit_drop_for_ret = false;
                     // 3. Handle return value for RETVAL
                     if (is_retval) {
                         const TC_typeid expected_ret_t = temporals_map->array[instr.info.fn_call_retval.dest.val].type;
                         const TC_typeid fn_ret_t = resolve_tc_type(&target_fn->fn_ret_t, nct, target_info, source_info);
-                        const SV expected_ret_t_sv = format_TC_typeid(&expected_ret_t, identifier_map, nct);
 
-                        if (!is_type_eq(&expected_ret_t, &fn_ret_t)) {
 
+                        if (!is_type_eq(&expected_ret_t, &fn_ret_t) && expected_ret_t.ty != TC_TY_Void) {
                             const SV fn_ret_t_sv = format_TC_typeid(&fn_ret_t, identifier_map, nct);
+                            const SV expected_ret_t_sv = format_TC_typeid(&expected_ret_t, identifier_map, nct);
 
                             const size_t MAX_SIZE = 512;
                             char* r_msg = malloc(sizeof(char) * MAX_SIZE);
                             int len = snprintf(r_msg, MAX_SIZE,
-                                               "expected type "C_BOLD""SV_format""C_RESET" but function '"SV_format"' returns type "C_BOLD""SV_format""C_RESET"",
+                                               "expected type "C_BOLD""SV_format""C_RESET" but function '"SV_format
+                                               "' returns type "C_BOLD""SV_format""C_RESET"",
                                                SV_v_args(expected_ret_t_sv),
                                                SV_v_args(target_fn->fn_name.span.sv),
                                                SV_v_args(fn_ret_t_sv));
                             const SV msg = SV_from_str_len(r_msg, len);
-                            type_error(&source_info->source, &source_info->source_filename, &fn.error_info_list.array[instr.error_info_index].info.function_call.whole.sv, &msg);
+                            type_error(&source_info->source, &source_info->source_filename,
+                                       &fn.error_info_list.array[instr.error_info_index].info.function_call.whole.sv,
+                                       &msg);
                             exit(1);
+                        } else if (!is_type_eq(&expected_ret_t, &fn_ret_t) && expected_ret_t.ty == TC_TY_Void) {
+                            const size_t MAX_SIZE = 256;
+                            char* r_msg = malloc(sizeof(char) * MAX_SIZE);
+                            int len = snprintf(r_msg, MAX_SIZE, "'"SV_format"' function's return value discarded",
+                                               SV_v_args(target_fn->fn_name.span.sv));
+                            const SV msg = SV_from_str_len(r_msg, len);
+                            warn_on_code(&source_info->source, &source_info->source_filename,
+                                         &fn.error_info_list.array[instr.error_info_index].info.function_call.whole.sv,
+                                         &msg);
                         }
-                        printf("   %%%lu <"SV_format"> = ", instr.info.fn_call_retval.dest.val, SV_v_args(expected_ret_t_sv));
+
+                        // + emit drop
+                        temporals_map->array[instr.info.fn_call_retval.dest.val] = (TC_Entry){
+                            .known_temporal = true,
+                            .type = fn_ret_t,
+                            .is_value_known = false,
+                            .is_addressable = false
+                        };
+                        emit_drop_for_ret = true;
+
+                        const TC_typeid expected_ret_t_2 = temporals_map->array[instr.info.fn_call_retval.dest.val].type;
+                        const SV expected_ret_t_sv = format_TC_typeid(&expected_ret_t_2, identifier_map, nct);
+                        printf("   %%%lu <"SV_format"> = ", instr.info.fn_call_retval.dest.val,
+                               SV_v_args(expected_ret_t_sv));
+
+
+
                     } else {
                         printf("   ");
                     }
@@ -4053,50 +4480,61 @@ MIR_func lowering_and_emission_pass_over_fn(
                     // 4. Print / Emit MIR instruction
                     // ... print function name, destination, and coerced_args ...
 
-                    printf("FUNC_CALL '"SV_format"' [", SV_v_args(target_fn->fn_name.span.sv));
+                    printf("FUNC_CALL '"SV_format"' {raw='"SV_format"'} [", SV_v_args(target_fn->fn_name.span.sv),
+                           SV_v_args(raw_fn_name));
                     for (size_t n = 0; n < coerced_args.len; n++) {
                         const SV arg_t_sv = format_TC_typeid(&coerced_args_types.array[n], identifier_map, nct);
                         printf("%%%lu <"SV_format">", coerced_args.array[n].val, SV_v_args(arg_t_sv));
-                        if (n +1 != coerced_args.len) {
+                        if (n + 1 != coerced_args.len) {
                             printf(", ");
                         }
                     }
                     printf("]\n");
 
-
+                    if (emit_drop_for_ret) {
+                        const TC_typeid ret_t = temporals_map->array[instr.info.fn_call_retval.dest.val].type;
+                        const SV ret_t_sv = format_TC_typeid(&ret_t, identifier_map, nct);
+                        printf("   DROP <"SV_format"> %%%lu [STACK]\n", SV_v_args(ret_t_sv),
+                               instr.info.fn_call_retval.dest.val);
+                    }
                     break;
                 }
                 case IR_INST_TY__MATCH_META__TARGET: {
                     const TC_typeid target_t = temporals_map->array[instr.info.match_meta__target.target.val].type;
-                    const IR_temporal_and_TC_type res = perf_auto_deref(&target_t, &instr.info.match_meta__target.target, &highest_temporal, temporals_map);
+                    const IR_temporal_and_TC_type res = perf_auto_deref(
+                        &target_t, &instr.info.match_meta__target.target, &highest_temporal, temporals_map);
                     // TC_typeid res_t = target_t;
                     // while (res_t.ty == TC_TY_Ref || res_t.ty == TC_TY_Box) res_t = *res_t.info.contained;
 
                     const TC_typeid res_t = res.type;
 
                     if (res_t.ty != TC_TY_Enum && res_t.ty != TC_TY_Primitive) {
-
                         const SV target_t_sv = format_TC_typeid(&target_t, identifier_map, nct);
                         const size_t MAX_SIZE = 512;
                         char* r_msg = malloc(sizeof(char) * MAX_SIZE);
-                        int len = snprintf(r_msg, MAX_SIZE, "expected either primitive or enum value but got value of type "C_BOLD""SV_format""C_RESET"", SV_v_args(target_t_sv));
+                        int len = snprintf(r_msg, MAX_SIZE,
+                                           "expected either primitive or enum value but got value of type "C_BOLD""
+                                           SV_format""C_RESET"", SV_v_args(target_t_sv));
 
                         const SV msg = SV_from_str_len(r_msg, len);
-                        type_error(&source_info->source, &source_info->source_filename, &fn.error_info_list.array[instr.error_info_index].info.match_meta__target.expr.sv, &msg);
+                        type_error(&source_info->source, &source_info->source_filename,
+                                   &fn.error_info_list.array[instr.error_info_index].info.match_meta__target.expr.sv,
+                                   &msg);
                         exit(1);
                     }
                     break;
                 }
                 case IR_INST_TY__MATCH_META__MATCH: {
-
                     break;
                 }
                 case IR_INST_TY__ENUM_VALUE_EXTRACT: {
                     break;
                 }
                 case IR_INST_TY__ENUM_VARIANT_NUMBER_EXTRACT: {
-                    const TC_typeid enum_t = temporals_map->array[instr.info.enum_variant_number_extract.enum_src.val].type;
-                    const IR_temporal_and_TC_type au_t = perf_auto_deref(&enum_t, &instr.info.enum_variant_number_extract.enum_src, &highest_temporal, temporals_map);
+                    const TC_typeid enum_t = temporals_map->array[instr.info.enum_variant_number_extract.enum_src.val].
+                            type;
+                    const IR_temporal_and_TC_type au_t = perf_auto_deref(
+                        &enum_t, &instr.info.enum_variant_number_extract.enum_src, &highest_temporal, temporals_map);
                     if (au_t.type.ty != TC_TY_Enum) {
                         // type_error(&source_info->source, &source_info->source_filename);
                         exit(1);
@@ -4124,6 +4562,48 @@ MIR_func lowering_and_emission_pass_over_fn(
     };
 }
 
+MIR_func TC_process_fn(
+    const IR_func fn,
+    const khash_t(sv_u64_map)* restrict identifier_map,
+    const IR_func_LIST* restrict functions,
+    const CFFI_IR_extern_fn_LIST* restrict external_functions,
+    TC_TypeTable* restrict nct,
+    const TargetInfo* restrict target_info,
+    const SourceInfo* restrict source_info,
+    TC_typeid_LIST* restrict type_needing_destructor
+) {
+    {
+        const SV fn_name = fn.fn_name.span.sv;
+        printf("TYPECHECKING FN '"SV_format"' {raw='"SV_format"'}\n", SV_v_args(fn_name), SV_v_args(fn.raw_name));
+    }
+
+    TC_Entry_LIST temporals;
+
+    type_inference_pass_over_fn(fn, identifier_map, functions, external_functions, nct, target_info, source_info,
+                                &temporals);
+
+    for (size_t t = 1; t < temporals.len; t++) {
+        const TC_Entry e = temporals.array[t];
+        if (!e.known_temporal) {
+            printf("  %%%lu UNKNOWN\n", t);
+            continue;
+        }
+        if (e.type.ty == TC_TY_Void) {
+            printf("ERROR: VOID TYPE %%%lu\n", t);
+            continue;
+        }
+        printf("   %%%lu = {", t);
+        print_TC_typeid(&e.type, identifier_map, nct);
+        printf("}, {"SV_format"}\n", SV_v_args(e.type.full_typeuse_span.sv));
+    }
+
+    const MIR_func mir_fn = lowering_and_emission_pass_over_fn(fn, identifier_map, functions, external_functions,
+                                                               nct, target_info, source_info, &temporals,
+                                                               type_needing_destructor);
+
+    TC_Entry_LIST_free(&temporals);
+    return mir_fn;
+}
 
 /// typechecking pass (two passes) + lowering to MIR
 /// performs Bidirectional Typechecking
@@ -4139,35 +4619,24 @@ void TC_typecheck_and_lower(
     printf("(fist type is from type_id, second from type's span)\n");
     for (size_t n = 0; n < functions->len; n++) {
         const IR_func fn = functions->array[n];
-        {
-            const SV fn_name = fn.fn_name.span.sv;
-            printf("TYPECHECKING FN '"SV_format"'\n", SV_v_args(fn_name));
-        }
-
-        TC_Entry_LIST temporals;
-
-        type_inference_pass_over_fn(fn, identifier_map, functions, external_functions, nct, target_info, source_info,
-                                    &temporals);
-
-        for (size_t t = 1; t < temporals.len; t++) {
-            const TC_Entry e = temporals.array[t];
-            if (!e.known_temporal) {
-                printf("  %%%lu UNKNOWN\n", t);
-                continue;
-            }
-            if (e.type.ty == TC_TY_Void) {
-                printf("ERROR: VOID TYPE %%%lu\n", t);
-                continue;
-            }
-            printf("   %%%lu = {", t);
-            print_TC_typeid(&e.type, identifier_map, nct);
-            printf("}, {"SV_format"}\n", SV_v_args(e.type.full_typeuse_span.sv));
-        }
-
-        const MIR_func mir_fn = lowering_and_emission_pass_over_fn(fn, identifier_map, functions, external_functions,
-                                                                   nct, target_info, source_info, &temporals,
-                                                                   type_needing_destructor);
-
-        TC_Entry_LIST_free(&temporals);
+        TC_process_fn(fn, identifier_map,
+                      functions,
+                      external_functions,
+                      nct,
+                      target_info,
+                      source_info,
+                      type_needing_destructor
+        );
+    }
+    for (size_t n = 0; n < nct->materialized_generic_functions.len; n++) {
+        const IR_func fn = nct->materialized_generic_functions.array[n].fn;
+        TC_process_fn(fn, identifier_map,
+                      functions,
+                      external_functions,
+                      nct,
+                      target_info,
+                      source_info,
+                      type_needing_destructor
+        );
     }
 }

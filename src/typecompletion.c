@@ -915,6 +915,7 @@ SizeAlign calc_type_size(
 
 TC_TypeTable close_type_table(const IR_incomplete_TypeTable* restrict table,
                               const khash_t(sv_u64_map)* restrict identifier_map,
+                              const IR_generic_function_LIST generic_functions,
                               const TargetInfo* restrict target_info,
                               const SourceInfo* restrict source_info) {
 
@@ -1079,6 +1080,8 @@ TC_TypeTable close_type_table(const IR_incomplete_TypeTable* restrict table,
         materialized_generics,
         table->generic_structs,
         table->generic_enums,
+        generic_functions,
+        IR_materialized_generic_function_LIST_new(),
         table->extern_types
     };
 }

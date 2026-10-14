@@ -141,6 +141,21 @@ typedef struct {
 init_prefixed_list_type(TC_materialized_generic_index_record)
 
 
+typedef struct {
+    SpannedIdentifier generic_name;
+    TC_typeid generic_name_t;
+} TC_GenericArgMap;
+
+init_prefixed_list_type(TC_GenericArgMap)
+
+typedef struct {
+    Identifier fn_name;
+    IR_func fn;
+    TC_GenericArgMap_LIST map;
+} IR_materialized_generic_function;
+
+init_prefixed_list_type(IR_materialized_generic_function)
+
 typedef struct TC_TypeTable {
     TC_structdef_LIST structs;
     // TC_struct_layout* struct_layouts;
@@ -157,6 +172,9 @@ typedef struct TC_TypeTable {
     IR_generic_structdef_LIST generic_structs;
     IR_generic_enumdef_LIST generic_enums;
 
+    IR_generic_function_LIST generic_functions;
+    IR_materialized_generic_function_LIST materialized_generic_functions;
+
     SpannedIdentifier_LIST external_types;
 } TC_TypeTable;
 
@@ -164,6 +182,7 @@ typedef struct TC_TypeTable {
 TC_TypeTable close_type_table(
     const IR_incomplete_TypeTable* table,
     const khash_t(sv_u64_map)* identifier_map,
+    IR_generic_function_LIST generic_functions,
     const TargetInfo* restrict target_info,
     const SourceInfo* restrict source_info
 );

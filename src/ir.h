@@ -5,8 +5,6 @@
 #include <stdint.h>
 #include <stdio.h>
 #include "sv_u64_map.h"
-#include "parser.h"
-#include "typecompletion.h"
 #include "utils/float64.h"
 
 
@@ -424,9 +422,10 @@ typedef struct {
 init_prefixed_list_type(IR_block)
 
 
-typedef struct {
+typedef struct IR_func {
     IR_typeuse fn_ret_t;
     SpannedIdentifier fn_name;
+    SV raw_name;
     IR_typename_pair_LIST args;
     IR_block_LIST blocks;
     size_t highest_temporal_number;
@@ -437,8 +436,18 @@ init_prefixed_list_type(IR_func)
 
 
 
+typedef struct IR_generic_function {
+    IR_func fn;
+    SpannedIdentifier_LIST generic_args;
+} IR_generic_function;
+init_prefixed_list_type(IR_generic_function)
+
+
 
 void print_IR_instr(const IR_instr* instr, const khash_t(sv_u64_map)* identifier_map);
 
+
+#include "parser.h"
+#include "typecompletion.h"
 
 #endif //KLEPCOMPILER_IR_H
