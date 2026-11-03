@@ -1,0 +1,10 @@
+Void cumo() {
+    Int32 a = 1 + 3;
+    a += 1;
+    Ref<Int32> b = a;
+    b = 6;
+
+    Int32 m = 1;
+    m = 2;
+    Ref<Int32> mref = m;
+}

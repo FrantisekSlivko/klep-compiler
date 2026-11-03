@@ -578,7 +578,7 @@ init_prefixed_list_type(IR_temporal_with_span)
 IR_temporal_with_span P_get_expr(Parser* p);
 
 
-IR_temporal_with_span P_expr_accesors_wrapper(Parser* restrict p, const IR_temporal_with_span origin, bool* out_requires_read_ptr) {
+IR_temporal_with_span P_expr_accesors_wrapper(Parser* restrict p, const IR_temporal_with_span origin) {
     P_require_having_next_token(p, TT_Semicolon);
     const Token nx = P_peek_token(p);
     const TokenSpan nx_span = (TokenSpan){*nx};
@@ -652,7 +652,6 @@ IR_temporal_with_span P_expr_accesors_wrapper(Parser* restrict p, const IR_tempo
                        }
                    });
 
-            *out_requires_read_ptr = false;
             return (IR_temporal_with_span) {
                 .temp = fn_call,
                 .span = whole
@@ -678,7 +677,7 @@ IR_temporal_with_span P_expr_accesors_wrapper(Parser* restrict p, const IR_tempo
                        }
                    });
 
-            return P_expr_accesors_wrapper(p, (IR_temporal_with_span){result, whole}, out_requires_read_ptr);
+            return P_expr_accesors_wrapper(p, (IR_temporal_with_span){result, whole});
         }
     }
 
@@ -707,7 +706,7 @@ IR_temporal_with_span P_expr_accesors_wrapper(Parser* restrict p, const IR_tempo
                    }
                });
 
-        return P_expr_accesors_wrapper(p, (IR_temporal_with_span){result, whole}, out_requires_read_ptr);
+        return P_expr_accesors_wrapper(p, (IR_temporal_with_span){result, whole});
     }
 
 
@@ -746,6 +745,125 @@ IR_typeuse P_variable_type_lookup(const Parser* restrict p, const Token restrict
     P_syntax_error(p, name, SV_from_str("unknown variable"));
     exit(1);
 }
+
+void P_parse_char_literal(const Parser* p, const Token t, int64_t* out_val) {
+    // char literal -> const_int Uint8
+    size_t i = 1;
+    uint8_t result_val = 0;
+    bool is_valid = true;
+
+    if (i >= t->len || t->start[i] == '\'') {
+        is_valid = false; // Reject empty literal '' or unexpected EOF
+    } else if (t->start[i] == '\\') {
+        i++; // Consume the backslash
+        if (i >= t->len) {
+            is_valid = false;
+        } else {
+            char c = t->start[i];
+            switch (c) {
+                case 'n': result_val = '\n';
+                    i++;
+                    break;
+                case 't': result_val = '\t';
+                    i++;
+                    break;
+                case 'r': result_val = '\r';
+                    i++;
+                    break;
+                case 'b': result_val = '\b';
+                    i++;
+                    break;
+                case 'f': result_val = '\f';
+                    i++;
+                    break;
+                case 'v': result_val = '\v';
+                    i++;
+                    break;
+                case 'a': result_val = '\a';
+                    i++;
+                    break;
+                case '\\': result_val = '\\';
+                    i++;
+                    break;
+                case '\'': result_val = '\'';
+                    i++;
+                    break;
+                case '\"': result_val = '\"';
+                    i++;
+                    break;
+                case '?': result_val = '\?';
+                    i++;
+                    break;
+                case 'x': {
+                    i++; // Consume 'x'
+                    if (i >= t->len || !isxdigit((unsigned char) t->start[i])) {
+                        P_syntax_error(p, t, SV_from_str("\\x must be followed by at least one hex digit"));
+                        exit(1);
+                    } else {
+                        uint32_t hex_val = 0;
+                        while (i < t->len && isxdigit((unsigned char) t->start[i])) {
+                            char hc = t->start[i];
+                            int nibble = (hc >= '0' && hc <= '9')
+                                             ? (hc - '0')
+                                             : (tolower((unsigned char) hc) - 'a' + 10);
+
+                            hex_val = (hex_val << 4) | nibble;
+                            if (hex_val > 255) {
+                                P_syntax_error(p, t, SV_from_str("hex escape sequence out of range"));
+                                exit(1);
+                            }
+                            i++;
+                        }
+                        result_val = (uint8_t) hex_val;
+                    }
+                    break;
+                }
+                default: {
+                    if (c >= '0' && c <= '7') {
+                        uint32_t oct_val = 0;
+                        int count = 0;
+                        // Octal escapes can be up to 3 digits long
+                        while (i < t->len && count < 3 && t->start[i] >= '0' && t->start[i] <= '7') {
+                            oct_val = (oct_val << 3) | (t->start[i] - '0');
+                            if (oct_val > 255) {
+                                P_syntax_error(p, t, SV_from_str("octal escape sequence out of range"));
+                                exit(1);
+                            }
+                            i++;
+                            count++;
+                        }
+                        if (is_valid) result_val = (uint8_t) oct_val;
+                    } else {
+                        is_valid = false; // Reject unknown escape sequences
+                    }
+                    break;
+                }
+            }
+        }
+    } else {
+        // Standard ASCII character
+        result_val = (uint8_t) t->start[i];
+        i++;
+    }
+
+    // Crucial Check: Ensure the very next character is the closing quote.
+    // This rejects multi-character literals like 'ab' and unclosed quotes.
+    if (is_valid) {
+        if (i < t->len && t->start[i] == '\'') {
+            i++; // Consume the closing quote
+        } else {
+            is_valid = false;
+        }
+    }
+
+    if (is_valid) {
+        *out_val = result_val;
+    } else {
+        P_syntax_error(p, t, SV_from_str_len("invalid char literal", 20));
+        exit(1);
+    }
+}
+
 
 /// handles NUM, VAR, (EXPR), [EXPR, EXPR, ...], FN_CALL(), MAKE_STRUCT {...}
 /// {VAR, (EXPR), FN_CALL()}.accessors
@@ -798,19 +916,19 @@ IR_temporal_with_span P_get_expr_val(Parser* p) {
                    }
                });
 
-        bool out_requires_read_ptr = true;
-        const IR_temporal_with_span wrapped_result = P_expr_accesors_wrapper(p, (IR_temporal_with_span){dest, whole}, &out_requires_read_ptr);
-        if (wrapped_result.temp.val != dest.val && out_requires_read_ptr) {
-            const IR_temporal val_load = P_new_temporal(p);
-            P_emit(p, (IR_instr){
-                       .ty = IR_INST_TY__READ_PTR,
-                       .info.read_ptr = {
-                           .dest = val_load,
-                           .ptr = wrapped_result.temp
-                       }
-                   }, (IR_instr_error_info){.kind = IR_IEI_none});
-            return (IR_temporal_with_span){val_load, wrapped_result.span};
-        }
+
+        const IR_temporal_with_span wrapped_result = P_expr_accesors_wrapper(p, (IR_temporal_with_span){dest, whole});
+        // if (wrapped_result.temp.val != dest.val && out_requires_read_ptr) {
+        //     const IR_temporal val_load = P_new_temporal(p);
+        //     P_emit(p, (IR_instr){
+        //                .ty = IR_INST_TY__READ_PTR,
+        //                .info.read_ptr = {
+        //                    .dest = val_load,
+        //                    .ptr = wrapped_result.temp
+        //                }
+        //            }, (IR_instr_error_info){.kind = IR_IEI_none});
+        //     return (IR_temporal_with_span){val_load, wrapped_result.span};
+        // }
         return wrapped_result;
     }
 
@@ -844,7 +962,7 @@ IR_temporal_with_span P_get_expr_val(Parser* p) {
 
             if (!Token_cmp(nx, "(")) {
                 const IR_temporal rs = P_new_temporal(p);
-                const TokenSpan whole = TS_merge(&type->full_typeuse_span, &(TokenSpan){*raw_variant_name});
+                const TokenSpan whole = TS_merge(&(TokenSpan){.sv=*t}, &(TokenSpan){*raw_variant_name});
                 TokenSpan_LIST_shrink(args_spans);
                 P_emit(p, (IR_instr){
                            .ty = IR_INST_TY__MAKE_ENUM,
@@ -895,7 +1013,7 @@ IR_temporal_with_span P_get_expr_val(Parser* p) {
                     }
                 }
 
-                const TokenSpan whole = TS_merge(&type->full_typeuse_span, &end_span);
+                const TokenSpan whole = TS_merge(&(TokenSpan){.sv=*t}, &end_span);
 
                 TokenSpan_LIST_shrink(args_spans);
                 const IR_temporal rs = P_new_temporal(p);
@@ -987,19 +1105,19 @@ IR_temporal_with_span P_get_expr_val(Parser* p) {
         const IR_temporal_with_span rs = P_get_expr(p);
         P_require_next_be(p, TT_EndBracket, SV_from_str(")"));
 
-        bool out_requires_read_ptr = true;
-        const IR_temporal_with_span wrapped_result = P_expr_accesors_wrapper(p, rs, &out_requires_read_ptr);
-        if (wrapped_result.temp.val != rs.temp.val && out_requires_read_ptr) {
-            const IR_temporal val_load = P_new_temporal(p);
-            P_emit(p, (IR_instr){
-                       .ty = IR_INST_TY__READ_PTR,
-                       .info.read_ptr = {
-                           .dest = val_load,
-                           .ptr = wrapped_result.temp
-                       }
-                   }, (IR_instr_error_info){.kind = IR_IEI_none});
-            return (IR_temporal_with_span){val_load, wrapped_result.span};
-        }
+        // bool out_requires_read_ptr = true;
+        const IR_temporal_with_span wrapped_result = P_expr_accesors_wrapper(p, rs);
+        // if (wrapped_result.temp.val != rs.temp.val && out_requires_read_ptr) {
+        //     const IR_temporal val_load = P_new_temporal(p);
+        //     P_emit(p, (IR_instr){
+        //                .ty = IR_INST_TY__READ_PTR,
+        //                .info.read_ptr = {
+        //                    .dest = val_load,
+        //                    .ptr = wrapped_result.temp
+        //                }
+        //            }, (IR_instr_error_info){.kind = IR_IEI_none});
+        //     return (IR_temporal_with_span){val_load, wrapped_result.span};
+        // }
         return wrapped_result;
     }
 
@@ -1085,28 +1203,6 @@ IR_temporal_with_span P_get_expr_val(Parser* p) {
     }
 
     if (t->start[0] == '"') {
-        // // string literal
-        // // CONST_STRING
-        // if (t->start[t->len - 1] != '"') {
-        //     P_syntax_error(p, t, SV_from_str("unterminated string literal"));
-        //     exit(1);
-        // }
-        // const IR_temporal dest = P_new_temporal(p);
-        // const SV raw_str = (SV){.start = &t->start[1], .len = t->len - 2};
-        // const Identifier str = P_to_identifier(p, &raw_str);
-        // P_emit(p, (IR_instr){
-        //            .ty = IR_INST_TY__CONST_STRING,
-        //            .info.const_string = {
-        //                .dest = dest,
-        //                .string = str
-        //            }
-        //        }, (IR_instr_error_info){
-        //            .kind = IR_IEI_literal,
-        //            .info.literal = (TokenSpan){.sv = *t}
-        //        });
-        // return (IR_temporal_with_span){dest, (TokenSpan){.sv = *t}};
-        // Allocate a temporary buffer for the unescaped string.
-        // The decoded string will never be larger than the raw token length.
         char* unescaped = malloc(t->len);
 
         size_t out_len = 0;
@@ -1240,133 +1336,22 @@ IR_temporal_with_span P_get_expr_val(Parser* p) {
     }
 
     if (t->start[0] == '\'') {
-        // char literal -> const_int Uint8
-        size_t i = 1;
-        uint8_t result_val = 0;
-        bool is_valid = true;
+        int64_t result_val;
+        P_parse_char_literal(p, t, &result_val);
 
-        if (i >= t->len || t->start[i] == '\'') {
-            is_valid = false; // Reject empty literal '' or unexpected EOF
-        } else if (t->start[i] == '\\') {
-            i++; // Consume the backslash
-            if (i >= t->len) {
-                is_valid = false;
-            } else {
-                char c = t->start[i];
-                switch (c) {
-                    case 'n': result_val = '\n';
-                        i++;
-                        break;
-                    case 't': result_val = '\t';
-                        i++;
-                        break;
-                    case 'r': result_val = '\r';
-                        i++;
-                        break;
-                    case 'b': result_val = '\b';
-                        i++;
-                        break;
-                    case 'f': result_val = '\f';
-                        i++;
-                        break;
-                    case 'v': result_val = '\v';
-                        i++;
-                        break;
-                    case 'a': result_val = '\a';
-                        i++;
-                        break;
-                    case '\\': result_val = '\\';
-                        i++;
-                        break;
-                    case '\'': result_val = '\'';
-                        i++;
-                        break;
-                    case '\"': result_val = '\"';
-                        i++;
-                        break;
-                    case '?': result_val = '\?';
-                        i++;
-                        break;
-                    case 'x': {
-                        i++; // Consume 'x'
-                        if (i >= t->len || !isxdigit((unsigned char) t->start[i])) {
-                            P_syntax_error(p, t, SV_from_str("\\x must be followed by at least one hex digit"));
-                            exit(1);
-                        } else {
-                            uint32_t hex_val = 0;
-                            while (i < t->len && isxdigit((unsigned char) t->start[i])) {
-                                char hc = t->start[i];
-                                int nibble = (hc >= '0' && hc <= '9')
-                                                 ? (hc - '0')
-                                                 : (tolower((unsigned char) hc) - 'a' + 10);
+        const IR_temporal res = P_new_temporal(p);
+        P_emit(p, (IR_instr){
+                   .ty = IR_INST_TY__CONST_INT,
+                   .info.const_int = {
+                       .dest = res,
+                       .val = result_val,
+                   }
+               }, (IR_instr_error_info){
+                   .kind = IR_IEI_literal,
+                   .info.literal = (TokenSpan){.sv = *t}
+               });
 
-                                hex_val = (hex_val << 4) | nibble;
-                                if (hex_val > 255) {
-                                    P_syntax_error(p, t, SV_from_str("hex escape sequence out of range"));
-                                    exit(1);
-                                }
-                                i++;
-                            }
-                            result_val = (uint8_t) hex_val;
-                        }
-                        break;
-                    }
-                    default: {
-                        if (c >= '0' && c <= '7') {
-                            uint32_t oct_val = 0;
-                            int count = 0;
-                            // Octal escapes can be up to 3 digits long
-                            while (i < t->len && count < 3 && t->start[i] >= '0' && t->start[i] <= '7') {
-                                oct_val = (oct_val << 3) | (t->start[i] - '0');
-                                if (oct_val > 255) {
-                                    P_syntax_error(p, t, SV_from_str("octal escape sequence out of range"));
-                                    exit(1);
-                                }
-                                i++;
-                                count++;
-                            }
-                            if (is_valid) result_val = (uint8_t) oct_val;
-                        } else {
-                            is_valid = false; // Reject unknown escape sequences
-                        }
-                        break;
-                    }
-                }
-            }
-        } else {
-            // Standard ASCII character
-            result_val = (uint8_t) t->start[i];
-            i++;
-        }
-
-        // Crucial Check: Ensure the very next character is the closing quote.
-        // This rejects multi-character literals like 'ab' and unclosed quotes.
-        if (is_valid) {
-            if (i < t->len && t->start[i] == '\'') {
-                i++; // Consume the closing quote
-            } else {
-                is_valid = false;
-            }
-        }
-
-        if (is_valid) {
-            const IR_temporal res = P_new_temporal(p);
-            P_emit(p, (IR_instr){
-                       .ty = IR_INST_TY__CONST_INT,
-                       .info.const_int = {
-                           .dest = res,
-                           .val = result_val,
-                       }
-                   }, (IR_instr_error_info){
-                       .kind = IR_IEI_literal,
-                       .info.literal = (TokenSpan){.sv = *t}
-                   });
-
-            return (IR_temporal_with_span){res, (TokenSpan){.sv = *t}};
-        } else {
-            P_syntax_error(p, t, SV_from_str_len("invalid char literal", 20));
-            exit(1);
-        }
+        return (IR_temporal_with_span){res, (TokenSpan){.sv = *t}};
     }
 
     // name
@@ -1450,19 +1435,19 @@ IR_temporal_with_span P_get_expr_val(Parser* p) {
         }
 
 
-        bool out_requires_read_ptr = true;
-        const IR_temporal_with_span wrapped_result = P_expr_accesors_wrapper(p, (IR_temporal_with_span){dest, dest_span}, &out_requires_read_ptr);
-        if (wrapped_result.temp.val != dest.val && out_requires_read_ptr) {
-            const IR_temporal val_load = P_new_temporal(p);
-            P_emit(p, (IR_instr){
-                       .ty = IR_INST_TY__READ_PTR,
-                       .info.read_ptr = {
-                           .dest = val_load,
-                           .ptr = wrapped_result.temp
-                       }
-                   }, (IR_instr_error_info){.kind = IR_IEI_none});
-            return (IR_temporal_with_span){val_load, wrapped_result.span};
-        }
+        // bool out_requires_read_ptr = true;
+        const IR_temporal_with_span wrapped_result = P_expr_accesors_wrapper(p, (IR_temporal_with_span){dest, dest_span});
+        // if (wrapped_result.temp.val != dest.val && out_requires_read_ptr) {
+        //     const IR_temporal val_load = P_new_temporal(p);
+        //     P_emit(p, (IR_instr){
+        //                .ty = IR_INST_TY__READ_PTR,
+        //                .info.read_ptr = {
+        //                    .dest = val_load,
+        //                    .ptr = wrapped_result.temp
+        //                }
+        //            }, (IR_instr_error_info){.kind = IR_IEI_none});
+        //     return (IR_temporal_with_span){val_load, wrapped_result.span};
+        // }
         return wrapped_result;
     }
 
@@ -2171,6 +2156,21 @@ void P_get_while_stmt(Parser* p) {
                                     }
                                     break;
                                 }
+                                case IR_INST_TY__ASSIGN: {
+                                    if (instr->info.assign.new.val == what_to_replace.val) {
+                                        instr->info.assign.new.val = replace_with.val;
+                                    }
+                                    if (instr->info.assign.old.val == what_to_replace.val) {
+                                        instr->info.assign.old.val = replace_with.val;
+                                    }
+                                    break;
+                                }
+                                case IR_INST_TY__REF_OF: {
+                                    if (instr->info.ref_of.src.val == what_to_replace.val) {
+                                        instr->info.ref_of.src.val = replace_with.val;
+                                    }
+                                    break;
+                                }
                                 case IR_INST_TY__EXPLICIT_CAST: {
                                     if (instr->info.explicit_cast.src.val == what_to_replace.val) {
                                         instr->info.explicit_cast.src.val = replace_with.val;
@@ -2271,8 +2271,8 @@ void P_get_while_stmt(Parser* p) {
                                 }
                                 case IR_INST_TY__FN_CALL_RETVOID: {
                                     for (size_t sn = 0; sn < instr->info.fn_call_retvoid.args->len; sn++) {
-                                        if (instr->info.fn_call_retval.args->array[sn].val == what_to_replace.val) {
-                                            instr->info.fn_call_retval.args->array[sn].val = replace_with.val;
+                                        if (instr->info.fn_call_retvoid.args->array[sn].val == what_to_replace.val) {
+                                            instr->info.fn_call_retvoid.args->array[sn].val = replace_with.val;
                                         }
                                     }
                                     break;
@@ -2297,9 +2297,9 @@ void P_get_while_stmt(Parser* p) {
                                     }
                                     break;
                                 }
-                                case IR_INST_TY__ENUM_VALUE_EXTRACT: {
-                                    if (instr->info.enum_value_extract.enum_src.val == what_to_replace.val) {
-                                        instr->info.enum_value_extract.enum_src.val = replace_with.val;
+                                case ENUM_GET_FIELD_PTR: {
+                                    if (instr->info.enum_get_field_ptr.enum_src.val == what_to_replace.val) {
+                                        instr->info.enum_get_field_ptr.enum_src.val = replace_with.val;
                                     }
                                     break;
                                 }
@@ -2525,9 +2525,9 @@ void P_get_assignment(Parser* p) {
 
     const IR_temporal dest = P_variable_lookup(p, origin_name, name);
 
-    bool out_requires_read_ptr = true;
-    const IR_temporal_with_span wrapped_result = P_expr_accesors_wrapper(p, (IR_temporal_with_span){dest, name_span}, &out_requires_read_ptr);
-    const bool is_dest_ptr = dest.val != wrapped_result.temp.val && out_requires_read_ptr;
+    // bool out_requires_read_ptr = true;
+    const IR_temporal_with_span wrapped_result = P_expr_accesors_wrapper(p, (IR_temporal_with_span){dest, name_span});
+    // const bool is_dest_ptr = dest.val != wrapped_result.temp.val; // && out_requires_read_ptr;
 
     P_require_having_next_token(p, TT_Equal);
     const Token assignment_type = P_next_token(p);
@@ -2538,8 +2538,10 @@ void P_get_assignment(Parser* p) {
     P_require_semicolon();
 
     IR_temporal_with_span out_val = expr;
+    IR_temporal old = {0};
 
     if (Token_cmp(assignment_type, "+=")) {
+        old = wrapped_result.temp;
         const IR_temporal rs = P_new_temporal(p);
         const TokenSpan whole = TS_merge(&name_span, &expr.span);
         P_emit(p, (IR_instr){
@@ -2560,6 +2562,7 @@ void P_get_assignment(Parser* p) {
                });
         out_val = (IR_temporal_with_span){rs, expr.span};
     } else if (Token_cmp(assignment_type, "-=")) {
+        old = wrapped_result.temp;
         const IR_temporal rs = P_new_temporal(p);
         const TokenSpan whole = TS_merge(&name_span, &expr.span);
         P_emit(p, (IR_instr){
@@ -2580,6 +2583,7 @@ void P_get_assignment(Parser* p) {
                });
         out_val = (IR_temporal_with_span){rs, expr.span};
     } else if (Token_cmp(assignment_type, "*=")) {
+        old = wrapped_result.temp;
         const IR_temporal rs = P_new_temporal(p);
         const TokenSpan whole = TS_merge(&name_span, &expr.span);
         P_emit(p, (IR_instr){
@@ -2600,6 +2604,7 @@ void P_get_assignment(Parser* p) {
                });
         out_val = (IR_temporal_with_span){rs, expr.span};
     } else if (Token_cmp(assignment_type, "/=")) {
+        old = wrapped_result.temp;
         const IR_temporal rs = P_new_temporal(p);
         const TokenSpan whole = TS_merge(&name_span, &expr.span);
         P_emit(p, (IR_instr){
@@ -2620,61 +2625,72 @@ void P_get_assignment(Parser* p) {
                });
         out_val = (IR_temporal_with_span){rs, expr.span};
     } else if (Token_cmp(assignment_type, "=")) {
-        // nothing
+        old = dest;
     } else {
         P_syntax_error(p, assignment_type, SV_from_str("expected one of '=', '+=', '-=', '*=', or '/='"));
         exit(1);
     }
 
-    if (!is_dest_ptr) {
-        IR_SSA_binding_LIST* binds = P_get_current_block_bindings(p);
-        bool found = false;
-        for (size_t n = 0; n < binds->len; n++) {
-            if (binds->array[n].variable.identifier == name) {
-                found = true;
-                break;
+    // if (!is_dest_ptr) {
+    //     IR_SSA_binding_LIST* binds = P_get_current_block_bindings(p);
+    //     bool found = false;
+    //     for (size_t n = 0; n < binds->len; n++) {
+    //         if (binds->array[n].variable.identifier == name) {
+    //             found = true;
+    //             break;
+    //         }
+    //     }
+    //     if (found) {
+    //         IR_typeuse* type = malloc(sizeof(IR_typeuse));
+    //         *type = P_variable_type_lookup(p, origin_name, name);
+    //         P_emit(p, (IR_instr){
+    //                    .ty = IR_INST_TY__DROP,
+    //                    .info.drop = {
+    //                        .var_name = name_spanned,
+    //                        .dest = dest,
+    //                        .type = type,
+    //                    }
+    //                }, (IR_instr_error_info){.kind = IR_IEI_none});
+    //     }
+    // }
+
+
+    // if (is_dest_ptr) {
+    //     P_emit(p, (IR_instr){
+    //                .ty = IR_INST_TY__STORE_PTR,
+    //                .info.store_ptr = {
+    //                    .ptr = wrapped_result.temp,
+    //                    .value = out_val.temp
+    //                }
+    //            }, (IR_instr_error_info){
+    //                .kind = IR_IEI_store_ptr,
+    //                .info.store_ptr = {
+    //                    .to = wrapped_result.span,
+    //                    .ptr = out_val.span,
+    //                    .expr = expr.span,
+    //                }
+    //            });
+    // } else
+        {
+        const IR_temporal assign_dest = P_new_temporal(p);
+
+        // P_emit(p, (IR_instr){
+        //            .ty = IR_INST_TY__MOVE,
+        //            .info.move = {
+        //                .dest = move_dest,
+        //                .src = out_val.temp
+        //            }
+        //        }, (IR_instr_error_info){.kind = IR_IEI_move, .info.move = {.value = expr.span}});
+        P_emit(p, (IR_instr) {
+            .ty = IR_INST_TY__ASSIGN,
+            .info.assign = {
+                .dest = assign_dest,
+                .old = old,
+                .new = out_val.temp
             }
-        }
-        if (found) {
-            IR_typeuse* type = malloc(sizeof(IR_typeuse));
-            *type = P_variable_type_lookup(p, origin_name, name);
-            P_emit(p, (IR_instr){
-                       .ty = IR_INST_TY__DROP,
-                       .info.drop = {
-                           .var_name = name_spanned,
-                           .dest = dest,
-                           .type = type,
-                       }
-                   }, (IR_instr_error_info){.kind = IR_IEI_none});
-        }
-    }
+        }, (IR_instr_error_info){});
 
-
-    if (is_dest_ptr) {
-        P_emit(p, (IR_instr){
-                   .ty = IR_INST_TY__STORE_PTR,
-                   .info.store_ptr = {
-                       .ptr = wrapped_result.temp,
-                       .value = out_val.temp
-                   }
-               }, (IR_instr_error_info){
-                   .kind = IR_IEI_store_ptr,
-                   .info.store_ptr = {
-                       .to = wrapped_result.span,
-                       .ptr = out_val.span,
-                       .expr = expr.span,
-                   }
-               });
-    } else {
-        const IR_temporal move_dest = P_new_temporal(p);
-        P_emit(p, (IR_instr){
-                   .ty = IR_INST_TY__MOVE,
-                   .info.move = {
-                       .dest = move_dest,
-                       .src = out_val.temp
-                   }
-               }, (IR_instr_error_info){.kind = IR_IEI_move, .info.move = {.value = expr.span}});
-        const IR_temporal_with_span final_out = (IR_temporal_with_span){move_dest, out_val.span};
+        const IR_temporal_with_span final_out = (IR_temporal_with_span){assign_dest, out_val.span};
 
         IR_SSA_binding_LIST* binds = P_get_current_block_bindings(p);
         bool found = false;
@@ -2687,9 +2703,9 @@ void P_get_assignment(Parser* p) {
         }
         if (!found) {
             IR_SSA_binding_LIST_push(binds, (IR_SSA_binding){
-                                         .variable = {name, (TokenSpan){*origin_name}},
-                                         .bind = final_out.temp,
-                                     });
+                .variable = {name, (TokenSpan){*origin_name}},
+                .bind = final_out.temp,
+            });
         }
     }
 
@@ -2772,6 +2788,14 @@ Pattern* P_get_pattern(Parser* p) {
         return pat;
     }
 
+    if (t->start[0] == '\'') {
+        int64_t val;
+        P_parse_char_literal(p, t, &val);
+        pat->kind = PAT_LITERAL_INT;
+        pat->info.int_literal_val = val;
+        return pat;
+    }
+
     const bool is_negative = Token_cmp(t, "-");
     if (is_negative) {
         t = P_next_token(p); // consume the minus sign, get the number
@@ -2841,8 +2865,20 @@ Pattern* P_get_pattern(Parser* p) {
 
     // Otherwise, treat any standalone identifier as a NEW binding (e.g., `x`)
     pat->kind = PAT_BINDING;
-    pat->info.binding.name = (SpannedIdentifier){.identifier = P_to_identifier(p, t), .span = (TokenSpan){.sv = *t}};
-
+    const Identifier bind_identf = P_to_identifier(p, t);
+    {
+        const IR_SSA_binding_LIST* bl = P_get_current_block_bindings(p);
+        for (size_t n = 0; n < bl->len; n++) {
+            if(bl->array[n].variable.identifier == bind_identf) {
+                P_syntax_error(p, t, SV_from_str_len("match binding cannot shadow local variable", 42));
+                for (size_t k = 0; k < bl->len; k++) {
+                    printf("-> '"SV_format"'\n", SV_v_args(bl->array[k].variable.span.sv));
+                }
+                exit(1);
+            }
+        }
+    }
+    pat->info.binding.name = (SpannedIdentifier){.identifier = bind_identf, .span = (TokenSpan){.sv = *t}};
     pat->info.binding.temp = P_new_temporal(p);
     return pat;
 }
@@ -2944,19 +2980,19 @@ IR_temporal P_match_partial_case_eval(Parser* restrict p, const Pattern pat, con
             return cmp;
         }
         case PAT_BINDING: {
-            P_emit_to_block(p, block, (IR_instr){
-                                .ty = IR_INST_TY__MOVE,
-                                .info.move = {.src = in_value_temp, .dest = pat.info.binding.temp}
-                            }, (IR_instr_error_info){
-                                .kind = IR_IEI_move,
-                                .info.move = {
-                                    .value = in_value_span
-                                }
-                            });
+            // P_emit_to_block(p, block, (IR_instr){
+            //                     .ty = IR_INST_TY__MOVE,
+            //                     .info.move = {.src = in_value_temp, .dest = pat.info.binding.temp}
+            //                 }, (IR_instr_error_info){
+            //                     .kind = IR_IEI_move,
+            //                     .info.move = {
+            //                         .value = in_value_span
+            //                     }
+            //                 });
             IR_SSA_binding_LIST* bindings = P_get_current_block_bindings(p);
             IR_SSA_binding_LIST_push(bindings, (IR_SSA_binding){
                                          .variable = pat.info.binding.name,
-                                         .bind = pat.info.binding.temp,
+                                         .bind = in_value_temp // pat.info.binding.temp,
                                      });
             if (p->compilation_scope.len > 0) {
                 P_variable_record_LIST* l = &p->compilation_scope.array[p->compilation_scope.len - 1].variables;
@@ -3020,9 +3056,10 @@ IR_temporal P_match_partial_case_eval(Parser* restrict p, const Pattern pat, con
             for (size_t n = 0; n < pl.len; n++) {
                 const IR_temporal exprt_val = P_new_temporal(p);
 
-                P_emit_to_block(p, vn_true_block, (IR_instr){
-                                    .ty = IR_INST_TY__ENUM_VALUE_EXTRACT,
-                                    .info.enum_value_extract = {
+                // P_emit_to_block(p, vn_true_block, (IR_instr){
+                P_emit(p, (IR_instr){
+                                    .ty = ENUM_GET_FIELD_PTR,
+                                    .info.enum_get_field_ptr = {
                                         .dest = exprt_val,
                                         .enum_src = in_value_temp,
                                         .enum_name = enum_name,
@@ -3034,7 +3071,7 @@ IR_temporal P_match_partial_case_eval(Parser* restrict p, const Pattern pat, con
                 const IR_temporal nx = P_match_partial_case_eval(p, pl.array[n], exprt_val, pl.array[n].span, match_kw,
                                                                  patches, case_nth);
 
-                if (n + 1 != pl.len) {
+                if (n + 1 != pl.len && nx.val != 0) {
                     const size_t current_block = P_get_current_block_index(p);
 
                     P_append_block_with_bindings(p, IR_SSA_bindings_deep_clone(P_get_current_block_bindings(p)));
@@ -3054,10 +3091,10 @@ IR_temporal P_match_partial_case_eval(Parser* restrict p, const Pattern pat, con
 
             }
 
-            // if sub-patterns were just bindings/wildcards, ot.val will be 0.
-            if (ot.val == 0) {
-                return variant_num_cmp_rs;
-            }
+            // // if sub-patterns were just bindings/wildcards, ot.val will be 0.
+            // if (ot.val == 0) {
+            //     return variant_num_cmp_rs;
+            // }
 
 
             return ot;
@@ -3074,7 +3111,63 @@ void P_get_match_stmt(Parser* p) {
     const Token match_kw_token = P_next_token(p); // consume "match"
     const TokenSpan match_kw = (TokenSpan){.sv = *match_kw_token};
 
-    const IR_temporal_with_span target = P_get_expr(p);
+    const IR_temporal_with_span raw_target = P_get_expr(p);
+    IR_temporal_with_span target;
+
+    if (
+        p->func_scope_blocks->len > 0 &&
+        p->func_scope_blocks->array[p->func_scope_blocks->len-1].instructions.len > 0 &&
+        (
+            (
+                p->func_scope_blocks->array[p->func_scope_blocks->len-1].instructions.array[p->func_scope_blocks->array[p->func_scope_blocks->len-1].instructions.len-1].ty == IR_INST_TY__INDEX_PTR &&
+                p->func_scope_blocks->array[p->func_scope_blocks->len-1].instructions.array[p->func_scope_blocks->array[p->func_scope_blocks->len-1].instructions.len-1].info.index_ptr.dest.val == raw_target.temp.val
+            ) ||
+            (
+                p->func_scope_blocks->array[p->func_scope_blocks->len-1].instructions.array[p->func_scope_blocks->array[p->func_scope_blocks->len-1].instructions.len-1].ty == IR_INST_TY__GET_STRUCT_FIELD_PTR &&
+                p->func_scope_blocks->array[p->func_scope_blocks->len-1].instructions.array[p->func_scope_blocks->array[p->func_scope_blocks->len-1].instructions.len-1].info.get_struct_field_ptr.dest.val == raw_target.temp.val
+            )
+        )
+    ) {
+        target = raw_target;
+    } else {
+        target = (IR_temporal_with_span) {.temp = P_new_temporal(p), .span = raw_target.span};
+
+        P_emit(p, (IR_instr) {
+        .ty = IR_INST_TY__REF_OF,
+        .info.ref_of = {
+            .dest = target.temp,
+            .src = raw_target.temp
+        }
+    }, (IR_instr_error_info) {
+        .kind = IR_IEI_ref_of,
+        .info.ref_of = {
+           .value = raw_target.span,
+           .is_from_match = true,
+           .match_kw = match_kw
+        },
+    });
+    }
+
+    // const IR_temporal_with_span target = (IR_temporal_with_span) {.temp = P_new_temporal(p), .span = raw_target.span};
+
+
+
+
+
+    // P_emit(p, (IR_instr) {
+    //     .ty = IR_INST_TY__MOVE,
+    //     .info.move = {
+    //         .dest = target.temp,
+    //         .src = raw_target.temp
+    //     }
+    // }, (IR_instr_error_info) {
+    //     .kind = IR_IEI_move,
+    //     .info.move = {
+    //         .value = raw_target.span
+    //     }
+    // });
+
+
     P_emit(p, (IR_instr){
                .ty = IR_INST_TY__MATCH_META__TARGET,
                .info.match_meta__target = {.target = target.temp}
@@ -3082,6 +3175,8 @@ void P_get_match_stmt(Parser* p) {
                .kind = IR_IEI__MATCH_META__target,
                .info.match_meta__target = {.expr = target.span}
            });
+
+
 
     const size_t match_start_block = P_get_current_block_index(p);
     const IR_SSA_binding_LIST base_bindings = IR_SSA_bindings_deep_clone(P_get_current_block_bindings(p));
@@ -3100,7 +3195,15 @@ void P_get_match_stmt(Parser* p) {
             break;
         }
 
-        Pattern* pat = P_get_pattern(p);
+        if (!first) {
+            P_append_block_with_bindings(p, IR_SSA_bindings_deep_clone(&base_bindings));
+        } else {
+            first = false;
+        }
+
+
+
+        Pattern* pat = P_get_pattern(p); // here for some reasons current bindings contain prev binds
 
 
         const Token arrow = P_next_token(p);
@@ -3110,11 +3213,7 @@ void P_get_match_stmt(Parser* p) {
         }
 
 
-        if (!first) {
-            P_append_block_with_bindings(p, IR_SSA_bindings_deep_clone(&base_bindings));
-        } else {
-            first = false;
-        }
+
 
         const size_t pre_branch_block = P_get_current_block_index(p);
 
@@ -3126,6 +3225,7 @@ void P_get_match_stmt(Parser* p) {
         P_append_block_with_bindings(p, IR_SSA_bindings_deep_clone(P_get_current_block_bindings(p)));
 
         const size_t start_block = P_get_current_block_index(p);
+
         P_get_code_section(p);
 
         const size_t arm_end_block = P_get_current_block_index(p);
@@ -3170,6 +3270,11 @@ void P_get_match_stmt(Parser* p) {
                                 .info.jump = {.block = arms.array[i].start_block}
                             }, (IR_instr_error_info){.kind = IR_IEI_none});
             break; // Any code after a wildcard is unreachable anyway!
+        } else if (arms.array[i].cond_temp.val == 0) {
+            P_emit_to_block(p, arms.array[i].final_eval_block, (IR_instr){
+                .ty = IR_INST_TY__JUMP,
+                .info.jump = {.block = arms.array[i].start_block}
+            }, (IR_instr_error_info){.kind = IR_IEI_none});
         } else {
             // Emit the conditional branch using our stored cond_temp
             P_emit_to_block(p, arms.array[i].final_eval_block, (IR_instr){
@@ -3270,11 +3375,18 @@ void P_get_match_stmt(Parser* p) {
                 const size_t last_arm_idx = arms.len - 1;
                 const size_t fallback_block = arms.array[last_arm_idx].pre_branch_block;
 
-                IR_temporal_block_phi_record_LIST_push(phi_args, (IR_temporal_block_phi_record){
-                                                           .block = fallback_block,
-                                                           .temp = base_bind.bind
-                                                           // Fallback block didn't execute an arm, so it uses the base binding value!
-                                                       });
+                // IR_temporal_block_phi_record_LIST_push(phi_args, (IR_temporal_block_phi_record){
+                //                                            .block = fallback_block,
+                //                                            .temp = base_bind.bind
+                //                                            // Fallback block didn't execute an arm, so it uses the base binding value!
+                //                                        });
+
+                if (!arms.array[last_arm_idx].is_unconditional) {
+                    IR_temporal_block_phi_record_LIST_push(phi_args, (IR_temporal_block_phi_record){
+                        .block = fallback_block,
+                        .temp = base_bind.bind
+                    });
+                }
 
                 P_emit(p, (IR_instr){
                            .ty = IR_INST_TY__PHI,
@@ -3313,7 +3425,8 @@ void P_get_match_stmt(Parser* p) {
            }, (IR_instr_error_info){
                .kind = IR_IEI__MATCH_META__match,
                .info.match_meta__match = {
-                   .target_expr = target.span
+                   .target_expr = target.span,
+                   .match_kw = match_kw
                }
            });
 
@@ -3651,6 +3764,9 @@ void P_get_top_fn(Parser* p) {
                 break;
             }
         }
+        P_emit(p, (IR_instr) {
+            .ty = IR_INST_TY__RETURN_VOID
+        }, (IR_instr_error_info) { .kind = IR_IEI_none });
     }
 
     p->func_scope_blocks = original_blocks;
@@ -4245,6 +4361,9 @@ void P_get_top_generic_function(Parser* restrict p) {
                 break;
             }
         }
+        P_emit(p, (IR_instr) {
+            .ty = IR_INST_TY__RETURN_VOID
+        }, (IR_instr_error_info) { .kind = IR_IEI_none });
     }
 
     p->func_scope_blocks = original_blocks;

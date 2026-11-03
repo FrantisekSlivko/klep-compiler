@@ -105,7 +105,8 @@ typedef enum {
     IR_IEI_move,
     IR_IEI__MATCH_META__target,
     IR_IEI__MATCH_META__match,
-    IR_IEI_enum_value_extract,
+    IR_IEI_enum_get_field_ptr,
+    IR_IEI_ref_of,
 } IR_instr_error_info_kind;
 
 typedef struct {
@@ -184,10 +185,17 @@ typedef struct {
         } match_meta__target;
         struct {
             TokenSpan target_expr;
+            TokenSpan match_kw;
         } match_meta__match;
         struct {
             TokenSpan whole;
-        } enum_value_extract;
+        } enum_get_field_ptr;
+        struct {
+            TokenSpan value;
+            bool is_from_match;
+            TokenSpan match_kw; // later union if other cases arise from which REF_OF could originate
+        } ref_of;
+
         void* null;
     } info;
 } IR_instr_error_info;
@@ -204,8 +212,13 @@ typedef enum {
     /// DROP p1.name={var_name}, dest={temporal}, p2.stype={type}
     IR_INST_TY__DROP,
 
-    /// %n{dest} = MOVE %k{p1.src1}
+    /// %n{dest} = MOVE %k
     IR_INST_TY__MOVE,
+
+    IR_INST_TY__ASSIGN,
+
+    /// %n{dest} = REF_OF %k
+    IR_INST_TY__REF_OF,
 
     IR_INST_TY__VAR_DECL,
 
@@ -271,8 +284,8 @@ typedef enum {
     IR_INST_TY__MATCH_META__TARGET,
     IR_INST_TY__MATCH_META__MATCH,
 
-    /// extracts one of the values inside a enum variant
-    IR_INST_TY__ENUM_VALUE_EXTRACT,
+    /// gets ptr to one of the values inside a enum variant
+    ENUM_GET_FIELD_PTR,
 
     /// extracts variant number from enum value, use for enum comparison
     IR_INST_TY__ENUM_VARIANT_NUMBER_EXTRACT,
@@ -300,6 +313,16 @@ typedef struct {
             IR_temporal dest;
             IR_temporal src;
         } move;
+        struct {
+            IR_temporal dest;
+            // or 0 if null
+            IR_temporal old;
+            IR_temporal new;
+        } assign;
+        struct {
+            IR_temporal dest;
+            IR_temporal src;
+        } ref_of;
         struct {
             SpannedIdentifier var_name;
             IR_temporal dest;
@@ -392,7 +415,7 @@ typedef struct {
             SpannedIdentifier enum_name;
             SpannedIdentifier variant_name;
             uint32_t value_nth;
-        } enum_value_extract;
+        } enum_get_field_ptr;
         struct {
             IR_temporal dest;
             IR_temporal enum_src;

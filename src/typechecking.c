@@ -3,6 +3,9 @@
 #include <stddef.h>
 
 #include "error.h"
+#include "ir.h"
+#include "list.h"
+#include "typecompletion.h"
 #include "utils/dev.h"
 #include "utils/color.h"
 #include <ctype.h>
@@ -657,153 +660,88 @@ typedef struct {
 init_prefixed_list_type(TC_Entry)
 
 
-// returns new_temporal
-/// TODO: fix
-// size_t TC_implicit_cast(
-//     const TC_typeid out_type,
-//     const TC_typeid in_type,
-//     const size_t in_temporal,
-//     const size_t block_id,
-//     const size_t instr_nth,
-//     const khash_t(sv_u64_map)* restrict identifier_map,
-//     const TC_TypeTable* restrict nct,
-//     TC_Entry_LIST* restrict temporals_map,
-//     const SourceInfo* restrict source_info,
-//     const IR_instr_error_info error_info
-// ) {
-//     if (out_type.ty != TC_TY_Primitive) {
-//         // make into internal_error and prevent from being called
-//         fprintf(stderr, "[typ-error] in 'TC_implicit_cast' out_type is not primitive\n");
-//         exit(1);
-//     }
-//
-//     if (in_type.ty != TC_TY_Primitive) {
-//         fprintf(stderr, "[typ-error] in 'TC_implicit_cast' in_type is not primitive\n");
-//         exit(1);
-//     }
-//
-//     switch (out_type.info.primitive) {
-//         case TC_Primitive__Int8:
-//         case TC_Primitive__Int16:
-//         case TC_Primitive__Int32:
-//         case TC_Primitive__Int64: {
-//             switch (in_type.info.primitive) {
-//                 case TC_Primitive__Int8:
-//                 case TC_Primitive__Int16:
-//                 case TC_Primitive__Int32:
-//                 case TC_Primitive__Int64: {
-//                     if ((uint32_t) (out_type.info.primitive) < (uint32_t) (in_type.info.primitive)) {
-//                         // fprintf(stderr, "[type-error] cannot autocast, type narrowing not allowed, use explicit cast<T>()\n");
-//                         // exit(1);
-//                         goto cannot_use_explicit_cast;
-//                     }
-//                     break;
-//                 }
-//                 case TC_Primitive__Char:
-//                 case TC_Primitive__Bool: {
-//                     // ok
-//                     break;
-//                 }
-//                 default: {
-//                     // X
-//                     goto cannot_use_explicit_cast;
-//                 }
-//             }
-//             break;
-//         }
-//         case TC_Primitive__Uint8:
-//         case TC_Primitive__Uint16:
-//         case TC_Primitive__Uint32:
-//         case TC_Primitive__Uint64: {
-//             switch (in_type.info.primitive) {
-//                 case TC_Primitive__Uint8:
-//                 case TC_Primitive__Uint16:
-//                 case TC_Primitive__Uint32:
-//                 case TC_Primitive__Uint64: {
-//                     if ((uint32_t) (out_type.info.primitive) < (uint32_t) (in_type.info.primitive)) {
-//                         // fprintf(stderr, "[type-error] cannot autocast, type narrowing not allowed, use explicit cast<T>()\n");
-//                         // exit(1);
-//                         goto cannot_use_explicit_cast;
-//                     }
-//                     break;
-//                 }
-//                 case TC_Primitive__Char:
-//                 case TC_Primitive__Bool: {
-//                     // ok
-//                     break;
-//                 }
-//                 default: {
-//                     goto cannot_use_explicit_cast;
-//                 }
-//             }
-//             break;
-//         }
-//         case TC_Primitive__Float32:
-//         case TC_Primitive__Float64: {
-//             switch (in_type.info.primitive) {
-//                 case TC_Primitive__Float32:
-//                 case TC_Primitive__Float64: {
-//                     if ((uint32_t) (out_type.info.primitive) < (uint32_t) (in_type.info.primitive)) {
-//                         // fprintf(stderr, "[type-error] cannot autocast, type narrowing not allowed, use explicit cast<T>()\n");
-//                         // exit(1);
-//                         goto cannot_use_explicit_cast;
-//                     }
-//                     break;
-//                 }
-//                 default: {
-//                     goto cannot_use_explicit_cast;
-//                 }
-//             }
-//             break;
-//         }
-//         case TC_Primitive__Char:
-//         case TC_Primitive__Bool: {
-//             goto cannot_use_explicit_cast;
-//         }
-//         default: {
-//             INTERNAL_ERROR()
-//         }
-//     }
-//     goto do_it;
-//
-// cannot_use_explicit_cast: {
-//         if (error_info.kind != IR_IEI_math_operation) {
-//             INTERNAL_ERROR("expected implicit cast on math op")
-//         }
-//         // error_info.info.math_operation.
-//         char* s = malloc(sizeof(char) * 100);
-//         snprintf(s, 100, "expected value of type "C_BOLD""SV_format""C_RESET" but found "C_BOLD""SV_format""C_RESET"",
-//                  SV_v_args(in_type.full_typeuse_span.sv), SV_v_args(out_type.full_typeuse_span.sv));
-//         const SV msg = SV_from_str(s);
-//         syntax_error(&source_info->source, &source_info->source_filename, &error_info.info.math_operation.whole.sv,
-//                      &msg);
-//         const SV hint = SV_from_str(
-//             "try using "C_BOLD"cast<T>()"C_RESET" if you need to convert between primitive types");
-//         hint_standalone(&hint);
-//         free(s);
-//         exit(1);
-//     }
-//
-// do_it:
-//     TC_Entry_LIST_push(temporals_map, (TC_Entry){
-//                            .known_temporal = true,
-//                            .type = out_type,
-//                            // .origin = (TC_InstrPos) { .block = block_id, .instr_nth = instr_nth },
-//                            .is_value_known = false,
-//                            // .null = NULL
-//                        });
-//     const size_t new_temporal = temporals_map->len - 1;
-//
-//     NEW_INSTR_BEGIN
-//     printf("NEW_INSTR: %%%lu = IMPLICIT_CAST %%%lu {", new_temporal, in_temporal);
-//     print_TC_typeid(&in_type, identifier_map, nct);
-//     printf(" -> ");
-//     print_TC_typeid(&out_type, identifier_map, nct);
-//     printf("}\n");
-//     NEW_INSTR_END
-//
-//     return new_temporal;
-// }
+static TC_structdef compiler_builtin__list_tc_structdef;
+static TC_structdef compiler_builtin__slice_tc_structdef;
+
+
+void init__compiler_builtin__tc_types(khash_t(sv_u64_map)* restrict identifier_map,
+                                      uint64_t* restrict identifier_map_cnt, const TargetInfo* restrict target_info) {
+    {
+        const SV list_name = SV_from_str_len("List", 4);
+        const SV list_len = SV_from_str_len("len", 3);
+        const SV sv_uint32 = SV_from_str_len("Uint32", 6);
+
+        TC_field_LIST list_fields = TC_field_LIST_new_with_capacity(1);
+        TC_field_LIST_push(&list_fields, (TC_field){
+                               .name = (SpannedIdentifier){
+                                   .identifier = SV_to_identifier(identifier_map, identifier_map_cnt, &list_len),
+                                   .span = (TokenSpan){.sv = list_len}
+                               },
+                               .type = (TC_typeid){
+                                   .ty = TC_TY_Primitive,
+                                   .info.primitive = TC_Primitive__Uint32,
+                                   .full_typeuse_span = (TokenSpan){.sv = sv_uint32}
+                               }
+                           });
+
+        // { ptr; len; cap; }
+        // only len is exposed
+        uint32_t* list_field_offsets = malloc(sizeof(uint32_t));
+        *list_field_offsets = target_info->ptr_size;
+
+        compiler_builtin__list_tc_structdef = (TC_structdef){
+            .name = (SpannedIdentifier){
+                .identifier = SV_to_identifier(identifier_map, identifier_map_cnt, &list_name),
+                .span = (TokenSpan){.sv = list_name},
+            },
+            .fields = list_fields,
+            .layout = (TC_struct_layout){
+                .size = target_info->ptr_size * 3,
+                .align = target_info->ptr_size,
+                .field_offsets = list_field_offsets
+            }
+        };
+    }
+
+
+    {
+        const SV slice_name = SV_from_str_len("Slice", 5);
+        const SV slice_len = SV_from_str_len("len", 3);
+        const SV sv_uint32 = SV_from_str_len("Uint32", 6);
+
+        TC_field_LIST slice_fields = TC_field_LIST_new_with_capacity(1);
+        TC_field_LIST_push(&slice_fields, (TC_field){
+                               .name = (SpannedIdentifier){
+                                   .identifier = SV_to_identifier(identifier_map, identifier_map_cnt, &slice_len),
+                                   .span = (TokenSpan){.sv = slice_len}
+                               },
+                               .type = (TC_typeid){
+                                   .ty = TC_TY_Primitive,
+                                   .info.primitive = TC_Primitive__Uint32,
+                                   .full_typeuse_span = (TokenSpan){.sv = sv_uint32}
+                               }
+                           });
+
+        // { ptr; len; }
+        // only len is exposed
+        uint32_t* list_field_offsets = malloc(sizeof(uint32_t));
+        *list_field_offsets = target_info->ptr_size;
+
+        compiler_builtin__slice_tc_structdef = (TC_structdef){
+            .name = (SpannedIdentifier){
+                .identifier = SV_to_identifier(identifier_map, identifier_map_cnt, &slice_name),
+                .span = (TokenSpan){.sv = slice_name}
+            },
+            .fields = slice_fields,
+            .layout = (TC_struct_layout){
+                .size = target_info->ptr_size * 2,
+                .align = target_info->ptr_size,
+                .field_offsets = list_field_offsets
+            }
+        };
+    }
+}
+
 
 // void RAII_emit_typed_destructor(
 //     const TC_typeid* restrict type,
@@ -915,13 +853,23 @@ void type_inference_over_match_meta(const Pattern p, TC_Entry_LIST* restrict tem
             }
 
             for (size_t n = 0; n < p.info.variant.sub_patterns.len; n++) {
-                TC_typeid ut = edef.variants.array[ix].values[n];
-                while (ut.ty == TC_TY_Ref || ut.ty == TC_TY_Box) ut = *ut.info.contained;
+                TC_typeid* ut = &edef.variants.array[ix].values[n];
+                while (ut->ty == TC_TY_Ref || ut->ty == TC_TY_Box) ut = ut->info.contained;
+                const TC_typeid uwt = (TC_typeid) {
+                    .ty = TC_TY_Ref,
+                    .info.contained = ut
+                };
+                TC_typeid* target_inner = malloc(sizeof(TC_typeid));
+                *target_inner = edef.variants.array[ix].values[n];
+                const TC_typeid target = (TC_typeid) {
+                    .ty = TC_TY_Ref,
+                    .info.contained = target_inner
+                };
                 type_inference_over_match_meta(
                     p.info.variant.sub_patterns.array[n],
                     temporals_map,
-                    &edef.variants.array[ix].values[n],
-                    &ut,
+                    &target,
+                    &uwt,
                     nct,
                     source_info
                 );
@@ -936,7 +884,7 @@ void type_inference_over_match_meta(const Pattern p, TC_Entry_LIST* restrict tem
 
 void type_inference_pass_over_fn(
     const IR_func fn,
-    const khash_t(sv_u64_map)* restrict identifier_map,
+    khash_t(sv_u64_map)* restrict identifier_map,
     const IR_func_LIST* restrict functions,
     const CFFI_IR_extern_fn_LIST* restrict external_functions,
     TC_TypeTable* restrict nct,
@@ -985,6 +933,20 @@ void type_inference_pass_over_fn(
     }
 
 
+    // Pre-scan: build a set of temporals that are REF_OF destinations.
+    // These should not have their types overwritten by backward propagation from MOVE,
+    // because REF_OF must always produce Ref<T>, not the inner type.
+    bool* ref_of_dests = calloc(fn.highest_temporal_number + 1, sizeof(bool));
+    for (ptrdiff_t block_id = 0; block_id < (ptrdiff_t) fn.blocks.len; block_id++) {
+        const IR_block block = fn.blocks.array[block_id];
+        for (size_t instr_nth = 0; instr_nth < block.instructions.len; instr_nth++) {
+            const IR_instr instr = block.instructions.array[instr_nth];
+            if (instr.ty == IR_INST_TY__REF_OF) {
+                ref_of_dests[instr.info.ref_of.dest.val] = true;
+            }
+        }
+    }
+
     // reverse instr walk + jump back on PHI to type-resolve
 
     for (ptrdiff_t block_id = (ptrdiff_t) fn.blocks.len - 1; block_id >= 0; block_id--) {
@@ -1013,6 +975,28 @@ void type_inference_pass_over_fn(
                 case IR_INST_TY__INVALID: break;
                 case IR_INST_TY__JUMP: break;
                 case IR_INST_TY__RETURN_VOID: break;
+
+                case IR_INST_TY__ASSIGN: {
+                    if (!temporals_map->array[instr.info.assign.dest.val].known_temporal) break;
+
+                    const TC_typeid dest_t = temporals_map->array[instr.info.assign.dest.val].type;
+
+                    temporals_map->array[instr.info.assign.old.val] = (TC_Entry){
+                        .known_temporal = true,
+                        .type = dest_t,
+                        .is_addressable = false,
+                        .is_value_known = false,
+                    };
+
+                    const TC_typeid new_t = dest_t.ty == TC_TY_Ref ? *dest_t.info.contained : dest_t;
+
+                    temporals_map->array[instr.info.assign.new.val] = (TC_Entry){
+                        .known_temporal = true,
+                        .type = new_t,
+                        .is_addressable = false,
+                        .is_value_known = false,
+                    };
+                }
 
                 case IR_INST_TY__CONST_INT: {
                     // set as INT32 if unknown temporal and make the pass repeat
@@ -1108,6 +1092,11 @@ void type_inference_pass_over_fn(
                     const TC_typeid dest_type = temporals_map->array[instr.info.move.dest.val].type;
 
                     if (!temporals_map->array[instr.info.move.src.val].known_temporal) {
+                        // Do not propagate type backward if the src is a REF_OF destination.
+                        // REF_OF must always produce Ref<T>, not the inner type from the dest.
+                        if (ref_of_dests[instr.info.move.src.val]) {
+                            break;
+                        }
                         temporals_map->array[instr.info.move.src.val] = (TC_Entry){
                             .known_temporal = true,
                             .type = dest_type,
@@ -1115,6 +1104,42 @@ void type_inference_pass_over_fn(
                             .is_addressable = false
                         };
                     }
+
+                    break;
+                }
+                case IR_INST_TY__REF_OF: {
+                    if (!temporals_map->array[instr.info.ref_of.src.val].known_temporal) {
+                        break;
+                    }
+                    if (temporals_map->array[instr.info.ref_of.dest.val].known_temporal) {
+                        break;
+                    }
+
+                    const TC_typeid src_t = temporals_map->array[instr.info.ref_of.src.val].type;
+
+                    TC_typeid* out = malloc(sizeof(TC_typeid));
+                    *out = src_t;
+
+                    const size_t MAX_SIZE = 128;
+                    char* new_type_name = malloc(sizeof(char) * MAX_SIZE);
+                    const int out_len = snprintf(new_type_name, MAX_SIZE, "Ref<"SV_format">",
+                                                 SV_v_args(src_t.full_typeuse_span.sv));
+                    new_type_name = realloc(new_type_name, sizeof(char) * out_len);
+                    const SV new_type = SV_from_str_len(new_type_name, out_len);
+
+                    temporals_map->array[instr.info.ref_of.dest.val] = (TC_Entry){
+                        .known_temporal = true,
+                        .type = (TC_typeid){
+                            .ty = TC_TY_Ref,
+                            .info.contained = out,
+                            .full_typeuse_span = (TokenSpan){.sv = new_type},
+                        },
+                        .is_value_known = false,
+                        .is_addressable = false
+                    };
+
+                    block_id = (ptrdiff_t) fn.blocks.len; // no -1, because of (block_id--) in the for loop
+                    perf_jump = true;
 
                     break;
                 }
@@ -1319,7 +1344,7 @@ void type_inference_pass_over_fn(
                         const TC_typeid src_struct = temporals_map->array[instr.info.get_struct_field_ptr.struct_ptr.
                             val].type;
                         TC_typeid inner_src = src_struct;
-                        while (inner_src.ty == TC_TY_Ref || inner_src.ty == TC_TY_Ref) {
+                        while (inner_src.ty == TC_TY_Ref || inner_src.ty == TC_TY_Box) {
                             inner_src = *inner_src.info.contained;
                         }
                         if (inner_src.ty == TC_TY_Struct) {
@@ -1352,6 +1377,98 @@ void type_inference_pass_over_fn(
                                     break;
                                 }
                             }
+                        } else if (inner_src.ty == TC_TY_List) {
+                            const SV len = SV_from_str_len("len", 3);
+                            if (instr.info.get_struct_field_ptr.field_name.identifier == SV_to_identifier(identifier_map, NULL, &len)) {
+                                TC_typeid* ref_inner = malloc(sizeof(TC_typeid));
+                                *ref_inner = compiler_builtin__list_tc_structdef.fields.array[0].type;
+
+                                const size_t MAX_SIZE = 128;
+                                char* new_type_name = malloc(sizeof(char) * MAX_SIZE);
+                                const int out_len = snprintf(new_type_name, MAX_SIZE, "Ref<"SV_format">",
+                                                             SV_v_args(ref_inner->full_typeuse_span.sv));
+                                new_type_name = realloc(new_type_name, sizeof(char) * out_len);
+                                const SV new_type = SV_from_str_len(new_type_name, out_len);
+
+
+                                temporals_map->array[instr.info.get_struct_field_ptr.dest.val] = (TC_Entry){
+                                    .known_temporal = true,
+                                    .type = (TC_typeid){
+                                        .ty = TC_TY_Ref,
+                                        .info.contained = ref_inner,
+                                        .full_typeuse_span = (TokenSpan){.sv = new_type},
+                                    },
+                                    .is_value_known = false,
+                                    .is_addressable = false
+                                };
+                                block_id = (ptrdiff_t) fn.blocks.len;
+                                perf_jump = true;
+                            }
+
+                        } else if (inner_src.ty == TC_TY_Slice) {
+                            const SV len = SV_from_str_len("len", 3);
+                            if (instr.info.get_struct_field_ptr.field_name.identifier == SV_to_identifier(identifier_map, NULL, &len)) {
+                                TC_typeid* ref_inner = malloc(sizeof(TC_typeid));
+                                *ref_inner = compiler_builtin__slice_tc_structdef.fields.array[0].type;
+
+                                const size_t MAX_SIZE = 128;
+                                char* new_type_name = malloc(sizeof(char) * MAX_SIZE);
+                                const int out_len = snprintf(new_type_name, MAX_SIZE, "Ref<"SV_format">",
+                                                             SV_v_args(ref_inner->full_typeuse_span.sv));
+                                new_type_name = realloc(new_type_name, sizeof(char) * out_len);
+                                const SV new_type = SV_from_str_len(new_type_name, out_len);
+
+
+                                temporals_map->array[instr.info.get_struct_field_ptr.dest.val] = (TC_Entry){
+                                    .known_temporal = true,
+                                    .type = (TC_typeid){
+                                        .ty = TC_TY_Ref,
+                                        .info.contained = ref_inner,
+                                        .full_typeuse_span = (TokenSpan){.sv = new_type},
+                                    },
+                                    .is_value_known = false,
+                                    .is_addressable = false
+                                };
+                                block_id = (ptrdiff_t) fn.blocks.len;
+                                perf_jump = true;
+                            }
+                        } else if (inner_src.ty == TC_TY_Array) {
+                            // return const_int from type as LEN
+                            // inner_src.info.t_array.array_size;
+                            if (instr_nth + 1 < block.instructions.len && block.instructions.array[instr_nth + 1].ty == IR_INST_TY__READ_PTR && block.instructions.array[instr_nth + 1].info.read_ptr.ptr.val == instr.info.get_struct_field_ptr.dest.val) {
+                                const IR_instr_error_info ei = fn.error_info_list.array[instr.error_info_index];
+                                block.instructions.array[instr_nth] = (IR_instr) {
+                                    .ty = IR_INST_TY__CONST_INT,
+                                    .info.const_int = {
+                                        .dest = instr.info.get_struct_field_ptr.dest,
+                                        .val = inner_src.info.t_array.array_size
+                                    },
+                                    .error_info_index = instr.error_info_index
+                                };
+                                fn.error_info_list.array[instr.error_info_index] = (IR_instr_error_info) {
+                                    .kind = IR_IEI_literal,
+                                    .info.literal = ei.info.get_struct_field.whole
+                                };
+                                // ----------
+                                const IR_instr nx = block.instructions.array[instr_nth+1];
+
+                                block.instructions.array[instr_nth+1] = (IR_instr) {
+                                    .ty = IR_INST_TY__MOVE,
+                                    .info.move = {
+                                        .dest = nx.info.read_ptr.dest,
+                                        .src = nx.info.read_ptr.ptr
+                                    },
+                                    .error_info_index = nx.error_info_index
+                                };
+                                fn.error_info_list.array[nx.error_info_index] = (IR_instr_error_info) {
+                                    .kind = IR_IEI_move,
+                                    .info.move = {.value = ei.info.get_struct_field.whole }
+                                };
+                                block_id = (ptrdiff_t) fn.blocks.len;
+                                perf_jump = true;
+                            } else if (instr_nth + 1 < block.instructions.len && block.instructions.array[instr_nth + 1].ty == IR_INST_TY__STORE_PTR && block.instructions.array[instr_nth + 1].info.store_ptr.ptr.val == instr.info.get_struct_field_ptr.dest.val) {
+                                INTERNAL_ERROR("type error here"); // cannot overrwrite array size
+                            }
                         }
                     }
                     break;
@@ -1381,23 +1498,36 @@ void type_inference_pass_over_fn(
                             .is_value_known = false,
                             .is_addressable = false
                         };
+                        block_id = (ptrdiff_t) fn.blocks.len;
+                        perf_jump = true;
                     } else if (temporals_map->array[instr.info.read_ptr.ptr.val].known_temporal &&
                                !temporals_map->array[instr.info.read_ptr.dest.val].known_temporal
                     ) {
                         TC_typeid inner = temporals_map->array[instr.info.read_ptr.ptr.val].type;
-                        size_t unwrap_cnt = 0;
-                        while (inner.ty == TC_TY_Ref || inner.ty == TC_TY_Box) {
-                            unwrap_cnt++;
+                        // size_t unwrap_cnt = 0;
+                        if (inner.ty == TC_TY_Ref || inner.ty == TC_TY_Box) {
                             inner = *inner.info.contained;
-                        }
-                        if (unwrap_cnt > 0) {
                             temporals_map->array[instr.info.read_ptr.dest.val] = (TC_Entry){
                                 .known_temporal = true,
                                 .type = inner,
                                 .is_value_known = false,
-                                .is_addressable = false
+                                .is_addressable = true
                             };
                         }
+                        block_id = (ptrdiff_t) fn.blocks.len;
+                        perf_jump = true;
+                        // while (inner.ty == TC_TY_Ref || inner.ty == TC_TY_Box) {
+                        //     unwrap_cnt++;
+                        //     inner = *inner.info.contained;
+                        // }
+                        // if (unwrap_cnt > 0) {
+                        //     temporals_map->array[instr.info.read_ptr.dest.val] = (TC_Entry){
+                        //         .known_temporal = true,
+                        //         .type = inner,
+                        //         .is_value_known = false,
+                        //         .is_addressable = false
+                        //     };
+                        // }
                     }
                     break;
                 }
@@ -1693,24 +1823,29 @@ void type_inference_pass_over_fn(
 
                     break;
                 }
-                case IR_INST_TY__ENUM_VALUE_EXTRACT: {
-                    if (!temporals_map->array[instr.info.enum_value_extract.enum_src.val].known_temporal) break;
-                    const TC_typeid src_t = temporals_map->array[instr.info.enum_value_extract.enum_src.val].type;
+                case ENUM_GET_FIELD_PTR: {
+                    if (!temporals_map->array[instr.info.enum_get_field_ptr.enum_src.val].known_temporal) break;
+                    const TC_typeid src_t = temporals_map->array[instr.info.enum_get_field_ptr.enum_src.val].type;
                     TC_typeid inner_t = src_t;
-                    while (src_t.ty == TC_TY_Ref || src_t.ty == TC_TY_Box) inner_t = *inner_t.info.contained;
+                    while (inner_t.ty == TC_TY_Ref || inner_t.ty == TC_TY_Box) inner_t = *inner_t.info.contained;
                     if (inner_t.ty != TC_TY_Enum) break;
-                    if (instr.info.enum_value_extract.enum_name.identifier != nct->enums.array[inner_t.info.type_id].
+                    if (instr.info.enum_get_field_ptr.enum_name.identifier != nct->enums.array[inner_t.info.type_id].
                         name.identifier)
                         break;
 
                     const TC_enumdef edef = nct->enums.array[inner_t.info.type_id];
                     for (size_t n = 0; n < edef.variants.len; n++) {
-                        if (edef.variants.array[n].name.identifier == instr.info.enum_value_extract.variant_name.
+                        if (edef.variants.array[n].name.identifier == instr.info.enum_get_field_ptr.variant_name.
                             identifier) {
-                            if (edef.variants.array[n].values_len > instr.info.enum_value_extract.value_nth) {
-                                temporals_map->array[instr.info.enum_value_extract.dest.val] = (TC_Entry){
+                            if (edef.variants.array[n].values_len > instr.info.enum_get_field_ptr.value_nth) {
+                                TC_typeid* inner = malloc(sizeof(TC_typeid));
+                                *inner = edef.variants.array[n].values[instr.info.enum_get_field_ptr.value_nth];
+                                temporals_map->array[instr.info.enum_get_field_ptr.dest.val] = (TC_Entry){
                                     .known_temporal = true,
-                                    .type = edef.variants.array[n].values[instr.info.enum_value_extract.value_nth],
+                                    .type = (TC_typeid) {
+                                        .ty = TC_TY_Ref,
+                                        .info.contained = inner,
+                                    },
                                     .is_value_known = false,
                                     .is_addressable = false
                                 };
@@ -1847,6 +1982,7 @@ void type_inference_pass_over_fn(
         }
     }
     // todo: fix external fn calls (do not infer types for them)
+    free(ref_of_dests);
 }
 
 typedef struct {
@@ -1864,7 +2000,7 @@ IR_temporal_and_TC_type perf_auto_deref(const TC_typeid* type, const IR_temporal
     uint64_t te = intake->val;
     while (t.ty == TC_TY_Ref) {
         const uint64_t new_temporal = (*highest_temporal)++;
-        printf("  %%%lu = READ_PTR %%%lu\n", new_temporal, te);
+        printf("   %%%lu = READ_PTR %%%lu\n", new_temporal, te);
         te = new_temporal;
         t = *t.info.contained;
         if (new_temporal + 1 > temporals_map->cap) {
@@ -2767,87 +2903,6 @@ SizeAlign calc_size_of(const TC_typeid* type, const TC_TypeTable* restrict nct,
 }
 
 
-static TC_structdef compiler_builtin__list_tc_structdef;
-static TC_structdef compiler_builtin__slice_tc_structdef;
-
-
-void init__compiler_builtin__tc_types(khash_t(sv_u64_map)* restrict identifier_map,
-                                      uint64_t* restrict identifier_map_cnt, const TargetInfo* restrict target_info) {
-    {
-        const SV list_name = SV_from_str_len("List", 4);
-        const SV list_len = SV_from_str_len("len", 3);
-        const SV sv_uint32 = SV_from_str_len("Uint32", 6);
-
-        TC_field_LIST list_fields = TC_field_LIST_new_with_capacity(1);
-        TC_field_LIST_push(&list_fields, (TC_field){
-                               .name = (SpannedIdentifier){
-                                   .identifier = SV_to_identifier(identifier_map, identifier_map_cnt, &list_len),
-                                   .span = (TokenSpan){.sv = list_len}
-                               },
-                               .type = (TC_typeid){
-                                   .ty = TC_TY_Primitive,
-                                   .info.primitive = TC_Primitive__Uint32,
-                                   .full_typeuse_span = (TokenSpan){.sv = sv_uint32}
-                               }
-                           });
-
-        // { ptr; len; cap; }
-        // only len is exposed
-        uint32_t* list_field_offsets = malloc(sizeof(uint32_t));
-        *list_field_offsets = target_info->ptr_size;
-
-        compiler_builtin__list_tc_structdef = (TC_structdef){
-            .name = (SpannedIdentifier){
-                .identifier = SV_to_identifier(identifier_map, identifier_map_cnt, &list_name),
-                .span = (TokenSpan){.sv = list_name},
-            },
-            .fields = list_fields,
-            .layout = (TC_struct_layout){
-                .size = target_info->ptr_size * 3,
-                .align = target_info->ptr_size,
-                .field_offsets = list_field_offsets
-            }
-        };
-    }
-
-
-    {
-        const SV slice_name = SV_from_str_len("Slice", 5);
-        const SV slice_len = SV_from_str_len("len", 3);
-        const SV sv_uint32 = SV_from_str_len("Uint32", 6);
-
-        TC_field_LIST slice_fields = TC_field_LIST_new_with_capacity(1);
-        TC_field_LIST_push(&slice_fields, (TC_field){
-                               .name = (SpannedIdentifier){
-                                   .identifier = SV_to_identifier(identifier_map, identifier_map_cnt, &slice_len),
-                                   .span = (TokenSpan){.sv = slice_len}
-                               },
-                               .type = (TC_typeid){
-                                   .ty = TC_TY_Primitive,
-                                   .info.primitive = TC_Primitive__Uint32,
-                                   .full_typeuse_span = (TokenSpan){.sv = sv_uint32}
-                               }
-                           });
-
-        // { ptr; len; }
-        // only len is exposed
-        uint32_t* list_field_offsets = malloc(sizeof(uint32_t));
-        *list_field_offsets = target_info->ptr_size;
-
-        compiler_builtin__slice_tc_structdef = (TC_structdef){
-            .name = (SpannedIdentifier){
-                .identifier = SV_to_identifier(identifier_map, identifier_map_cnt, &slice_name),
-                .span = (TokenSpan){.sv = slice_name}
-            },
-            .fields = slice_fields,
-            .layout = (TC_struct_layout){
-                .size = target_info->ptr_size * 2,
-                .align = target_info->ptr_size,
-                .field_offsets = list_field_offsets
-            }
-        };
-    }
-}
 
 
 /// returns true if found
@@ -2889,10 +2944,11 @@ void find_type_param_parallel(const IR_typeuse* restrict t1, const TC_typeid* re
             break;
         }
         case IR_TY_Ref: {
-            if (t2->ty != TC_TY_Ref) {
-                INTERNAL_ERROR("type error here")
-            }
-            find_type_param_parallel(t1->contained, t2->info.contained, generic_args, out);
+            const TC_typeid* nx = t2->ty == TC_TY_Ref ? t2->info.contained : t2;
+            // if (t2->ty != TC_TY_Ref) {
+            //     INTERNAL_ERROR("type error here")
+            // }
+            find_type_param_parallel(t1->contained, nx, generic_args, out);
             break;
         }
         case IR_TY_Box: {
@@ -3210,6 +3266,7 @@ MIR_func lowering_and_emission_pass_over_fn(
     const TargetInfo* restrict target_info,
     const SourceInfo* restrict source_info,
     TC_Entry_LIST* restrict temporals_map,
+    const IR_temporal_LIST promote_to_stack_temps,
     TC_typeid_LIST* restrict type_needing_destructor
 ) {
     printf("LINEAR TYPECHECK AND LOWERING:\n");
@@ -3233,6 +3290,30 @@ MIR_func lowering_and_emission_pass_over_fn(
                     INTERNAL_ERROR("IR_INST_TY__INVALID");
                     break;
                 }
+
+                case IR_INST_TY__ASSIGN: {
+                    bool is_value = true;
+                    for(size_t n = 0; n < promote_to_stack_temps.len; n++) {
+                        if(
+                            promote_to_stack_temps.array[n].val == instr.info.assign.old.val ||
+                            promote_to_stack_temps.array[n].val == instr.info.assign.dest.val
+                        ) {
+                            is_value = false;
+                            break;
+                        }
+                    }
+                    if (is_value) {
+                        printf("   %%%lu = MOVE %%%lu (ASSIGN)\n", instr.info.assign.dest.val, instr.info.assign.new.val);
+                        printf("   DROP %%%lu (ASSIGN)\n", instr.info.assign.old.val);
+                    } else {
+                        printf("   STORE %%%lu, %%%lu (ASSIGN)\n", instr.info.assign.old.val, instr.info.assign.new.val);
+                        printf("   %%%lu = MOVE %%%lu (ASSIGN)\n", instr.info.assign.dest.val, instr.info.assign.old.val);
+                    }
+//                     instr.info.assign.old
+//                     UNIMPLEMENTED()
+                    break;
+                }
+
                 case IR_INST_TY__PHI: {
                     // Typecheck: Ensure all incoming PHI branches are the exact same type
                     // instr.info.phi.dest.val is the source of truth
@@ -3290,6 +3371,41 @@ MIR_func lowering_and_emission_pass_over_fn(
 
                     break;
                 }
+                case IR_INST_TY__REF_OF: {
+
+                    const TC_typeid src_t = temporals_map->array[instr.info.ref_of.src.val].type;
+                    const TC_typeid dest_t = temporals_map->array[instr.info.ref_of.dest.val].type;
+
+
+                    if (instr_nth + 1 < block.instructions.len && block.instructions.array[instr_nth+1].ty == IR_INST_TY__MATCH_META__TARGET && src_t.ty == TC_TY_Ref) {
+                        // emit MOVE
+                        printf("   %%%lu = MOVE %%%lu\n", instr.info.ref_of.dest.val, instr.info.ref_of.src.val);
+                        temporals_map->array[instr.info.ref_of.dest.val].type = src_t;
+                        break;
+                    }
+
+
+                    if (!temporals_map->array[instr.info.ref_of.src.val].is_addressable) {
+
+                        if (fn.error_info_list.array[instr.error_info_index].info.ref_of.is_from_match) {
+                            const SV msg = SV_from_str_len("match expression must be addressable", 36);
+                            type_error(&source_info->source, &source_info->source_filename, &fn.error_info_list.array[instr.error_info_index].info.ref_of.value.sv, &msg);
+                            const SV hint = SV_from_str_len("try storing the value in a variable and then using the variable in the match expression", 88);
+                            hint_standalone(&hint);
+                            exit(1);
+                        } else {
+                            const SV msg = SV_from_str_len("could not be taken reference of", 31);
+                            type_error(&source_info->source, &source_info->source_filename, &fn.error_info_list.array[instr.error_info_index].info.ref_of.value.sv, &msg);
+                            const SV hint = SV_from_str_len("try storing the value in a variable and then using the variable here", 69);
+                            hint_standalone(&hint);
+                            exit(1);
+                        }
+                    }
+
+                    printf("   %%%lu = REF_OF %%%lu\n", instr.info.ref_of.dest.val, instr.info.ref_of.src.val);
+
+                    break;
+                }
                 case IR_INST_TY__VAR_DECL: {
                     temporals_map->array[instr.info.var_decl.dest.val].is_addressable = true;
                     const TC_typeid t = temporals_map->array[instr.info.var_decl.dest.val].type;
@@ -3299,7 +3415,15 @@ MIR_func lowering_and_emission_pass_over_fn(
                         INTERNAL_ERROR("should not happen")
                     }
                     const SV t_sv = format_TC_typeid(&t, identifier_map, nct);
-                    printf("   VAR_DECL %%%lu <"SV_format">\n", instr.info.var_decl.dest.val, SV_v_args(t_sv));
+                    char* value_vs_stack = "value";
+                    for(size_t n = 0; n < promote_to_stack_temps.len; n++) {
+                        if(promote_to_stack_temps.array[n].val == instr.info.var_decl.dest.val) {
+                            value_vs_stack = "stack";
+                            break;
+                        }
+                    }
+                    
+                    printf("   VAR_DECL %%%lu {on %s} <"SV_format">\n", instr.info.var_decl.dest.val, value_vs_stack, SV_v_args(t_sv));
                     break;
                 }
                 case IR_INST_TY__STORE_PTR: {
@@ -3414,8 +3538,30 @@ MIR_func lowering_and_emission_pass_over_fn(
                     break;
                 }
                 case IR_INST_TY__CONST_INT: {
-                    const SV t_sv = format_TC_typeid(&temporals_map->array[instr.info.const_int.dest.val].type,
+                    const TC_typeid dest_t = temporals_map->array[instr.info.const_int.dest.val].type;
+                    const SV t_sv = format_TC_typeid(&dest_t,
                                                      identifier_map, nct);
+
+                    if (dest_t.ty == TC_TY_Primitive && (
+                        dest_t.info.primitive == TC_Primitive__Uint8 ||
+                        dest_t.info.primitive == TC_Primitive__Uint16 ||
+                        dest_t.info.primitive == TC_Primitive__Uint32 ||
+                        dest_t.info.primitive == TC_Primitive__Uint64 ||
+                        dest_t.info.primitive == TC_Primitive__Int8 ||
+                        dest_t.info.primitive == TC_Primitive__Int16 ||
+                        dest_t.info.primitive == TC_Primitive__Int32 ||
+                        dest_t.info.primitive == TC_Primitive__Int64 ||
+                        dest_t.info.primitive == TC_Primitive__Bool ||
+                        dest_t.info.primitive == TC_Primitive__Char
+                        )){
+                    } else {
+                        char r_msg[256] = {0};
+                        const int len = snprintf(r_msg, sizeof(r_msg), "expected type "C_BOLD""SV_format""C_RESET", but found "C_BOLD"Integer"C_RESET" literal", SV_v_args(t_sv));
+                        const SV msg = SV_from_str_len(r_msg, len);
+                        type_error(&source_info->source, &source_info->source_filename, &fn.error_info_list.array[instr.error_info_index].info.literal.sv, &msg);
+                        exit(1);
+                    }
+
                     printf("   %%%lu = CONST_INT <"SV_format"> (%li)\n", instr.info.const_int.dest.val, SV_v_args(t_sv),
                            instr.info.const_int.val);
                     if (instr.info.const_int.dest.val + 1 > temporals_map_values.cap) {
@@ -3429,8 +3575,20 @@ MIR_func lowering_and_emission_pass_over_fn(
                     break;
                 }
                 case IR_INST_TY__CONST_FLOAT: {
-                    const SV t_sv = format_TC_typeid(&temporals_map->array[instr.info.const_float.dest.val].type,
+                    const TC_typeid dest_t = temporals_map->array[instr.info.const_float.dest.val].type;
+                    const SV t_sv = format_TC_typeid(&dest_t,
                                                      identifier_map, nct);
+
+
+                    if (dest_t.ty == TC_TY_Primitive && (dest_t.info.primitive == TC_Primitive__Float32 || dest_t.info.primitive == TC_Primitive__Float64)){
+                    } else {
+                        char r_msg[256] = {0};
+                        const int len = snprintf(r_msg, sizeof(r_msg), "expected type "C_BOLD""SV_format""C_RESET", but found "C_BOLD"Float"C_RESET" literal", SV_v_args(t_sv));
+                        const SV msg = SV_from_str_len(r_msg, len);
+                        type_error(&source_info->source, &source_info->source_filename, &fn.error_info_list.array[instr.error_info_index].info.literal.sv, &msg);
+                        exit(1);
+                    }
+
                     printf("   %%%lu = CONST_FLOAT <"SV_format"> (%lf)\n", instr.info.const_float.dest.val,
                            SV_v_args(t_sv), instr.info.const_float.val);
                     if (instr.info.const_float.dest.val + 1 > temporals_map_values.cap) {
@@ -3444,8 +3602,37 @@ MIR_func lowering_and_emission_pass_over_fn(
                     break;
                 }
                 case IR_INST_TY__CONST_STRING: {
-                    const SV t_sv = format_TC_typeid(&temporals_map->array[instr.info.const_string.dest.val].type,
+                    const TC_typeid dest_t = temporals_map->array[instr.info.const_string.dest.val].type;
+                    const SV t_sv = format_TC_typeid(&dest_t,
                                                      identifier_map, nct);
+
+                    bool valid_t = false;
+                    if (dest_t.ty == TC_TY_Slice || dest_t.ty == TC_TY_List) {
+                        if (dest_t.info.contained->ty == TC_TY_Primitive && dest_t.info.contained->info.primitive == TC_Primitive__Char) {
+                            valid_t = true;
+                        }
+                    } else if (dest_t.ty == TC_TY_Array) {
+                        if (dest_t.info.t_array.contained->ty == TC_TY_Primitive && dest_t.info.t_array.contained->info.primitive == TC_Primitive__Char) {
+                            valid_t = true;
+                        }
+                        const SV nk = SV_from_identifiermap_lookup(identifier_map, instr.info.const_string.string);
+                        if (dest_t.info.t_array.array_size != nk.len) {
+                            char r_msg[256] = {0};
+                            const int len = snprintf(r_msg, sizeof(r_msg), "expected string of size %u, but found string of size %lu", dest_t.info.t_array.array_size, nk.len);
+                            const SV msg = SV_from_str_len(r_msg, len);
+                            type_error(&source_info->source, &source_info->source_filename, &fn.error_info_list.array[instr.error_info_index].info.literal.sv, &msg);
+                            exit(1);
+                        }
+                    }
+
+                    if (!valid_t) {
+                        char r_msg[256] = {0};
+                        const int len = snprintf(r_msg, sizeof(r_msg), "expected type "C_BOLD""SV_format""C_RESET", but found "C_BOLD"String"C_RESET" literal", SV_v_args(t_sv));
+                        const SV msg = SV_from_str_len(r_msg, len);
+                        type_error(&source_info->source, &source_info->source_filename, &fn.error_info_list.array[instr.error_info_index].info.literal.sv, &msg);
+                        exit(1);
+                    }
+
                     const SV val = SV_from_identifiermap_lookup(identifier_map, instr.info.const_string.string);
                     printf("   %%%lu = CONST_STRING <"SV_format"> (\"", instr.info.const_string.dest.val,
                            SV_v_args(t_sv));
@@ -3488,7 +3675,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                         const SV val1_sv = fn.error_info_list.array[instr.error_info_index].info.math_operation.v1.sv;
                         const SV val2_sv = fn.error_info_list.array[instr.error_info_index].info.math_operation.v2.sv;
 
-                        // const SV msg = SV_from_str_len("type "" could not be coerced to a numerical type", 40);
+                        // const SV msg = SV_from_str_len("type ""`", 40);
                         if (error_a) {
                             const size_t MAX_SIZE = 1024;
                             char* r_msg = malloc(sizeof(char) * MAX_SIZE);
@@ -3547,21 +3734,21 @@ MIR_func lowering_and_emission_pass_over_fn(
                     }
 
                     const SV res_t_sv = format_TC_typeid(&res.t, identifier_map, nct);
-                    const SV dest_t_sv = format_TC_typeid(
-                        &temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type, identifier_map, nct);
+                    const TC_typeid dest_t = temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type;
+                    const SV dest_t_sv = format_TC_typeid(&dest_t, identifier_map, nct);
 
                     uint64_t out_temporal = instr.info.math_cmp_boolean_op.dest.val;
                     if (
                         temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].known_temporal &&
-                        (temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type.ty != TC_TY_Primitive ||
-                         temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type.info.primitive != res.t.info
+                        (dest_t.ty != TC_TY_Primitive ||
+                         dest_t.info.primitive != res.t.info
                          .primitive)
                     ) {
                         out_temporal = highest_temporal++;
 
 
                         if (!can_be_implicit_casted(
-                            &res.t, &temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type)) {
+                            &res.t, &dest_t)) {
                             const SV whole = fn.error_info_list.array[instr.error_info_index].info.math_operation.whole.
                                     sv;
 
@@ -3628,6 +3815,10 @@ MIR_func lowering_and_emission_pass_over_fn(
                             .is_addressable = false,
                             .is_value_known = false,
                         };
+                    } else {
+                        if (dest_t.ty == TC_TY_Ref && is_type_eq(&res.t, dest_t.info.contained)) {
+                            printf("   STORE_PTR INTO %%%lu VALUE %%%lu\n", instr.info.math_cmp_boolean_op.dest.val, out_temporal);
+                        }
                     }
                     break;
                 }
@@ -3880,12 +4071,34 @@ MIR_func lowering_and_emission_pass_over_fn(
                 case IR_INST_TY__INDEX_PTR: {
                     // 1. What are we indexing into? (e.g., %11 which is List<Char>)
                     const TC_typeid source_list_ty = temporals_map->array[instr.info.index_ptr.array_ptr.val].type;
-                    const SV source_list_ty_sv = format_TC_typeid(&source_list_ty, identifier_map, nct);
+
+
+                    // const IR_temporal_and_TC_type list = perf_auto_deref(&source_list_ty, &instr.info.index_ptr.array_ptr, &highest_temporal, temporals_map);
+                    // if (source_list_ty.ty != TC_TY_Ref) {
+                    //     // type error
+                    //     const SV source_list_ty_sv = format_TC_typeid(&source_list_ty, identifier_map, nct);
+                    //     char r_msg[1024] = {0};
+                    //     int len = snprintf(r_msg, sizeof(r_msg), "type "C_BOLD""SV_format""C_RESET" cannot be indexed",
+                    //                        SV_v_args(source_list_ty_sv));
+                    //     const SV msg = SV_from_str_len(r_msg, len);
+                    //     type_error(&source_info->source, &source_info->source_filename,
+                    //                &fn.error_info_list.array[instr.error_info_index].info.index_array.index_expr.sv,
+                    //                &msg);
+                    //     exit(1);
+                    // }
+                    const IR_temporal_and_TC_type list = perf_auto_deref(&source_list_ty, &instr.info.index_ptr.array_ptr, &highest_temporal, temporals_map);
+                    const SV list_ty_sv = format_TC_typeid(&list.type, identifier_map, nct);
+
+                    // const IR_temporal_and_TC_type list = (IR_temporal_and_TC_type) {
+                    //     .temporal = instr.info.index_ptr.array_ptr,
+                    //     .type = *source_list_ty.info.contained
+                    // };
+                    // const SV list_ty_sv = format_TC_typeid(&list.type, identifier_map, nct);
 
                     // 2. Extract the inner element type ('Char')
                     // TODO: assert array/list size check
                     TC_typeid* element_ty;
-                    switch (source_list_ty.ty) {
+                    switch (list.type.ty) {
                         case TC_TY_Void: INTERNAL_ERROR()
                         case TC_TY_Primitive:
                         case TC_TY_Struct:
@@ -3894,24 +4107,22 @@ MIR_func lowering_and_emission_pass_over_fn(
                         case TC_TY_External_Type:
                         case TC_TY_Enum: {
                             // type error
-                            const size_t MAX_SIZE = 1024;
-                            char* r_msg = malloc(sizeof(char) * MAX_SIZE);
-                            int len = snprintf(r_msg, MAX_SIZE, "type "C_BOLD""SV_format""C_RESET" cannot be indexed",
-                                               SV_v_args(source_list_ty_sv));
+                            char r_msg[1024] = {0};
+                            int len = snprintf(r_msg, sizeof(r_msg), "type "C_BOLD""SV_format""C_RESET" cannot be indexed",
+                                               SV_v_args(list_ty_sv));
                             const SV msg = SV_from_str_len(r_msg, len);
                             type_error(&source_info->source, &source_info->source_filename,
                                        &fn.error_info_list.array[instr.error_info_index].info.index_array.index_expr.sv,
                                        &msg);
-                            free(r_msg);
                             exit(1);
                         }
                         case TC_TY_List:
                         case TC_TY_Slice: {
-                            element_ty = source_list_ty.info.contained;
+                            element_ty = list.type.info.contained;
                             break;
                         }
                         case TC_TY_Array: {
-                            element_ty = source_list_ty.info.t_array.contained;
+                            element_ty = list.type.info.t_array.contained;
                             break;
                         }
                     }
@@ -3937,7 +4148,8 @@ MIR_func lowering_and_emission_pass_over_fn(
                     // 5. Emit the instruction
                     printf("   %%%lu = INDEX_PTR %%%lu [ %%%lu ]\n",
                            instr.info.index_ptr.dest.val,
-                           instr.info.index_ptr.array_ptr.val,
+                           //instr.info.index_ptr.array_ptr.val,
+                           list.temporal.val,
                            instr.info.index_ptr.index_val.val);
                     break;
                 }
@@ -4219,7 +4431,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                                 const size_t MAX_SIZE = 512;
                                 char* r_msg = malloc(sizeof(char) * MAX_SIZE);
                                 int len = snprintf(r_msg, MAX_SIZE,
-                                                   "struct "C_BOLD"Array"C_RESET" does not have field '"SV_format"'",
+                                                   "struct "C_BOLD"Array"C_RESET" does not have field '"SV_format"",
                                                    SV_v_args(instr.info.get_struct_field_ptr.field_name.span.sv));
                                 const SV msg = SV_from_str_len(r_msg, len);
                                 syntax_error(&source_info->source, &source_info->source_filename,
@@ -4319,7 +4531,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                         const size_t MAX_SIZE = 512;
                         char* r_msg = malloc(sizeof(char) * MAX_SIZE);
                         int len = snprintf(r_msg, MAX_SIZE,
-                                           "struct "C_BOLD""SV_format""C_RESET" does not have field '"SV_format"'",
+                                           "struct "C_BOLD""SV_format""C_RESET" does not have field '"SV_format"",
                                            SV_v_args(struct_t_sv),
                                            SV_v_args(instr.info.get_struct_field_ptr.field_name.span.sv));
                         const SV msg = SV_from_str_len(r_msg, len);
@@ -4429,24 +4641,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                         const TC_typeid fn_ret_t = resolve_tc_type(&target_fn->fn_ret_t, nct, target_info, source_info);
 
 
-                        if (!is_type_eq(&expected_ret_t, &fn_ret_t) && expected_ret_t.ty != TC_TY_Void) {
-                            const SV fn_ret_t_sv = format_TC_typeid(&fn_ret_t, identifier_map, nct);
-                            const SV expected_ret_t_sv = format_TC_typeid(&expected_ret_t, identifier_map, nct);
-
-                            const size_t MAX_SIZE = 512;
-                            char* r_msg = malloc(sizeof(char) * MAX_SIZE);
-                            int len = snprintf(r_msg, MAX_SIZE,
-                                               "expected type "C_BOLD""SV_format""C_RESET" but function '"SV_format
-                                               "' returns type "C_BOLD""SV_format""C_RESET"",
-                                               SV_v_args(expected_ret_t_sv),
-                                               SV_v_args(target_fn->fn_name.span.sv),
-                                               SV_v_args(fn_ret_t_sv));
-                            const SV msg = SV_from_str_len(r_msg, len);
-                            type_error(&source_info->source, &source_info->source_filename,
-                                       &fn.error_info_list.array[instr.error_info_index].info.function_call.whole.sv,
-                                       &msg);
-                            exit(1);
-                        } else if (!is_type_eq(&expected_ret_t, &fn_ret_t) && expected_ret_t.ty == TC_TY_Void) {
+                        if (expected_ret_t.ty == TC_TY_Void) {
                             const size_t MAX_SIZE = 256;
                             char* r_msg = malloc(sizeof(char) * MAX_SIZE);
                             int len = snprintf(r_msg, MAX_SIZE, "'"SV_format"' function's return value discarded",
@@ -4457,21 +4652,37 @@ MIR_func lowering_and_emission_pass_over_fn(
                                          &msg);
                         }
 
-                        // + emit drop
+                        // const IR_temporal ot = expected_ret_t.ty == TC_TY_Void ?
+                        //     instr.info.fn_call_retval.dest :
+                        //     perf_autos(
+                        //         &instr.info.fn_call_retval.dest,
+                        //         &fn_ret_t,
+                        //         &expected_ret_t,
+                        //         &highest_temporal,
+                        //         identifier_map,
+                        //         nct,
+                        //         temporals_map,
+                        //         source_info,
+                        //         &fn.error_info_list.array[instr.error_info_index].info.function_call.whole.sv,
+                        //         &temporals_map_values
+                        //     )
+                        // ;
+
+                        if (expected_ret_t.ty == TC_TY_Void) {
+                            emit_drop_for_ret = true;
+                        }
+
                         temporals_map->array[instr.info.fn_call_retval.dest.val] = (TC_Entry){
                             .known_temporal = true,
                             .type = fn_ret_t,
                             .is_value_known = false,
                             .is_addressable = false
                         };
-                        emit_drop_for_ret = true;
 
-                        const TC_typeid expected_ret_t_2 = temporals_map->array[instr.info.fn_call_retval.dest.val].type;
-                        const SV expected_ret_t_sv = format_TC_typeid(&expected_ret_t_2, identifier_map, nct);
+                        // const TC_typeid expected_ret_t_2 = temporals_map->array[instr.info.fn_call_retval.dest.val].type;
+                        const SV expected_ret_t_sv = format_TC_typeid(&fn_ret_t, identifier_map, nct);
                         printf("   %%%lu <"SV_format"> = ", instr.info.fn_call_retval.dest.val,
                                SV_v_args(expected_ret_t_sv));
-
-
 
                     } else {
                         printf("   ");
@@ -4501,12 +4712,12 @@ MIR_func lowering_and_emission_pass_over_fn(
                 }
                 case IR_INST_TY__MATCH_META__TARGET: {
                     const TC_typeid target_t = temporals_map->array[instr.info.match_meta__target.target.val].type;
-                    const IR_temporal_and_TC_type res = perf_auto_deref(
-                        &target_t, &instr.info.match_meta__target.target, &highest_temporal, temporals_map);
-                    // TC_typeid res_t = target_t;
-                    // while (res_t.ty == TC_TY_Ref || res_t.ty == TC_TY_Box) res_t = *res_t.info.contained;
+                    // const IR_temporal_and_TC_type res = perf_auto_deref(&target_t, &instr.info.match_meta__target.target, &highest_temporal, temporals_map);
 
-                    const TC_typeid res_t = res.type;
+                    TC_typeid res_t = target_t;
+                    while (res_t.ty == TC_TY_Ref || res_t.ty == TC_TY_Box) res_t = *res_t.info.contained;
+
+                    // const TC_typeid res_t = res.type;
 
                     if (res_t.ty != TC_TY_Enum && res_t.ty != TC_TY_Primitive) {
                         const SV target_t_sv = format_TC_typeid(&target_t, identifier_map, nct);
@@ -4525,24 +4736,223 @@ MIR_func lowering_and_emission_pass_over_fn(
                     break;
                 }
                 case IR_INST_TY__MATCH_META__MATCH: {
-                    break;
-                }
-                case IR_INST_TY__ENUM_VALUE_EXTRACT: {
-                    break;
-                }
-                case IR_INST_TY__ENUM_VARIANT_NUMBER_EXTRACT: {
-                    const TC_typeid enum_t = temporals_map->array[instr.info.enum_variant_number_extract.enum_src.val].
-                            type;
-                    const IR_temporal_and_TC_type au_t = perf_auto_deref(
-                        &enum_t, &instr.info.enum_variant_number_extract.enum_src, &highest_temporal, temporals_map);
-                    if (au_t.type.ty != TC_TY_Enum) {
-                        // type_error(&source_info->source, &source_info->source_filename);
-                        exit(1);
+                    TC_typeid target_t = temporals_map->array[instr.info.match_meta__match.target.val].type;
+                    while (target_t.ty == TC_TY_Ref || target_t.ty == TC_TY_Box) target_t = *target_t.info.contained;
+
+                    if (target_t.ty == TC_TY_Enum) {
+                        const TC_enumdef edef = nct->enums.array[target_t.info.type_id];
+
+                        bool* covered = calloc(edef.variants.len, sizeof(bool));
+                        bool has_global_wildcard = false;
+
+                        for (size_t n = 0; n < instr.info.match_meta__match.patterns.len; n++) {
+                            const Pattern p = instr.info.match_meta__match.patterns.array[n];
+
+                            // Top-level wildcard or binding covers everything
+                            if (p.kind == PAT_WILDCARD || p.kind == PAT_BINDING) {
+                                has_global_wildcard = true;
+                                break;
+                            } else if (p.kind == PAT_VARIANT) {
+                                if (p.info.variant.enum_name.identifier != edef.name.identifier) {
+                                    char r_msg[256] = {0};
+                                    int len = snprintf(r_msg, sizeof(r_msg), "expected enum '"SV_format"', but got '"SV_format"'", SV_v_args(edef.name.span.sv), SV_v_args(p.info.variant.enum_name.span.sv));
+                                    const SV msg = SV_from_str_len(r_msg, len);
+                                    type_error(&source_info->source, &source_info->source_filename, &p.info.variant.enum_name.span.sv, &msg);
+                                    exit(1);
+                                }
+                                bool variant_found = false;
+                                size_t variant_nth = 0;
+                                for (size_t k = 0; k < edef.variants.len; k++) {
+                                    if (edef.variants.array[k].name.identifier == p.info.variant.variant_name.identifier) {
+                                        variant_found = true;
+                                        variant_nth = k;
+                                        break;
+                                    }
+                                }
+                                if (!variant_found) {
+                                    char r_msg[256] = {0};
+                                    int len = snprintf(r_msg, sizeof(r_msg), "unknown variant '"SV_format"' of enum '"SV_format"'", SV_v_args(p.info.variant.variant_name.span.sv) ,SV_v_args(edef.name.span.sv));
+                                    const SV msg = SV_from_str_len(r_msg, len);
+                                    type_error(&source_info->source, &source_info->source_filename, &p.info.variant.enum_name.span.sv, &msg);
+                                    exit(1);
+                                }
+                                bool variant_fully_covered = true;
+                                for (size_t sub = 0; sub < p.info.variant.sub_patterns.len; sub++) {
+                                    Pattern sub_p = p.info.variant.sub_patterns.array[sub];
+                                    if (sub_p.kind != PAT_WILDCARD && sub_p.kind != PAT_BINDING) {
+                                        variant_fully_covered = false; // e.g., a literal like '3' is refutable
+                                        break;
+                                    }
+                                }
+
+                                if (variant_fully_covered) {
+                                    covered[variant_nth] = true;
+                                }
+                            }
+                        }
+
+                        // Verify exhaustiveness
+                        if (!has_global_wildcard) {
+                            for (size_t k = 0; k < edef.variants.len; k++) {
+                                if (!covered[k]) {
+                                    // TokenSpan error_span = instr.info.match_meta__match.patterns.array[0].span;
+
+                                    char r_msg[256];
+                                    int len = snprintf(r_msg, sizeof(r_msg), "non-exhaustive match: missing variant '"SV_format"' (or refutable sub-pattern)", SV_v_args(edef.variants.array[k].name.span.sv));
+                                    const SV msg = SV_from_str_len(r_msg, len);
+
+                                    type_error(&source_info->source, &source_info->source_filename, &fn.error_info_list.array[instr.error_info_index].info.match_meta__match.match_kw.sv,&msg);
+                                    free(covered);
+                                    exit(1);
+                                }
+                            }
+                        }
+                        free(covered);
+                    } else if (target_t.ty == TC_TY_Primitive) {
+                        bool has_wildcard_or_bind = false;
+                        for (size_t n = 0; n < instr.info.match_meta__match.patterns.len; n++) {
+                            const Pattern p = instr.info.match_meta__match.patterns.array[n];
+                            if (p.kind == PAT_BINDING || p.kind == PAT_WILDCARD) {
+                                has_wildcard_or_bind = true;
+                                break;
+                            }
+                        }
+                        if (!has_wildcard_or_bind) {
+                            const SV msg = SV_from_str_len("non-exhaustive match: missing binding or wildcard (required for number matches)", 79);
+                            type_error(&source_info->source, &source_info->source_filename, &fn.error_info_list.array[instr.error_info_index].info.match_meta__match.match_kw.sv,&msg);
+                            exit(1);
+                        }
+                    } else {
+                        INTERNAL_ERROR("should be checked at this point to be either enum or number")
                     }
                     break;
                 }
+                case ENUM_GET_FIELD_PTR: {
+                    const TC_typeid et = temporals_map->array[instr.info.enum_get_field_ptr.enum_src.val].type;
+
+                    // const IR_temporal_and_TC_type et_t = perf_auto_deref(&et, &instr.info.enum_value_extract.enum_src, &highest_temporal, temporals_map);
+                    if (et.ty != TC_TY_Ref) {
+                        INTERNAL_ERROR()
+                    }
+
+                    const TC_typeid et_t_type = *et.info.contained;
+
+                    if (et_t_type.ty != TC_TY_Enum) {
+                        const SV et_sv = format_TC_typeid(&et_t_type, identifier_map, nct);
+                        char r_msg[256] = {0};
+                        int len = snprintf(r_msg, sizeof(r_msg), "expected enum type but got "C_BOLD""SV_format""C_RESET"", SV_v_args(et_sv));
+                        const SV msg = SV_from_str_len(r_msg, len);
+                        type_error(&source_info->source, &source_info->source_filename, &fn.error_info_list.array[instr.error_info_index].info.enum_get_field_ptr.whole.sv, &msg);
+                        exit(1);
+                    }
+                    const TC_enumdef edef = nct->enums.array[et_t_type.info.type_id];
+                    if (edef.name.identifier != instr.info.enum_get_field_ptr.enum_name.identifier) {
+                        char r_msg[256] = {0};
+                        int len = snprintf(r_msg, sizeof(r_msg), "expected enum '"SV_format"' but found '"SV_format"'", SV_v_args(edef.name.span.sv), SV_v_args(instr.info.enum_get_field_ptr.enum_name.span.sv));
+                        const SV msg = SV_from_str_len(r_msg, len);
+                        type_error(&source_info->source, &source_info->source_filename, &instr.info.enum_get_field_ptr.enum_name.span.sv, &msg);
+                        exit(1);
+                    }
+
+                    bool found_v = false;
+                    size_t v_nth = 0;
+                    for (size_t n = 0; n < edef.variants.len; n++) {
+                        if (edef.variants.array[n].name.identifier == instr.info.enum_get_field_ptr.variant_name.identifier) {
+                            found_v = true;
+                            v_nth = n;
+                            break;
+                        }
+                    }
+                    if (!found_v) {
+                        const SV msg = SV_from_str_len("unknown enum variant", 20);
+                        type_error(&source_info->source, &source_info->source_filename, &instr.info.enum_get_field_ptr.variant_name.span.sv, &msg);
+                        exit(1);
+                    }
+                    if (instr.info.enum_get_field_ptr.value_nth >= edef.variants.array[v_nth].values_len) {
+                        char r_msg[256] = {0};
+                        int len = snprintf(r_msg, sizeof(r_msg), "variant '"SV_format"' of enum '"SV_format" has only %lu values packed but %u-nth value was accessed",
+                            SV_v_args(instr.info.enum_get_field_ptr.variant_name.span.sv),
+                            SV_v_args(instr.info.enum_get_field_ptr.enum_name.span.sv),
+                            edef.variants.array[v_nth].values_len,
+                            instr.info.enum_get_field_ptr.value_nth + 1
+                        );
+                        const SV msg = SV_from_str_len(r_msg, len);
+                        type_error(&source_info->source, &source_info->source_filename, &fn.error_info_list.array[instr.error_info_index].info.enum_get_field_ptr.whole.sv, &msg);
+                        exit(1);
+                    }
+
+                    // const TC_typeid extracted_val_t = edef.variants.array[v_nth].values[instr.info.enum_get_field_ptr.value_nth];
+                    TC_typeid* extracted_val_t_r = malloc(sizeof(TC_typeid));
+                    *extracted_val_t_r = edef.variants.array[v_nth].values[instr.info.enum_get_field_ptr.value_nth];
+                    const TC_typeid extracted_val_t = (TC_typeid) {
+                        .ty = TC_TY_Ref,
+                        .info.contained = extracted_val_t_r,
+                    };
+                    const TC_typeid should_be_t = temporals_map->array[instr.info.enum_get_field_ptr.dest.val].type;
+
+                    if (!is_type_eq(&extracted_val_t, &should_be_t)) {
+                        const SV t1_sv = format_TC_typeid(&extracted_val_t, identifier_map, nct);
+                        const SV t2_sv = format_TC_typeid(&should_be_t, identifier_map, nct);
+                        char r_msg[256] = {0};
+                        int len = snprintf(r_msg, sizeof(r_msg), "expected type "C_BOLD""SV_format""C_RESET" but found "C_BOLD""SV_format""C_RESET"", SV_v_args(t2_sv), SV_v_args(t1_sv));
+                        const SV msg = SV_from_str_len(r_msg, len);
+                        type_error(&source_info->source, &source_info->source_filename, &fn.error_info_list.array[instr.error_info_index].info.enum_get_field_ptr.whole.sv, &msg);
+                        exit(1);
+                    }
+
+                    uint64_t val_offset = (edef.discriminant_size + edef.align - 1) & ~(edef.align - 1);
+                    for (size_t n = 0; n < instr.info.enum_get_field_ptr.value_nth; n++) {
+                        const SizeAlign sz = calc_size_of(&edef.variants.array[v_nth].values[n],nct, target_info);
+                        val_offset = (val_offset + sz.align - 1) & ~(sz.align - 1);
+                        val_offset += sz.size;
+                    }
+
+                    const SizeAlign sz = calc_size_of(extracted_val_t_r, nct, target_info);
+                    val_offset = (val_offset + sz.align - 1) & ~(sz.align - 1);
+
+
+                    printf("   %%%lu = CALC_PTR (%%%lu + %lu) {read size = %lu bytes}\n",
+                        instr.info.enum_get_field_ptr.dest.val,
+                        instr.info.enum_get_field_ptr.enum_src.val,
+                        val_offset,
+                        sz.size
+                    );
+
+                    // printf("   %%%lu = ENUM_VALUE_EXTRACT from %%%lu at offset %lu {.value size=%lu bytes}\n",
+                    //     instr.info.enum_value_extract.dest.val,
+                    //     et_t.temporal.val,
+                    //     val_offset,
+                    //     sz.size
+                    // );
+
+                    break;
+                }
+                case IR_INST_TY__ENUM_VARIANT_NUMBER_EXTRACT: {
+                    const TC_typeid enum_t = temporals_map->array[instr.info.enum_variant_number_extract.enum_src.val].type;
+                    // const IR_temporal_and_TC_type au_t = perf_auto_deref(&enum_t, &instr.info.enum_variant_number_extract.enum_src, &highest_temporal, temporals_map);
+
+                    if (enum_t.ty != TC_TY_Ref) {
+                        INTERNAL_ERROR()
+                    }
+
+                    const TC_typeid au_t_type = *enum_t.info.contained;
+
+                    if (au_t_type.ty != TC_TY_Enum) {
+                        // type_error(&source_info->source, &source_info->source_filename);
+                        exit(1);
+                    }
+                    const TC_enumdef edef = nct->enums.array[au_t_type.info.type_id];
+                    // printf("   %%%lu = ENUM_VARIANT_NUMBER EXTRACT from %%%lu {.variant number size=%u bytes}\n", instr.info.enum_variant_number_extract.dest.val, au_t.temporal.val, edef.discriminant_size);
+                    printf("   %%%lu = READ_PTR from (%%%lu + %u) {read size = %u bytes}\n",
+                        instr.info.enum_variant_number_extract.dest.val,
+                        instr.info.enum_variant_number_extract.enum_src.val,
+                        0u,
+                        edef.discriminant_size
+                    );
+                    break;
+                }
                 case IR_INST_TY__ENUM_VARIANT_NUMBER_FROM_TYPE: {
-                    INTERNAL_ERROR()
+                    INTERNAL_ERROR("should have been replaced by CONST_INT at type-inference pass")
                     break;
                 }
             }
@@ -4562,9 +4972,195 @@ MIR_func lowering_and_emission_pass_over_fn(
     };
 }
 
+typedef struct {
+    IR_temporal from;
+    IR_temporal to;
+} IR_temp_map;
+
+init_prefixed_list_type(IR_temp_map)
+
+void variable_storage_promotion_pass(
+    const IR_func fn,
+    khash_t(sv_u64_map)* restrict identifier_map,
+    const TC_Entry_LIST temporals,
+    IR_temporal_LIST* restrict promote_to_stack_temps,
+    const TC_TypeTable* restrict nct,
+    const TargetInfo* restrict target_info
+) {
+    /*
+
+    // Phase 1: Instruction scan — find temporals that must be addressable
+    for each block in fn.blocks (forward scan):
+        for each instruction in block.instructions:
+            match instruction.type:
+                VAR_DECL:
+                    temporals[instr.dest].is_addressable = true
+                REF_OF:
+                    temporals[instr.src].is_addressable = true
+                ASSIGN:
+                    temporals[instr.dest].is_addressable = true
+                MATCH_META__TARGET:
+                    temporals[instr.target].is_addressable = true
+
+    // Phase 2: Size-based promotion (large values can't fit in registers)
+    for each temporal n in 1..highest_temporal_number:
+        if !temporals[n].is_addressable:
+            sz = path_size_align_for_materialized_type(temporals[n].type, ...)
+            if sz.size > target_info->ptr_size:
+                temporals[n].is_addressable = true  // Rule R3
+
+    // Phase 3: Destructor-based promotion (RAII needs stable address)
+    for each temporal n in 1..highest_temporal_number:
+        if !temporals[n].is_addressable:
+            if temporals[n].type is in type_needing_destructor:
+                temporals[n].is_addressable = true  // Rule R7
+
+
+     */
+    
+    IR_temp_map_LIST temp_map = IR_temp_map_LIST_new();
+    
+    for (ptrdiff_t block_id = 0; block_id < (ptrdiff_t) fn.blocks.len; block_id++) {
+        const IR_block block = fn.blocks.array[block_id];
+        for (size_t instr_nth = 0; instr_nth < block.instructions.len; instr_nth++) {
+            const IR_instr instr = block.instructions.array[instr_nth];
+            switch (instr.ty) {
+                case IR_INST_TY__MOVE: {
+                    // check because of auto-ref
+                    const TC_typeid dest_ty = temporals.array[instr.info.move.dest.val].type;
+                    const TC_typeid src_ty = temporals.array[instr.info.move.src.val].type;
+                    if (dest_ty.ty != TC_TY_Ref) {
+                        break;
+                    }
+                    if (is_type_eq(&dest_ty, &src_ty)) {
+                        break;
+                    }
+                    if (src_ty.ty != TC_TY_Ref) {
+                        /// Ref<T> <- T
+                        IR_temporal_LIST_push(promote_to_stack_temps, instr.info.move.src);
+                        break;
+                    }
+                    // try to peel away simultaniously both to unpack the relationship
+                    TC_typeid d_ty = *dest_ty.info.contained;
+                    TC_typeid s_ty = *src_ty.info.contained;
+                    while(d_ty.ty == TC_TY_Ref && s_ty.ty == TC_TY_Ref) {
+                        d_ty = *d_ty.info.contained;
+                        s_ty = *s_ty.info.contained;
+                    }
+                    if(d_ty.ty == TC_TY_Ref && s_ty.ty != TC_TY_Ref) {
+                        IR_temporal_LIST_push(promote_to_stack_temps, instr.info.move.src);
+                        break;
+                    }
+                    
+                    // nope, do not promote
+                    
+                    break;
+                }
+                case IR_INST_TY__REF_OF: {
+                    IR_temporal_LIST_push(promote_to_stack_temps, instr.info.ref_of.src);
+                    break;
+                }
+                case IR_INST_TY__VAR_DECL: {
+                    const SizeAlign sz = calc_size_of(&temporals.array[instr.info.var_decl.dest.val].type, nct, target_info);
+                    if (sz.size > target_info->reg_size) {
+                        IR_temporal_LIST_push(promote_to_stack_temps, instr.info.var_decl.dest);
+                    }
+                    break;
+                }
+                case IR_INST_TY__ASSIGN: {
+                    // make a map record so that if %dest was determind for promotion, push it to %old
+                    IR_temp_map_LIST_push(&temp_map, (IR_temp_map){
+                        instr.info.assign.dest,
+                        instr.info.assign.old
+                    });
+                    break;
+                }
+                case IR_INST_TY__MATCH_META__TARGET: {
+                    IR_temporal_LIST_push(promote_to_stack_temps, instr.info.match_meta__target.target);
+                    break;
+                }
+                case IR_INST_TY__STORE_PTR:
+                    break;
+                case IR_INST_TY__GET_STRUCT_FIELD_PTR:
+                    break;
+                case IR_INST_TY__INDEX_PTR:
+                    break;
+                case IR_INST_TY__READ_PTR:
+                    break;
+                case IR_INST_TY__MATCH_META__MATCH:
+                    break;
+                case ENUM_GET_FIELD_PTR:
+                    break;
+                case IR_INST_TY__INVALID:
+                case IR_INST_TY__PHI:
+                case IR_INST_TY__DROP:
+                case IR_INST_TY__EXPLICIT_CAST:
+                case IR_INST_TY__CONST_INT:
+                case IR_INST_TY__CONST_FLOAT:
+                case IR_INST_TY__CONST_STRING:
+                case IR_INST_TY__MAKE_ARRAY:
+                case IR_INST_TY__OP_ADD:
+                case IR_INST_TY__OP_SUB:
+                case IR_INST_TY__OP_DIV:
+                case IR_INST_TY__OP_MUL:
+                case IR_INST_TY__OP_POW:
+                case IR_INST_TY__OP_OR:
+                case IR_INST_TY__OP_AND:
+                case IR_INST_TY__OP_CMP_EQ:
+                case IR_INST_TY__OP_CMP_NOT_EQ:
+                case IR_INST_TY__OP_CMP_LESS:
+                case IR_INST_TY__OP_CMP_LESS_EQ:
+                case IR_INST_TY__OP_CMP_GREATER:
+                case IR_INST_TY__OP_CMP_GREATER_EQ:
+                case IR_INST_TY__BRANCH:
+                case IR_INST_TY__JUMP:
+                case IR_INST_TY__RETURN_VOID:
+                case IR_INST_TY__RETURN:
+                case IR_INST_TY__FN_CALL_RETVOID:
+                case IR_INST_TY__FN_CALL_RETVAL:
+                case IR_INST_TY__MAKE_STRUCT:
+                case IR_INST_TY__MAKE_ENUM:
+                case IR_INST_TY__ENUM_VARIANT_NUMBER_EXTRACT:
+                case IR_INST_TY__ENUM_VARIANT_NUMBER_FROM_TYPE:
+                    break;
+            }
+        }
+    }
+    
+    // printf("--- temp_map --- \n");
+    // for(size_t n = 0; n < temp_map.len; n++) {
+    //     printf("  %%%lu -> %%%lu\n", temp_map.array[n].from.val, temp_map.array[n].to.val);
+    // }
+    while(1) {
+        bool had_new = false;
+        for(size_t n = 0; n < temp_map.len; n++) {
+            bool found_from = false;
+            bool found_to = false;
+            for(size_t p = 0; p < promote_to_stack_temps->len; p++) {
+                if (promote_to_stack_temps->array[p].val == temp_map.array[n].from.val) {
+                    found_from = true;
+                }
+                if (promote_to_stack_temps->array[p].val == temp_map.array[n].to.val) {
+                    found_to = true;
+                }
+                if(found_from && found_to) break;
+            }
+            if(found_from && !found_to) {
+                had_new = true;
+                IR_temporal_LIST_push(promote_to_stack_temps, temp_map.array[n].to);
+            }
+        }
+        if(!had_new) {
+            break;
+        }
+    }
+
+//     UNIMPLEMENTED("hey")
+}
+
 MIR_func TC_process_fn(
     const IR_func fn,
-    const khash_t(sv_u64_map)* restrict identifier_map,
+    khash_t(sv_u64_map)* restrict identifier_map,
     const IR_func_LIST* restrict functions,
     const CFFI_IR_extern_fn_LIST* restrict external_functions,
     TC_TypeTable* restrict nct,
@@ -4597,8 +5193,22 @@ MIR_func TC_process_fn(
         printf("}, {"SV_format"}\n", SV_v_args(e.type.full_typeuse_span.sv));
     }
 
+    /// determine if variable is no longer a pure temporal, but ALLOC->PTR
+    IR_temporal_LIST promote_to_stack_temps = IR_temporal_LIST_new();
+
+    variable_storage_promotion_pass(fn, identifier_map, temporals, &promote_to_stack_temps, nct, target_info);
+
+    printf("------- promote_to_stack_temps ---- \n");
+    for(size_t n = 0; n < promote_to_stack_temps.len; n++) {
+        printf("  %%%lu\n", promote_to_stack_temps.array[n].val);
+    }
+    
+//     UNIMPLEMENTED("variable storage promotion analys pass");
+
+    // todo: pass `promote_to_stack_temps` into lowering_and_emission_pass_over_fn
     const MIR_func mir_fn = lowering_and_emission_pass_over_fn(fn, identifier_map, functions, external_functions,
                                                                nct, target_info, source_info, &temporals,
+                                                               promote_to_stack_temps,
                                                                type_needing_destructor);
 
     TC_Entry_LIST_free(&temporals);
@@ -4608,7 +5218,7 @@ MIR_func TC_process_fn(
 /// typechecking pass (two passes) + lowering to MIR
 /// performs Bidirectional Typechecking
 void TC_typecheck_and_lower(
-    const khash_t(sv_u64_map)* restrict identifier_map,
+    khash_t(sv_u64_map)* restrict identifier_map,
     const IR_func_LIST* restrict functions,
     const CFFI_IR_extern_fn_LIST* restrict external_functions,
     TC_TypeTable* restrict nct,

@@ -80,6 +80,22 @@ void print_IR_instr(const IR_instr* restrict instr, const khash_t(sv_u64_map)* r
             break;
         }
 
+        case IR_INST_TY__ASSIGN: {
+            printf("%%%lu = ASSIGN .old=", instr->info.assign.dest.val);
+            if (instr->info.assign.old.val == 0) {
+                printf("None");
+            } else {
+                printf("%%%lu", instr->info.assign.old.val);
+            }
+            printf(", .new=%%%lu", instr->info.assign.new.val);
+            break;
+        }
+
+        case IR_INST_TY__REF_OF: {
+            printf("%%%lu = REF_OF %%%lu", instr->info.ref_of.dest.val, instr->info.ref_of.src.val);
+            break;
+        }
+
         case IR_INST_TY__VAR_DECL: {
             printf("VAR_DECL $"SV_format" %%%lu {"SV_format"}", SV_v_args(instr->info.var_decl.var_name.span.sv), instr->info.var_decl.dest.val, SV_v_args(instr->info.var_decl.type->full_typeuse_span.sv));
             break;
@@ -282,11 +298,11 @@ void print_IR_instr(const IR_instr* restrict instr, const khash_t(sv_u64_map)* r
             printf("META: MATCH (%%%lu) { ...patterns }", instr->info.match_meta__target.target.val);
             break;
         }
-        case IR_INST_TY__ENUM_VALUE_EXTRACT: {
-            printf("%%%lu = ENUM_VALUE_EXTRACT from %%%lu as "SV_format"::"SV_format" %u-nth value",
-                instr->info.enum_value_extract.dest.val,
-                instr->info.enum_value_extract.enum_src.val,
-                SV_v_args(instr->info.enum_value_extract.enum_name.span.sv), SV_v_args(instr->info.enum_value_extract.variant_name.span.sv), instr->info.enum_value_extract.value_nth);
+        case ENUM_GET_FIELD_PTR: {
+            printf("%%%lu = ENUM_GET_FIELD_PTR from %%%lu as "SV_format"::"SV_format" %u-nth value",
+                instr->info.enum_get_field_ptr.dest.val,
+                instr->info.enum_get_field_ptr.enum_src.val,
+                SV_v_args(instr->info.enum_get_field_ptr.enum_name.span.sv), SV_v_args(instr->info.enum_get_field_ptr.variant_name.span.sv), instr->info.enum_get_field_ptr.value_nth);
             break;
         }
         case IR_INST_TY__ENUM_VARIANT_NUMBER_EXTRACT: {

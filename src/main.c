@@ -25,7 +25,7 @@ int main(const int argc, char* argv[]) {
 
     SVList_free(&list);
 
-    const char* raw_source_filename = "g.klep";
+    const char* raw_source_filename = "programs/i.klep";
     const SV source_filename = SV_from_str(raw_source_filename);
 
     FILE* source_file = fopen(raw_source_filename, "rb");
@@ -74,8 +74,9 @@ void compile(const SV source, const SV source_filename) {
     SVList tokens = p_tokenize(source);
 
     const TargetInfo target_info = (TargetInfo) {
-        .ptr_size = 4,
-        .f64_align = 4
+        4,
+        4,
+        8
     };
 
     const SourceInfo source_info = (SourceInfo) {
