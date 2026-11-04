@@ -6,5 +6,62 @@ Void cumo() {
 
     Int32 m = 1;
     m = 2;
+    m = 3;
+    m = 4;
+    m = 5;
     Ref<Int32> mref = m;
 }
+
+Void while_if() {
+    Uint i = 0;
+    Uint isum = 0;
+    while i <= 10 {
+        if i >= 5 {
+            isum += 1;
+        } else {
+            isum += 2;
+        }
+        i += 1;
+    }
+}
+
+Uint while_if_ref_i() {
+    Uint i = 0;
+    Uint isum = 0;
+    while i <= 10 {
+        if i >= 5 {
+            isum += 1;
+        } else {
+            isum += 2;
+        }
+        Ref<Uint> r = i;
+        r += 1;
+    }
+    return isum;
+}
+
+
+Uint while_if_ref_isum() {
+    Uint i = 0;
+    Uint isum = 0;
+    while i <= 10 {
+        if i >= 5 {
+            isum += 1;
+        } else {
+            isum += 2;
+        }
+        Ref<Uint> r = isum;
+        r += 10;
+        i += 1;
+    }
+    return isum;
+}
+
+// triggers internal error due to unknown inference for the [...][index]
+// Void large_var_test() {
+//     Array<Int64, 2> arr = [1, 4];
+//     Int64 a = arr[0];
+//     Int64 b = arr[1];
+//     Int c = ([1,2,3])[1];
+// }
+

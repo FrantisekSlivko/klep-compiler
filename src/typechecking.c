@@ -2,9 +2,12 @@
 
 #include <stddef.h>
 
+#include "common_parser_typecompletion.h"
 #include "error.h"
 #include "ir.h"
 #include "list.h"
+#include "string_view.h"
+#include "target.h"
 #include "typecompletion.h"
 #include "utils/dev.h"
 #include "utils/color.h"
@@ -981,23 +984,27 @@ void type_inference_pass_over_fn(
 
                     const TC_typeid dest_t = temporals_map->array[instr.info.assign.dest.val].type;
 
-                    temporals_map->array[instr.info.assign.old.val] = (TC_Entry){
-                        .known_temporal = true,
-                        .type = dest_t,
-                        .is_addressable = false,
-                        .is_value_known = false,
-                    };
+                    if(!temporals_map->array[instr.info.assign.old.val].known_temporal) {
+                        temporals_map->array[instr.info.assign.old.val] = (TC_Entry){
+                            .known_temporal = true,
+                            .type = dest_t,
+                            .is_addressable = false,
+                            .is_value_known = false,
+                        };
+                    }
 
                     const TC_typeid new_t = dest_t.ty == TC_TY_Ref ? *dest_t.info.contained : dest_t;
 
-                    temporals_map->array[instr.info.assign.new.val] = (TC_Entry){
-                        .known_temporal = true,
-                        .type = new_t,
-                        .is_addressable = false,
-                        .is_value_known = false,
-                    };
+                    if(!temporals_map->array[instr.info.assign.new.val].known_temporal) {
+                        temporals_map->array[instr.info.assign.new.val] = (TC_Entry){
+                            .known_temporal = true,
+                            .type = new_t,
+                            .is_addressable = false,
+                            .is_value_known = false,
+                        };
+                    }
+                    break;
                 }
-
                 case IR_INST_TY__CONST_INT: {
                     // set as INT32 if unknown temporal and make the pass repeat
                     if (!temporals_map->array[instr.info.const_int.dest.val].known_temporal) {
@@ -1090,6 +1097,9 @@ void type_inference_pass_over_fn(
                     if (!temporals_map->array[instr.info.move.dest.val].known_temporal) break;
 
                     const TC_typeid dest_type = temporals_map->array[instr.info.move.dest.val].type;
+                    
+                    // when dest is REF, it is unknow if src is T or Ref<T> or Ref<Ref<T>>
+                    if (dest_type.ty == TC_TY_Ref) break;
 
                     if (!temporals_map->array[instr.info.move.src.val].known_temporal) {
                         // Do not propagate type backward if the src is a REF_OF destination.
@@ -1985,19 +1995,77 @@ void type_inference_pass_over_fn(
     free(ref_of_dests);
 }
 
+/// from value to stack slot
+static bool is_promoted(const IR_temporal_LIST* promoted, IR_temporal t) {
+    for (size_t n = 0; n < promoted->len; n++) {
+        if (promoted->array[n].val == t.val) return true;
+    }
+    return false;
+}
+
+SizeAlign calc_size_of(const TC_typeid* type, const TC_TypeTable* restrict nct, const TargetInfo* restrict target_info);
+
+static bool is_scalar_loadable(const TC_typeid* t, const TC_TypeTable* nct, const TargetInfo* ti) {
+    switch (t->ty) {
+        case TC_TY_Primitive:
+        case TC_TY_Ref:
+        case TC_TY_Box:
+            return calc_size_of(t, nct, ti).size <= ti->reg_size;
+        default:
+            return false;
+    }
+}
+
+// todo: any use of value in slot needs LOAD on use as value
+IR_temporal use_value(
+    const IR_temporal t, 
+    size_t* restrict highest_temporal, 
+    TC_Entry_LIST* restrict temporals_map,
+    const IR_temporal_LIST* promoted,
+    const TC_TypeTable* restrict nct,
+    const TargetInfo* restrict target_info
+) {
+    
+    if (!is_promoted(promoted, t)) return t;
+    if (!temporals_map->array[t.val].is_addressable) return t;
+    if (!is_scalar_loadable(&temporals_map->array[t.val].type, nct, target_info)) return t;
+
+
+    
+    const uint64_t new_temporal = (*highest_temporal)++;
+    printf("   %%%lu = LOAD %%%lu (from slot)\n", new_temporal, t.val);
+    
+    while(temporals_map->len <= new_temporal) TC_Entry_LIST_push(temporals_map, (TC_Entry) {
+        .known_temporal = false
+    });
+    temporals_map->array[new_temporal] = temporals_map->array[t.val];
+    temporals_map->array[new_temporal].is_addressable = false;
+        
+    return (IR_temporal){new_temporal};    
+}
+
 typedef struct {
     IR_temporal temporal;
     TC_typeid type;
 } IR_temporal_and_TC_type;
 
 // while Ref<T>, unpack
-IR_temporal_and_TC_type perf_auto_deref(const TC_typeid* type, const IR_temporal* intake, size_t* highest_temporal,
-                                        TC_Entry_LIST* temporals_map) {
+IR_temporal_and_TC_type perf_auto_deref(
+    const TC_typeid* type, 
+    const IR_temporal* intake, 
+    size_t* highest_temporal,
+    TC_Entry_LIST* temporals_map,
+    const IR_temporal_LIST* promoted,
+    const TC_TypeTable* restrict nct,
+    const TargetInfo* restrict target_info
+) {
     if (type->ty != TC_TY_Ref) {
-        return (IR_temporal_and_TC_type){.temporal = *intake, .type = *type};
+        const IR_temporal v = use_value(*intake, highest_temporal, temporals_map, promoted, nct, target_info);
+        return (IR_temporal_and_TC_type){.temporal = v, .type = *type}; //  = *intake
     }
     TC_typeid t = *type;
-    uint64_t te = intake->val;
+//     uint64_t te = intake->val;
+    uint64_t te = use_value(*intake, highest_temporal, temporals_map, promoted, nct, target_info).val;
     while (t.ty == TC_TY_Ref) {
         const uint64_t new_temporal = (*highest_temporal)++;
         printf("   %%%lu = READ_PTR %%%lu\n", new_temporal, te);
@@ -2486,8 +2554,8 @@ bool can_be_implicit_casted(const TC_typeid* from, const TC_typeid* to) {
         }
     }
     return false;
-    UNIMPLEMENTED()
 }
+
 
 /// on type ERROR: returns t->void, a->is_error -> T(1)/F(0), b->is_error -> T(1)/F(0)
 DoubleIR_temporal_and_TC_typeid perf_numeric_promotion(
@@ -2499,14 +2567,17 @@ DoubleIR_temporal_and_TC_typeid perf_numeric_promotion(
     bool* is_out_error,
     bool* is_out_error_incompatible_number_relation,
     TC_Entry_LIST* temporals_map,
-    const TC_Value_LIST* temporals_map_values
+    const TC_Value_LIST* temporals_map_values,
+    const IR_temporal_LIST* promoted,
+    const TC_TypeTable* restrict nct,
+    const TargetInfo* restrict target_info
 ) {
     const TC_typeid safe_a_type = *a_type;
     const TC_typeid safe_b_type = *b_type;
 
 
-    const IR_temporal_and_TC_type derefered_a = perf_auto_deref(&safe_a_type, a, highest_temporal, temporals_map);
-    const IR_temporal_and_TC_type derefered_b = perf_auto_deref(&safe_b_type, b, highest_temporal, temporals_map);
+    const IR_temporal_and_TC_type derefered_a = perf_auto_deref(&safe_a_type, a, highest_temporal, temporals_map, promoted, nct, target_info);
+    const IR_temporal_and_TC_type derefered_b = perf_auto_deref(&safe_b_type, b, highest_temporal, temporals_map, promoted, nct, target_info);
 
     {
         // check if derefered_a and derefered_b are number types
@@ -2653,9 +2724,16 @@ DoubleIR_temporal_and_TC_typeid perf_numeric_promotion(
 }
 
 // The Condition Coercer
-IR_temporal perf_bool(const IR_temporal* intake, const TC_typeid* intake_type, size_t* highest_temporal,
-                      TC_Entry_LIST* temporals_map) {
-    const IR_temporal_and_TC_type derefd = perf_auto_deref(intake_type, intake, highest_temporal, temporals_map);
+IR_temporal perf_bool(
+    const IR_temporal* intake, 
+    const TC_typeid* intake_type, 
+    size_t* highest_temporal,
+    TC_Entry_LIST* temporals_map, 
+    const IR_temporal_LIST* promoted,
+    const TC_TypeTable* restrict nct,
+    const TargetInfo* restrict target_info
+) {
+    const IR_temporal_and_TC_type derefd = perf_auto_deref(intake_type, intake, highest_temporal, temporals_map, promoted, nct, target_info);
     if (derefd.type.ty == TC_TY_Primitive && derefd.type.info.primitive == TC_Primitive__Bool) {
         return derefd.temporal;
     }
@@ -2686,8 +2764,12 @@ IR_temporal perf_bool(const IR_temporal* intake, const TC_typeid* intake_type, s
 }
 
 
-IR_temporal_and_TC_type perf_auto_ref(const IR_temporal* intake, const TC_typeid* intake_type, size_t* highest_temporal,
-                                      TC_Entry_LIST* temporals_map) {
+IR_temporal_and_TC_type perf_auto_ref(
+    const IR_temporal* intake, 
+    const TC_typeid* intake_type, 
+    size_t* highest_temporal,
+    TC_Entry_LIST* temporals_map
+) {
     const uint64_t new_temporal = (*highest_temporal)++;
     printf("   %%%lu = REF_OF %%%lu\n", new_temporal, intake->val);
 
@@ -2710,6 +2792,7 @@ IR_temporal_and_TC_type perf_auto_ref(const IR_temporal* intake, const TC_typeid
     return (IR_temporal_and_TC_type){.temporal = (IR_temporal){.val = new_temporal}, .type = nt};
 }
 
+
 IR_temporal perf_autos(
     const IR_temporal* restrict intake,
     const TC_typeid* intake_type,
@@ -2720,13 +2803,27 @@ IR_temporal perf_autos(
     TC_Entry_LIST* restrict temporals_map,
     const SourceInfo* restrict source_info,
     const SV* value_token,
-    TC_Value_LIST* temporals_map_values
+    TC_Value_LIST* temporals_map_values,
+    const IR_temporal_LIST* promoted,
+    const TargetInfo* restrict target_info
 ) {
     if (is_type_eq(intake_type, output_type)) {
-        return *intake;
+        return use_value(*intake, highest_temporal, temporals_map, promoted, nct, target_info);
     }
 
-    uint64_t current_temp = intake->val;
+//     uint64_t current_temp = intake->val;
+    
+//     uint64_t current_temp = use_value(*intake, highest_temporal, temporals_map).val;
+    const bool wants_auto_ref =
+        output_type->ty == TC_TY_Ref &&
+        intake_type->ty != TC_TY_Ref &&
+        is_type_eq(output_type->info.contained, intake_type);
+
+    uint64_t current_temp = wants_auto_ref
+        ? intake->val
+        : use_value(*intake, highest_temporal, temporals_map, promoted, nct, target_info).val;
+    
+    
     TC_typeid current_type = *intake_type;
     while (current_type.ty == TC_TY_Ref) {
         const uint64_t new_temporal = (*highest_temporal)++;
@@ -2917,7 +3014,8 @@ void find_type_param_parallel(const IR_typeuse* restrict t1, const TC_typeid* re
             for (size_t n = 0; n < generic_args->len; n++) {
                 if (generic_args->array[n].identifier == t1->info.named.identifier) {
                     // t2->ty
-                    bool found = false;
+                    bool found
+                     = false;
                     size_t found_nth = 0;
                     for (size_t k = 0; k < out->len; k++) {
                         if (out->array[k].generic_name.identifier == generic_args->array[n].identifier) {
@@ -3257,6 +3355,216 @@ const IR_func* materialize_function(const IR_generic_function* restrict gf, cons
     return &nct->materialized_generic_functions.array[nct->materialized_generic_functions.len - 1].fn;
 }
 
+typedef struct {
+    bool has_rewrite;
+    IR_temporal rewrite;
+} IR_rewrite;
+
+init_prefixed_list_type(IR_rewrite)
+
+IR_temporal resolve(IR_temporal in, const IR_rewrite_LIST* restrict rewrite_map) {
+    IR_temporal tmp = in;
+    uint32_t cnt = 0;
+    while(rewrite_map->array[tmp.val].has_rewrite) {
+        if(cnt > 1000) {
+            INTERNAL_ERROR("infinite rewrite (.in=%%%lu, .tmp=%%%lu)", in.val, tmp.val);
+        }
+        tmp = rewrite_map->array[tmp.val].rewrite;
+        cnt++;
+        if(tmp.val == in.val) {
+            INTERNAL_ERROR("cyclic rewrite (.in=%%%lu)", in.val);
+        }
+    }
+    // if(in.val != tmp.val) printf("resolved %%%lu as %%%lu\n", in.val, tmp.val);
+    return tmp;
+}
+
+void resolve_patterns(Pattern_LIST* restrict patterns, const IR_rewrite_LIST* restrict rewrite_map) {
+    for(size_t n = 0; n < patterns->len; n++) {
+        switch (patterns->array[n].kind) {
+            case PAT_LITERAL_INT:
+            case PAT_LITERAL_FLOAT:
+                break;
+            case PAT_BINDING: {
+                patterns->array[n].info.binding.temp = resolve(patterns->array[n].info.binding.temp, rewrite_map);
+                break;
+            }
+            case PAT_VARIANT: {
+                resolve_patterns(&patterns->array[n].info.variant.sub_patterns, rewrite_map);
+                break;
+            }
+            case PAT_WILDCARD:
+                break;
+        }
+    }
+}
+
+IR_instr instr_rewrite_process(const IR_instr instr, const IR_rewrite_LIST* restrict rewrite_map) {
+    IR_instr out = instr;
+    switch (out.ty) {
+        case IR_INST_TY__INVALID:
+            break;
+        case IR_INST_TY__PHI: {
+            out.info.phi.dest = resolve(out.info.phi.dest, rewrite_map);
+            for(size_t n = 0; n < out.info.phi.args->len; n++) {
+                out.info.phi.args->array[n].temp = resolve(out.info.phi.args->array[n].temp, rewrite_map);
+            }
+            break;
+        }
+        case IR_INST_TY__DROP: {
+            out.info.drop.dest = resolve(instr.info.drop.dest, rewrite_map);
+            break;
+        }
+        case IR_INST_TY__MOVE: {
+            out.info.move.src = resolve(out.info.move.src, rewrite_map);
+            out.info.move.dest = resolve(out.info.move.dest, rewrite_map);
+            break;
+        }
+        case IR_INST_TY__ASSIGN: {
+            out.info.assign.dest = resolve(out.info.assign.dest, rewrite_map);
+            out.info.assign.new = resolve(out.info.assign.new, rewrite_map);
+            out.info.assign.old = resolve(out.info.assign.old, rewrite_map);
+            break;
+        }
+        case IR_INST_TY__REF_OF: {
+            out.info.ref_of.dest = resolve(out.info.ref_of.dest, rewrite_map);
+            out.info.ref_of.src = resolve(out.info.ref_of.src, rewrite_map);
+            break;
+        }
+        case IR_INST_TY__VAR_DECL: {
+            out.info.var_decl.dest = resolve(out.info.var_decl.dest, rewrite_map);
+            break;
+        }
+        case IR_INST_TY__STORE_PTR: {
+            out.info.store_ptr.ptr = resolve(out.info.store_ptr.ptr, rewrite_map);
+            out.info.store_ptr.value = resolve(out.info.store_ptr.value, rewrite_map);
+            break;
+        }
+        case IR_INST_TY__EXPLICIT_CAST: {
+            out.info.explicit_cast.dest = resolve(out.info.explicit_cast.dest, rewrite_map);
+            out.info.explicit_cast.src = resolve(out.info.explicit_cast.src, rewrite_map);
+            break;
+        }
+        case IR_INST_TY__CONST_INT: {
+            out.info.const_int.dest = resolve(out.info.const_int.dest, rewrite_map);
+            break;
+        }
+        case IR_INST_TY__CONST_FLOAT: {
+            out.info.const_float.dest = resolve(out.info.const_float.dest, rewrite_map);
+            break;
+        }
+        case IR_INST_TY__CONST_STRING: {
+            out.info.const_string.dest = resolve(out.info.const_string.dest, rewrite_map);
+            break;
+        }
+        case IR_INST_TY__MAKE_ARRAY: {
+            out.info.make_array.dest = resolve(out.info.make_array.dest, rewrite_map);
+            for(size_t n = 0; n < out.info.make_array.items->len; n++) {
+                out.info.make_array.items->array[n] = resolve(out.info.make_array.items->array[n], rewrite_map);
+            }
+            break;
+        }
+        case IR_INST_TY__OP_ADD:
+        case IR_INST_TY__OP_SUB:
+        case IR_INST_TY__OP_DIV:
+        case IR_INST_TY__OP_MUL:
+        case IR_INST_TY__OP_POW:
+        case IR_INST_TY__OP_OR:
+        case IR_INST_TY__OP_AND:
+        case IR_INST_TY__OP_CMP_EQ:
+        case IR_INST_TY__OP_CMP_NOT_EQ:
+        case IR_INST_TY__OP_CMP_LESS:
+        case IR_INST_TY__OP_CMP_LESS_EQ:
+        case IR_INST_TY__OP_CMP_GREATER:
+        case IR_INST_TY__OP_CMP_GREATER_EQ: {
+            out.info.math_cmp_boolean_op.dest = resolve(out.info.math_cmp_boolean_op.dest, rewrite_map);
+            out.info.math_cmp_boolean_op.src1 = resolve(out.info.math_cmp_boolean_op.src1, rewrite_map);
+            out.info.math_cmp_boolean_op.src2 = resolve(out.info.math_cmp_boolean_op.src2, rewrite_map);
+            break;
+        }
+        case IR_INST_TY__BRANCH: {
+            out.info.branch.cond = resolve(out.info.branch.cond, rewrite_map);
+            break;
+        }
+        case IR_INST_TY__JUMP:
+            break;
+        case IR_INST_TY__RETURN_VOID:
+            break;
+        case IR_INST_TY__RETURN: {
+            out.info.return_value = resolve(out.info.return_value, rewrite_map);
+            break;
+        } 
+        case IR_INST_TY__GET_STRUCT_FIELD_PTR: {
+            out.info.get_struct_field_ptr.struct_ptr = resolve(out.info.get_struct_field_ptr.struct_ptr, rewrite_map);
+            out.info.get_struct_field_ptr.dest = resolve(out.info.get_struct_field_ptr.dest, rewrite_map);
+            break;
+        }
+        case IR_INST_TY__INDEX_PTR: {
+            out.info.index_ptr.index_val = resolve(out.info.index_ptr.index_val, rewrite_map);
+            out.info.index_ptr.array_ptr = resolve(out.info.index_ptr.array_ptr, rewrite_map);
+            out.info.index_ptr.dest = resolve(out.info.index_ptr.dest, rewrite_map);
+            break;
+        }
+        case IR_INST_TY__READ_PTR: {
+            out.info.read_ptr.dest = resolve(out.info.read_ptr.dest, rewrite_map);
+            out.info.read_ptr.ptr = resolve(out.info.read_ptr.ptr, rewrite_map);
+            break;
+        }
+        case IR_INST_TY__FN_CALL_RETVOID: {
+            for(size_t n = 0; n < out.info.fn_call_retvoid.args->len; n++) {
+                out.info.fn_call_retvoid.args->array[n] = resolve(out.info.fn_call_retvoid.args->array[n], rewrite_map);
+            }
+            break;
+        }
+        case IR_INST_TY__FN_CALL_RETVAL: {
+            out.info.fn_call_retval.dest = resolve(out.info.fn_call_retval.dest, rewrite_map);
+            for(size_t n = 0; n < out.info.fn_call_retval.args->len; n++) {
+                out.info.fn_call_retval.args->array[n] = resolve(out.info.fn_call_retval.args->array[n], rewrite_map);
+            }
+            break;
+        }
+        case IR_INST_TY__MAKE_STRUCT: {
+            out.info.make_struct.dest = resolve(out.info.make_struct.dest, rewrite_map);
+            for(size_t n = 0; n < out.info.make_struct.args->len; n++) {
+                out.info.make_struct.args->array[n].value = resolve(out.info.make_struct.args->array[n].value, rewrite_map);
+            }
+            break;
+        }
+        case IR_INST_TY__MAKE_ENUM: {
+            out.info.make_enum.dest = resolve(out.info.make_enum.dest, rewrite_map);
+            for(size_t n = 0; n < out.info.make_enum.args->len; n++) {
+                out.info.make_enum.args->array[n] = resolve(out.info.make_enum.args->array[n], rewrite_map);
+            }
+            break;
+        }
+        case IR_INST_TY__MATCH_META__TARGET: {
+            out.info.match_meta__target.target = resolve(out.info.match_meta__target.target, rewrite_map);
+            break;
+        }
+        case IR_INST_TY__MATCH_META__MATCH: {
+            out.info.match_meta__match.target = resolve(out.info.match_meta__match.target, rewrite_map);
+            resolve_patterns(&out.info.match_meta__match.patterns, rewrite_map);
+            break;
+        }
+        case ENUM_GET_FIELD_PTR: {
+            out.info.get_struct_field_ptr.struct_ptr = resolve(out.info.get_struct_field_ptr.struct_ptr, rewrite_map);
+            out.info.get_struct_field_ptr.dest = resolve(out.info.get_struct_field_ptr.dest, rewrite_map);
+            break;
+        }
+        case IR_INST_TY__ENUM_VARIANT_NUMBER_EXTRACT: {
+            out.info.enum_variant_number_extract.enum_src = resolve(out.info.enum_variant_number_extract.enum_src, rewrite_map);
+            out.info.enum_variant_number_extract.dest = resolve(out.info.enum_variant_number_extract.dest, rewrite_map);
+            break;
+        }
+        case IR_INST_TY__ENUM_VARIANT_NUMBER_FROM_TYPE: {
+            out.info.enum_variant_number_from_type.dest = resolve(out.info.enum_variant_number_from_type.dest, rewrite_map);
+            break;
+        }
+    }
+    return out;
+}
+
+
 MIR_func lowering_and_emission_pass_over_fn(
     const IR_func fn,
     const khash_t(sv_u64_map)* restrict identifier_map,
@@ -3270,6 +3578,15 @@ MIR_func lowering_and_emission_pass_over_fn(
     TC_typeid_LIST* restrict type_needing_destructor
 ) {
     printf("LINEAR TYPECHECK AND LOWERING:\n");
+    
+    
+    IR_rewrite_LIST rewrite_map = IR_rewrite_LIST_new_with_capacity(temporals_map->len);
+    for(size_t n = 0; n < temporals_map->len; n++) {
+        IR_rewrite_LIST_push(&rewrite_map, (IR_rewrite) {
+            false,
+            (IR_temporal) {0}
+        });
+    }
 
     TC_Value_LIST temporals_map_values = TC_Value_LIST_new_with_capacity(fn.highest_temporal_number + 1);
     size_t highest_temporal = fn.highest_temporal_number + 1;
@@ -3283,7 +3600,12 @@ MIR_func lowering_and_emission_pass_over_fn(
 
         printf("  BLOCK %lu:\n", block_id);
         for (size_t instr_nth = 0; instr_nth < block.instructions.len; instr_nth++) {
-            const IR_instr instr = block.instructions.array[instr_nth];
+            const IR_instr instr_original = block.instructions.array[instr_nth];
+
+            const IR_instr instr = instr_rewrite_process(instr_original, &rewrite_map);
+
+            
+            
 
             switch (instr.ty) {
                 case IR_INST_TY__INVALID: {
@@ -3293,6 +3615,15 @@ MIR_func lowering_and_emission_pass_over_fn(
 
                 case IR_INST_TY__ASSIGN: {
                     bool is_value = true;
+                    if(
+                        temporals_map->array[instr.info.assign.old.val].type.ty == TC_TY_Ref &&
+                        !(temporals_map->array[instr.info.assign.new.val].type.ty == TC_TY_Ref)
+                    ) {
+                        printf("   STORE INTO %%%lu VALUE %%%lu (ASSIGN)\n", instr.info.assign.old.val, instr.info.assign.new.val);
+                        rewrite_map.array[instr.info.assign.dest.val].has_rewrite = true;
+                        rewrite_map.array[instr.info.assign.dest.val].rewrite = instr.info.assign.old;
+                        break;
+                    }
                     for(size_t n = 0; n < promote_to_stack_temps.len; n++) {
                         if(
                             promote_to_stack_temps.array[n].val == instr.info.assign.old.val ||
@@ -3302,12 +3633,17 @@ MIR_func lowering_and_emission_pass_over_fn(
                             break;
                         }
                     }
+                    
                     if (is_value) {
                         printf("   %%%lu = MOVE %%%lu (ASSIGN)\n", instr.info.assign.dest.val, instr.info.assign.new.val);
                         printf("   DROP %%%lu (ASSIGN)\n", instr.info.assign.old.val);
                     } else {
-                        printf("   STORE %%%lu, %%%lu (ASSIGN)\n", instr.info.assign.old.val, instr.info.assign.new.val);
-                        printf("   %%%lu = MOVE %%%lu (ASSIGN)\n", instr.info.assign.dest.val, instr.info.assign.old.val);
+                        printf("   STORE INTO %%%lu VALUE %%%lu (ASSIGN)\n", instr.info.assign.old.val, instr.info.assign.new.val);
+                        // todo: rewrite %dest to %old everywhere
+                        // URGENT
+                        rewrite_map.array[instr.info.assign.dest.val].has_rewrite = true;
+                        rewrite_map.array[instr.info.assign.dest.val].rewrite = instr.info.assign.old;
+                        printf("   [D] rewrite_map.add(rewrite %%%lu to %%%lu)\n", instr.info.assign.dest.val, instr.info.assign.old.val);
                     }
 //                     instr.info.assign.old
 //                     UNIMPLEMENTED()
@@ -3318,13 +3654,69 @@ MIR_func lowering_and_emission_pass_over_fn(
                     // Typecheck: Ensure all incoming PHI branches are the exact same type
                     // instr.info.phi.dest.val is the source of truth
                     const TC_typeid dest_t = temporals_map->array[instr.info.phi.dest.val].type;
-
+                    
                     for (size_t n = 0; n < instr.info.phi.args->len; n++) {
                         const IR_temporal_block_phi_record* record = &instr.info.phi.args->array[n];
 
                         if (!is_type_eq(&dest_t, &temporals_map->array[record->temp.val].type)) {
-                            INTERNAL_ERROR("PHI: should not happen because of backward inference pass");
+                            const SV dest_t_sv = format_TC_typeid(&dest_t, identifier_map, nct);
+                            const SV sec_t_sv = format_TC_typeid(&temporals_map->array[record->temp.val].type, identifier_map, nct);
+                            INTERNAL_ERROR("PHI: should not happen because of backward inference pass, .dest_t = '"SV_format"', .sec_t = '"SV_format"'", SV_v_args(dest_t_sv), SV_v_args(sec_t_sv));
                         }
+                    }
+                    
+                    bool promoted = false;
+                    for(size_t n = 0; n < promote_to_stack_temps.len; n++) {
+                        if(promote_to_stack_temps.array[n].val == instr.info.phi.dest.val) {
+                            promoted = true;
+                            break;
+                        }
+                    }
+                    if(promoted) {
+                        // for(size_t n = 0; n < instr.info.phi.args->len; n++) {
+                        //     rewrite_map.array[instr.info.phi.args->array[n].temp.val].has_rewrite = true;
+                        //     rewrite_map.array[instr.info.phi.args->array[n].temp.val].rewrite = instr.info.phi.dest;
+                        // }
+                        // break;
+                        IR_temporal slot = {0};
+                        bool have_slot = false;
+                    
+                        for (size_t n = 0; n < instr.info.phi.args->len; n++) {
+                            IR_temporal a = instr.info.phi.args->array[n].temp;
+                            if (a.val == instr.info.phi.dest.val) continue;
+                            if (!temporals_map->array[a.val].is_addressable) continue;
+                            slot = a;
+                            have_slot = true;
+                            break;
+                        }
+                        if (!have_slot) {
+                            slot = instr.info.phi.dest;
+                            if (!temporals_map->array[slot.val].is_addressable) {
+                                INTERNAL_ERROR("promoted PHI has no lowered slot owner");
+                            }
+                        }
+                    
+                        // IR_temporal targets[1 + 64];
+                        // size_t nt = 0;
+                        // targets[nt++] = instr.info.phi.dest;
+                        // for (size_t n = 0; n < instr.info.phi.args->len; n++) {
+                        //     targets[nt++] = instr.info.phi.args->array[n].temp;
+                        // }
+                        // for (size_t n = 0; n < nt; n++) {
+                        //     if (targets[n].val == slot.val) continue;
+                        //     rewrite_map.array[targets[n].val].has_rewrite = true;
+                        //     rewrite_map.array[targets[n].val].rewrite = slot;
+                        // }
+                        for(size_t n = 0; n < instr.info.phi.args->len; n++) {
+                            if(instr.info.phi.args->array[n].temp.val == slot.val) continue;
+                            rewrite_map.array[instr.info.phi.args->array[n].temp.val].has_rewrite = true;
+                            rewrite_map.array[instr.info.phi.args->array[n].temp.val].rewrite = slot;
+                        }
+                        if(instr.info.phi.dest.val != slot.val) {
+                            rewrite_map.array[instr.info.phi.dest.val].has_rewrite = true;
+                            rewrite_map.array[instr.info.phi.dest.val].rewrite = slot;
+                        }
+                        break;
                     }
 
 
@@ -3354,6 +3746,8 @@ MIR_func lowering_and_emission_pass_over_fn(
                     // auto-deref, auto-ref, ...
                     const TC_typeid dest_t = temporals_map->array[instr.info.move.dest.val].type;
                     const TC_typeid src_t = temporals_map->array[instr.info.move.src.val].type;
+                    
+//                     printf("[D] %%%lu = MOVE %%%lu\n", instr.info.move.dest.val, instr.info.move.src.val);
 
                     const IR_temporal out = perf_autos(
                         &instr.info.move.src,
@@ -3365,7 +3759,9 @@ MIR_func lowering_and_emission_pass_over_fn(
                         temporals_map,
                         source_info,
                         &fn.error_info_list.array[instr.error_info_index].info.move.value.sv,
-                        &temporals_map_values
+                        &temporals_map_values,
+                        &promote_to_stack_temps,
+                        target_info
                     );
                     printf("   %%%lu = MOVE %%%lu\n", instr.info.move.dest.val, out.val);
 
@@ -3450,11 +3846,13 @@ MIR_func lowering_and_emission_pass_over_fn(
                         temporals_map,
                         source_info,
                         &fn.error_info_list.array[instr.error_info_index].info.store_ptr.expr.sv,
-                        &temporals_map_values
+                        &temporals_map_values,
+                        &promote_to_stack_temps,
+                        target_info
                     );
 
                     // 4. Emit the finalized STORE instruction!
-                    printf("   STORE_PTR INTO %%%lu VALUE %%%lu\n",
+                    printf("   STORE INTO %%%lu VALUE %%%lu\n",
                            instr.info.store_ptr.ptr.val,
                            coerced_val.val);
                     break;
@@ -3664,7 +4062,10 @@ MIR_func lowering_and_emission_pass_over_fn(
                         &is_error_out,
                         &is_out_error_incompatible_number_relation,
                         temporals_map,
-                        &temporals_map_values
+                        &temporals_map_values,
+                        &promote_to_stack_temps,
+                        nct,
+                        target_info
                     );
 
                     // numeric promotion failed, but which of the two? or both
@@ -3829,9 +4230,9 @@ MIR_func lowering_and_emission_pass_over_fn(
                     const TC_typeid dest_t = temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type;
 
                     const IR_temporal src1_it = perf_bool(&instr.info.math_cmp_boolean_op.src1, &src1_t,
-                                                          &highest_temporal, temporals_map);
+                                                          &highest_temporal, temporals_map, &promote_to_stack_temps, nct, target_info);
                     const IR_temporal src2_it = perf_bool(&instr.info.math_cmp_boolean_op.src2, &src2_t,
-                                                          &highest_temporal, temporals_map);
+                                                          &highest_temporal, temporals_map, &promote_to_stack_temps, nct, target_info);
 
                     static TC_typeid bool_t = {
                         .ty = TC_TY_Primitive,
@@ -3908,7 +4309,10 @@ MIR_func lowering_and_emission_pass_over_fn(
                         &is_error_out,
                         &is_out_error_incompatible_number_relation,
                         temporals_map,
-                        &temporals_map_values
+                        &temporals_map_values,
+                        &promote_to_stack_temps,
+                        nct,
+                        target_info
                     );
 
                     // RESULT OF OPERATION IS BOOL TYPE
@@ -4086,7 +4490,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                     //                &msg);
                     //     exit(1);
                     // }
-                    const IR_temporal_and_TC_type list = perf_auto_deref(&source_list_ty, &instr.info.index_ptr.array_ptr, &highest_temporal, temporals_map);
+                    const IR_temporal_and_TC_type list = perf_auto_deref(&source_list_ty, &instr.info.index_ptr.array_ptr, &highest_temporal, temporals_map, &promote_to_stack_temps, nct, target_info);
                     const SV list_ty_sv = format_TC_typeid(&list.type, identifier_map, nct);
 
                     // const IR_temporal_and_TC_type list = (IR_temporal_and_TC_type) {
@@ -4195,7 +4599,9 @@ MIR_func lowering_and_emission_pass_over_fn(
                                     temporals_map,
                                     source_info,
                                     &fn.error_info_list.array[instr.error_info_index].info.make_struct.values[k].sv,
-                                    &temporals_map_values
+                                    &temporals_map_values,
+                                    &promote_to_stack_temps,
+                                    target_info
                                 );
                                 args.array[n] = out;
                                 found = true;
@@ -4261,7 +4667,9 @@ MIR_func lowering_and_emission_pass_over_fn(
                             temporals_map,
                             source_info,
                             &arg_span.sv,
-                            &temporals_map_values
+                            &temporals_map_values,
+                            &promote_to_stack_temps,
+                            target_info
                         );
                         IR_temporal_LIST_push(&args, out);
                     }
@@ -4325,7 +4733,9 @@ MIR_func lowering_and_emission_pass_over_fn(
                             temporals_map,
                             source_info,
                             &fn.error_info_list.array[instr.error_info_index].info.make_array.items[n].sv,
-                            &temporals_map_values
+                            &temporals_map_values,
+                            &promote_to_stack_temps,
+                            target_info
                         );
                         IR_temporal_LIST_push(&items, out);
                     }
@@ -4362,7 +4772,10 @@ MIR_func lowering_and_emission_pass_over_fn(
                         &instr.info.branch.cond,
                         &t,
                         &highest_temporal,
-                        temporals_map
+                        temporals_map,
+                        &promote_to_stack_temps,
+                        nct,
+                        target_info
                     );
                     printf("   BRANCH <Bool> %%%lu, Block %lu, Block %lu\n", out.val, instr.info.branch.branch_true,
                            instr.info.branch.branch_false);
@@ -4385,10 +4798,19 @@ MIR_func lowering_and_emission_pass_over_fn(
                     }
                     const TC_typeid t = resolve_tc_type(&fn.fn_ret_t, nct, target_info, source_info);
                     const TC_typeid intake_t = temporals_map->array[instr.info.return_value.val].type;
-                    const IR_temporal out = perf_autos(&instr.info.return_value, &intake_t, &t, &highest_temporal,
-                                                       identifier_map, nct, temporals_map, source_info,
-                                                       &fn.error_info_list.array[instr.error_info_index].info.
-                                                       return_value.expr.sv, &temporals_map_values);
+                    const IR_temporal out = perf_autos(
+                        &instr.info.return_value, 
+                        &intake_t, 
+                        &t, 
+                        &highest_temporal,
+                        identifier_map, 
+                        nct, 
+                        temporals_map, 
+                        source_info,
+                        &fn.error_info_list.array[instr.error_info_index].info.return_value.expr.sv, &temporals_map_values, 
+                        &promote_to_stack_temps,
+                        target_info
+                    );
                     const SV out_t_sv = format_TC_typeid(&t, identifier_map, nct);
                     printf("   RETURN <"SV_format"> %%%lu\n", SV_v_args(out_t_sv), out.val);
                     break;
@@ -4628,7 +5050,9 @@ MIR_func lowering_and_emission_pass_over_fn(
                             temporals_map,
                             source_info,
                             &arg_span.sv,
-                            &temporals_map_values
+                            &temporals_map_values,
+                            &promote_to_stack_temps,
+                            target_info
                         );
                         IR_temporal_LIST_push(&coerced_args, coerced);
                         TC_typeid_LIST_push(&coerced_args_types, expected_t);
@@ -4987,36 +5411,6 @@ void variable_storage_promotion_pass(
     const TC_TypeTable* restrict nct,
     const TargetInfo* restrict target_info
 ) {
-    /*
-
-    // Phase 1: Instruction scan — find temporals that must be addressable
-    for each block in fn.blocks (forward scan):
-        for each instruction in block.instructions:
-            match instruction.type:
-                VAR_DECL:
-                    temporals[instr.dest].is_addressable = true
-                REF_OF:
-                    temporals[instr.src].is_addressable = true
-                ASSIGN:
-                    temporals[instr.dest].is_addressable = true
-                MATCH_META__TARGET:
-                    temporals[instr.target].is_addressable = true
-
-    // Phase 2: Size-based promotion (large values can't fit in registers)
-    for each temporal n in 1..highest_temporal_number:
-        if !temporals[n].is_addressable:
-            sz = path_size_align_for_materialized_type(temporals[n].type, ...)
-            if sz.size > target_info->ptr_size:
-                temporals[n].is_addressable = true  // Rule R3
-
-    // Phase 3: Destructor-based promotion (RAII needs stable address)
-    for each temporal n in 1..highest_temporal_number:
-        if !temporals[n].is_addressable:
-            if temporals[n].type is in type_needing_destructor:
-                temporals[n].is_addressable = true  // Rule R7
-
-
-     */
     
     IR_temp_map_LIST temp_map = IR_temp_map_LIST_new();
     
@@ -5073,10 +5467,38 @@ void variable_storage_promotion_pass(
                         instr.info.assign.dest,
                         instr.info.assign.old
                     });
+                    IR_temp_map_LIST_push(&temp_map, (IR_temp_map){
+                        instr.info.assign.old,
+                        instr.info.assign.dest
+                    });
                     break;
                 }
                 case IR_INST_TY__MATCH_META__TARGET: {
                     IR_temporal_LIST_push(promote_to_stack_temps, instr.info.match_meta__target.target);
+                    break;
+                }
+                case IR_INST_TY__PHI: {
+                    for(size_t j = 0; j < instr.info.phi.args->len; j++) {
+                        IR_temp_map_LIST_push(&temp_map, (IR_temp_map){
+                            instr.info.phi.dest,
+                            instr.info.phi.args->array[j].temp
+                        });
+                        IR_temp_map_LIST_push(&temp_map, (IR_temp_map){
+                            instr.info.phi.args->array[j].temp,
+                            instr.info.phi.dest
+                        });
+                        for(size_t k = 0; k < instr.info.phi.args->len; k++) {
+                            if(k == j) break;
+                            IR_temp_map_LIST_push(&temp_map, (IR_temp_map){
+                                instr.info.phi.args->array[j].temp,
+                                instr.info.phi.args->array[k].temp
+                            });
+                            IR_temp_map_LIST_push(&temp_map, (IR_temp_map){
+                                instr.info.phi.args->array[k].temp,
+                                instr.info.phi.args->array[j].temp
+                            });
+                        }
+                    }
                     break;
                 }
                 case IR_INST_TY__STORE_PTR:
@@ -5092,13 +5514,13 @@ void variable_storage_promotion_pass(
                 case ENUM_GET_FIELD_PTR:
                     break;
                 case IR_INST_TY__INVALID:
-                case IR_INST_TY__PHI:
                 case IR_INST_TY__DROP:
                 case IR_INST_TY__EXPLICIT_CAST:
                 case IR_INST_TY__CONST_INT:
                 case IR_INST_TY__CONST_FLOAT:
                 case IR_INST_TY__CONST_STRING:
                 case IR_INST_TY__MAKE_ARRAY:
+                    break;
                 case IR_INST_TY__OP_ADD:
                 case IR_INST_TY__OP_SUB:
                 case IR_INST_TY__OP_DIV:
@@ -5154,6 +5576,7 @@ void variable_storage_promotion_pass(
             break;
         }
     }
+    IR_temp_map_LIST_free(&temp_map);
 
 //     UNIMPLEMENTED("hey")
 }
@@ -5206,10 +5629,16 @@ MIR_func TC_process_fn(
 //     UNIMPLEMENTED("variable storage promotion analys pass");
 
     // todo: pass `promote_to_stack_temps` into lowering_and_emission_pass_over_fn
-    const MIR_func mir_fn = lowering_and_emission_pass_over_fn(fn, identifier_map, functions, external_functions,
-                                                               nct, target_info, source_info, &temporals,
-                                                               promote_to_stack_temps,
-                                                               type_needing_destructor);
+    const MIR_func mir_fn = lowering_and_emission_pass_over_fn(
+        fn, 
+        identifier_map, 
+        functions, 
+        external_functions,
+        nct, target_info, source_info, 
+        &temporals,
+        promote_to_stack_temps,
+        type_needing_destructor
+    );
 
     TC_Entry_LIST_free(&temporals);
     return mir_fn;
@@ -5250,3 +5679,7 @@ void TC_typecheck_and_lower(
         );
     }
 }
+
+
+
+
