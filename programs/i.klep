@@ -58,10 +58,10 @@ Uint while_if_ref_isum() {
 }
 
 // triggers internal error due to unknown inference for the [...][index]
-// Void large_var_test() {
-//     Array<Int64, 2> arr = [1, 4];
-//     Int64 a = arr[0];
-//     Int64 b = arr[1];
-//     Int c = ([1,2,3])[1];
-// }
+Void large_var_test() {
+    Array<Int64, 2> arr = [1, 4];
+    Int64 a = arr[0];
+    Int64 b = arr[1];
+    Int c = ([1,2,3])[1];
+}
 

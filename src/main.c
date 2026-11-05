@@ -4,9 +4,9 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "parser.h"
-#include "utils/dev.h"
-#include "typechecking.h"
+#include "passes/mir_process.h"
+#include "passes/parser/parser.h"
+#include "passes/typechecking/typechecking.h"
 
 
 void compile(SV source, SV source_filename);

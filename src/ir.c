@@ -1,4 +1,6 @@
 #include "ir.h"
+#include "typecompletion.h"
+#include "passes/parser/parser.h"
 
 #include "utils/color.h"
 #include "utils/dev.h"

@@ -1,6 +1,3 @@
-//
-// Created by frantisek on 3. 8. 2026.
-//
 
 #ifndef KLEPCOMPILER_SV_U64_MAP_H
 #define KLEPCOMPILER_SV_U64_MAP_H

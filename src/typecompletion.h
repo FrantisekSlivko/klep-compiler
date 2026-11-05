@@ -1,13 +1,16 @@
 #ifndef KLEPCOMPILER_TYPECOMPLETION_H
 #define KLEPCOMPILER_TYPECOMPLETION_H
-#include <stdint.h>
-#include "ir_defs.h"
 
-#include "common_parser_typecompletion.h"
+// #include "common_parser_typecompletion.h"
 
+// #include <stdint.h>
+// #include "ir_defs.h"
+
+// #include "ir.h"
+// #include "list.h"
 #include "ir.h"
-#include "list.h"
-#include "parser.h"
+#include "khash.h"
+#include "sv_u64_map.h"
 #include "target.h"
 #include "source_info.h"
 

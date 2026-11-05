@@ -1,5 +1,6 @@
 #include "typecompletion.h"
 #include "error.h"
+#include "passes/parser/parser.h"
 #include "utils/dev.h"
 
 
