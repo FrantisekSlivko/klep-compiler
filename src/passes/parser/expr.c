@@ -117,7 +117,7 @@ bool EX_is_op_right_assoc(const P_OP op) {
 IR_temporal_with_span P_expr_accesors_wrapper(Parser* restrict p, const IR_temporal_with_span origin) {
     P_require_having_next_token(p, TT_Semicolon);
     const Token nx = P_peek_token(p);
-    const TokenSpan nx_span = (TokenSpan){*nx};
+    // const TokenSpan nx_span = (TokenSpan){*nx};
 
     if (nx->len == 1 && nx->start[0] == '.') {
         P_next_token(p); // dot
@@ -446,7 +446,6 @@ IR_temporal_with_span P_get_expr_val(Parser* p) {
                }, (IR_instr_error_info){
                    .kind = IR_IEI_explicit_cast,
                    .info.explicit_cast = {
-                       .type = type.full_typeuse_span,
                        .expr = source.span,
                        .whole = whole
                    }
@@ -473,6 +472,7 @@ IR_temporal_with_span P_get_expr_val(Parser* p) {
         // new Struct or new Enum
 
         IR_typeuse* type = malloc(sizeof(IR_typeuse));
+        const SV type_sv_start = *P_peek_token(p);
         *type = P_get_typeuse(p, false);
 
         // now '{' for struct, or '::' for enum
@@ -612,7 +612,8 @@ IR_temporal_with_span P_get_expr_val(Parser* p) {
             const IR_temporal out = P_new_temporal(p);
 
             TokenSpan_LIST_shrink(&args_values_spans);
-            const TokenSpan whole = TS_merge(&type->full_typeuse_span, &(TokenSpan){end_span});
+            // const TokenSpan whole = TS_merge(&type->full_typeuse_span, &(TokenSpan){end_span});
+            const TokenSpan whole = TS_merge(&(TokenSpan){ type_sv_start }, &(TokenSpan){end_span});
             P_emit(p, (IR_instr){
                        .ty = IR_INST_TY__MAKE_STRUCT,
                        .info.make_struct = {

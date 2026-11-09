@@ -25,7 +25,7 @@ int main(const int argc, char* argv[]) {
 
     SVList_free(&list);
 
-    const char* raw_source_filename = "programs/i.klep";
+    const char* raw_source_filename = "programs/complex_types.klep";
     const SV source_filename = SV_from_str(raw_source_filename);
 
     FILE* source_file = fopen(raw_source_filename, "rb");

@@ -6,6 +6,8 @@
 #include "utils/dev.h"
 #include <ctype.h>
 
+#include "utils/str.h"
+
 void print_IR_typeuse(const IR_typeuse* restrict ty, const khash_t(sv_u64_map)* restrict identifier_map) {
     if (ty->tt_ty == IR_TY_Primitive) {
         const SV k = TC_Primitive_TY_to_SV(ty->info.primitive);
@@ -52,6 +54,63 @@ void print_IR_typeuse(const IR_typeuse* restrict ty, const khash_t(sv_u64_map)* 
     }
 }
 
+
+#define MAKE_SV_LIT(X) (SV){.start=X, .len=sizeof(X)-1}
+SV format_IR_typeuse_inner(const SV buffer, const IR_typeuse* restrict ty, const khash_t(sv_u64_map)* restrict identifier_map) {
+    switch (ty->tt_ty) {
+        case IR_TY_Void: {
+            return append_and_advance_buff(&buffer, MAKE_SV_LIT("Void"));
+        }
+        case IR_TY_Primitive: {
+            return append_and_advance_buff(&buffer, TC_Primitive_TY_to_SV(ty->info.primitive));
+        }
+        case IR_TY_Named: {
+            return append_and_advance_buff(&buffer, ty->info.named.span.sv);
+        }
+        case IR_TY_Ref:
+        case IR_TY_Box:
+        case IR_TY_Slice:
+        case IR_TY_List: {
+            const SV v1 = append_and_advance_buff(&buffer, ty->info.named.span.sv);
+            const SV v2 = append_and_advance_buff(&v1, MAKE_SV_LIT("<"));
+            const SV v3 = format_IR_typeuse_inner(v2, ty->contained, identifier_map);
+            return append_and_advance_buff(&v3, MAKE_SV_LIT("<"));
+        }
+        case IR_TY_Array: {
+            const SV v1 = append_and_advance_buff(&buffer, ty->info.named.span.sv);
+            const SV v2 = append_and_advance_buff(&v1, MAKE_SV_LIT("<"));
+            const SV v3 = format_IR_typeuse_inner(v2, ty->contained, identifier_map);
+            const SV v4 = append_and_advance_buff(&v3, MAKE_SV_LIT(", "));
+            const int len = snprintf((char*)v4.start, v4.len, "{%u}", ty->array_const_size);
+            const SV v5 = (SV){.start = v4.start + len, .len = v4.len - len };
+            return append_and_advance_buff(&v5, MAKE_SV_LIT(">"));
+        }
+        case IR_TY_Generic: {
+            const SV v1 = append_and_advance_buff(&buffer, ty->info.named.span.sv);
+            const SV v2 = append_and_advance_buff(&v1, MAKE_SV_LIT("<"));
+            SV nx = v2;
+            for (size_t i=0; i<ty->contained_len; i++) {
+                nx = format_IR_typeuse_inner(nx, &ty->contained[i], identifier_map);
+                if (i+1 != ty->contained_len) {
+                    // printf(", ");
+                    nx = append_and_advance_buff(&nx, MAKE_SV_LIT(", "));
+                }
+            }
+            return append_and_advance_buff(&nx, MAKE_SV_LIT(">"));
+        }
+    }
+    UNREACHABLE()
+}
+
+SV format_IR_typeuse(const IR_typeuse* restrict ty, const khash_t(sv_u64_map)* restrict identifier_map) {
+    const size_t MAX_SIZE = 1024;
+    char* buff = malloc(sizeof(char)*MAX_SIZE);
+    const SV buffer = (SV) {.start = buff, .len = MAX_SIZE };
+    const SV ret = format_IR_typeuse_inner(buffer, ty, identifier_map);
+    char* new_buff = realloc(buff, ret.start - buffer.start);
+    return (SV) { .start = new_buff, .len = ret.start - buffer.start};
+}
+
 void print_IR_instr(const IR_instr* restrict instr, const khash_t(sv_u64_map)* restrict identifier_map) {
     switch (instr->ty) {
         case IR_INST_TY__INVALID: {
@@ -73,7 +132,8 @@ void print_IR_instr(const IR_instr* restrict instr, const khash_t(sv_u64_map)* r
         }
 
         case IR_INST_TY__DROP: {
-            printf("DROP $"SV_format" %%%lu '"SV_format"'", SV_v_args(instr->info.drop.var_name.span.sv), instr->info.drop.dest.val, SV_v_args(instr->info.drop.type->full_typeuse_span.sv));
+            const SV d_t_sv = format_IR_typeuse(instr->info.drop.type, identifier_map);
+            printf("DROP $"SV_format" %%%lu '"SV_format"'", SV_v_args(instr->info.drop.var_name.span.sv), instr->info.drop.dest.val, SV_v_args(d_t_sv));
             break;
         }
 
@@ -99,12 +159,14 @@ void print_IR_instr(const IR_instr* restrict instr, const khash_t(sv_u64_map)* r
         }
 
         case IR_INST_TY__VAR_DECL: {
-            printf("VAR_DECL $"SV_format" %%%lu {"SV_format"}", SV_v_args(instr->info.var_decl.var_name.span.sv), instr->info.var_decl.dest.val, SV_v_args(instr->info.var_decl.type->full_typeuse_span.sv));
+            const SV t_sv = format_IR_typeuse(instr->info.var_decl.type, identifier_map);
+            printf("VAR_DECL $"SV_format" %%%lu {"SV_format"}", SV_v_args(instr->info.var_decl.var_name.span.sv), instr->info.var_decl.dest.val, SV_v_args(t_sv));
             break;
         }
 
         case IR_INST_TY__EXPLICIT_CAST: {
-            printf("%%%lu = CAST{"SV_format"}(%%%lu)", instr->info.explicit_cast.dest.val, SV_v_args(instr->info.explicit_cast.type->full_typeuse_span.sv), instr->info.explicit_cast.src.val);
+            const SV t_sv = format_IR_typeuse(instr->info.explicit_cast.type, identifier_map);
+            printf("%%%lu = CAST{"SV_format"}(%%%lu)", instr->info.explicit_cast.dest.val, SV_v_args(t_sv), instr->info.explicit_cast.src.val);
             break;
         }
 
@@ -151,7 +213,8 @@ void print_IR_instr(const IR_instr* restrict instr, const khash_t(sv_u64_map)* r
             break;
         }
         case IR_INST_TY__MAKE_STRUCT: {
-            printf("%%%lu = MAKE_STRUCT '"SV_format"' {", instr->info.make_struct.dest.val, SV_v_args(instr->info.make_struct.type->full_typeuse_span.sv));
+            const SV st_sv = format_IR_typeuse(instr->info.make_struct.type, identifier_map);
+            printf("%%%lu = MAKE_STRUCT '"SV_format"' {", instr->info.make_struct.dest.val, SV_v_args(st_sv));
             for (size_t i = 0; i < instr->info.make_struct.args->len; i++) {
                 const IR_named_value v = instr->info.make_struct.args->array[i];
                 printf("'."SV_format"' = %%%lu", SV_v_args(v.name.span.sv), v.value.val);
@@ -164,7 +227,8 @@ void print_IR_instr(const IR_instr* restrict instr, const khash_t(sv_u64_map)* r
         }
         case IR_INST_TY__MAKE_ENUM: {
             const SV variant = SV_from_identifiermap_lookup(identifier_map,instr->info.make_enum.variant);
-            printf("%%%lu = MAKE_ENUM '"SV_format"'::'"SV_format"' ", instr->info.make_enum.dest.val, SV_v_args(instr->info.make_enum.type->full_typeuse_span.sv), SV_v_args(variant));
+            const SV e_t_sv = format_IR_typeuse(instr->info.make_enum.type, identifier_map);
+            printf("%%%lu = MAKE_ENUM '"SV_format"'::'"SV_format"' ", instr->info.make_enum.dest.val, SV_v_args(e_t_sv), SV_v_args(variant));
             if (instr->info.make_enum.args->len == 0) {
                 printf("()");
                 break;

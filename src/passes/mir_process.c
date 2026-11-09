@@ -36,9 +36,8 @@ MIR_func TC_process_fn(
             printf("ERROR: VOID TYPE %%%lu\n", t);
             continue;
         }
-        printf("   %%%lu = {", t);
-        print_TC_typeid(&e.type, identifier_map, nct);
-        printf("}, {"SV_format"}\n", SV_v_args(e.type.full_typeuse_span.sv));
+        const SV e_t_sv = format_TC_typeid(&e.type, identifier_map, nct);
+        printf("   %%%lu = {"SV_format"}\n", t, SV_v_args(e_t_sv));
     }
 
     /// determine if variable is no longer a pure temporal, but ALLOC->PTR

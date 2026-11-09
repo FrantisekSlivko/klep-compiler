@@ -567,7 +567,8 @@ DoubleIR_temporal_and_TC_typeid perf_numeric_promotion(
     const TC_Value_LIST* temporals_map_values,
     const IR_temporal_LIST* promoted,
     const TC_TypeTable* restrict nct,
-    const TargetInfo* restrict target_info
+    const TargetInfo* restrict target_info,
+    const khash_t(sv_u64_map)* restrict identifier_map
 ) {
     const TC_typeid safe_a_type = *a_type;
     const TC_typeid safe_b_type = *b_type;
@@ -673,16 +674,19 @@ DoubleIR_temporal_and_TC_typeid perf_numeric_promotion(
     IR_temporal new_a = derefered_a.temporal;
     IR_temporal new_b = derefered_b.temporal;
 
+    const SV t_op_sv = format_TC_typeid(&target_op_type, identifier_map, nct);
+
     // CAST A
     if (derefered_a.type.info.primitive != target_op_type.info.primitive) {
         const uint64_t new_temporal = (*highest_temporal)++;
 
         if (a_known) {
+
             printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT CONST-NARROW]\n", new_temporal,
-                   SV_v_args(target_op_type.full_typeuse_span.sv), new_a.val);
+                   SV_v_args(t_op_sv), new_a.val); // target_op_type.full_typeuse_span.sv
         } else {
             printf("   %%%lu = CAST<"SV_format">(%%%lu)\n", new_temporal,
-                   SV_v_args(target_op_type.full_typeuse_span.sv), new_a.val);
+                   SV_v_args(t_op_sv), new_a.val); // target_op_type.full_typeuse_span.sv
         }
         new_a.val = new_temporal;
 
@@ -698,10 +702,10 @@ DoubleIR_temporal_and_TC_typeid perf_numeric_promotion(
 
         if (b_known) {
             printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT CONST-NARROW]\n", new_temporal,
-                   SV_v_args(target_op_type.full_typeuse_span.sv), new_b.val);
+                   SV_v_args(t_op_sv), new_b.val);
         } else {
             printf("   %%%lu = CAST<"SV_format">(%%%lu)\n", new_temporal,
-                   SV_v_args(target_op_type.full_typeuse_span.sv), new_b.val);
+                   SV_v_args(t_op_sv), new_b.val);
         }
         new_b.val = new_temporal;
 
@@ -747,7 +751,7 @@ IR_temporal perf_bool(
             .type = (TC_typeid){
                 .ty = TC_TY_Primitive,
                 .info.primitive = TC_Primitive__Bool,
-                .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)}
+                // .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)}
             },
             .known_temporal = true,
             .is_value_known = false,
@@ -773,7 +777,7 @@ IR_temporal_and_TC_type perf_auto_ref(
     const TC_typeid nt = (TC_typeid){
         .ty = TC_TY_Ref,
         .info.contained = (TC_typeid *) intake_type,
-        .full_typeuse_span = (TokenSpan){.sv = intake_type->full_typeuse_span.sv}
+        // .full_typeuse_span = (TokenSpan){.sv = intake_type->full_typeuse_span.sv}
     };
 
     if (new_temporal + 1 > temporals_map->cap) {

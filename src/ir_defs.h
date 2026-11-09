@@ -81,7 +81,7 @@ typedef struct IR_typeuse {
         /// used for IR_TY_Array
         uint32_t array_const_size;
     };
-    TokenSpan full_typeuse_span;
+    // TokenSpan full_typeuse_span;
 } IR_typeuse;
 
 init_prefixed_list_type(IR_typeuse)

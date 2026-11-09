@@ -105,7 +105,7 @@ void init__compiler_builtin__tc_types(khash_t(sv_u64_map)* restrict identifier_m
                                .type = (TC_typeid){
                                    .ty = TC_TY_Primitive,
                                    .info.primitive = TC_Primitive__Uint32,
-                                   .full_typeuse_span = (TokenSpan){.sv = sv_uint32}
+                                   // .full_typeuse_span = (TokenSpan){.sv = sv_uint32}
                                }
                            });
 
@@ -115,16 +115,18 @@ void init__compiler_builtin__tc_types(khash_t(sv_u64_map)* restrict identifier_m
         *list_field_offsets = target_info->ptr_size;
 
         compiler_builtin__list_tc_structdef = (TC_structdef){
-            .name = (SpannedIdentifier){
+            (SpannedIdentifier){
                 .identifier = SV_to_identifier(identifier_map, identifier_map_cnt, &list_name),
                 .span = (TokenSpan){.sv = list_name},
             },
-            .fields = list_fields,
-            .layout = (TC_struct_layout){
+            list_fields,
+            (TC_struct_layout){
                 .size = target_info->ptr_size * 3,
                 .align = target_info->ptr_size,
                 .field_offsets = list_field_offsets
-            }
+            },
+            false,
+            0
         };
     }
 
@@ -143,7 +145,7 @@ void init__compiler_builtin__tc_types(khash_t(sv_u64_map)* restrict identifier_m
                                .type = (TC_typeid){
                                    .ty = TC_TY_Primitive,
                                    .info.primitive = TC_Primitive__Uint32,
-                                   .full_typeuse_span = (TokenSpan){.sv = sv_uint32}
+                                   // .full_typeuse_span = (TokenSpan){.sv = sv_uint32}
                                }
                            });
 
@@ -181,13 +183,13 @@ void type_inference_pass_over_fn(
     const IR_instr_error_info_LIST* error_info_list = &fn.error_info_list;
 
     const IR_typeuse ir_ret_t = fn.fn_ret_t;
-    const TC_typeid ret_t = resolve_tc_type(&ir_ret_t, nct, target_info, source_info);
+    const TC_typeid ret_t = resolve_tc_type(&ir_ret_t, nct, target_info, source_info, identifier_map);
 
 
     TC_arg_LIST args = TC_arg_LIST_new_with_capacity(fn.args.len);
     args.len = fn.args.len;
     for (size_t n = 0; n < fn.args.len; n++) {
-        const TC_typeid type = resolve_tc_type(&fn.args.array[n].type, nct, target_info, source_info);
+        const TC_typeid type = resolve_tc_type(&fn.args.array[n].type, nct, target_info, source_info, identifier_map);
         args.array[n] = (TC_arg){
             type,
             fn.args.array[n].name
@@ -296,7 +298,7 @@ void type_inference_pass_over_fn(
                             .type = (TC_typeid){
                                 .ty = TC_TY_Primitive,
                                 .info.primitive = TC_Primitive__Int32,
-                                .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Int32", 5)}
+                                // .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Int32", 5)}
                             },
                             .is_value_known = false,
                             .is_addressable = false
@@ -314,7 +316,7 @@ void type_inference_pass_over_fn(
                             .type = (TC_typeid){
                                 .ty = TC_TY_Primitive,
                                 .info.primitive = TC_Primitive__Float32,
-                                .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Float32", 7)}
+                                // .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Float32", 7)}
                             },
                             .is_value_known = false,
                             .is_addressable = false
@@ -330,14 +332,14 @@ void type_inference_pass_over_fn(
                         *inner = (TC_typeid){
                             .ty = TC_TY_Primitive,
                             .info.primitive = TC_Primitive__Char,
-                            .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Char", 4)}
+                            // .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Char", 4)}
                         };
                         temporals_map->array[instr.info.const_int.dest.val] = (TC_Entry){
                             .known_temporal = true,
                             .type = (TC_typeid){
                                 .ty = TC_TY_Slice,
                                 .info.contained = inner,
-                                .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Slice<Char>", 11)}
+                                // .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Slice<Char>", 11)}
                             },
                             .is_value_known = false,
                             .is_addressable = false
@@ -349,7 +351,7 @@ void type_inference_pass_over_fn(
                 }
                 case IR_INST_TY__VAR_DECL: {
                     // should be known by now from DROP
-                    const TC_typeid t = resolve_tc_type(instr.info.var_decl.type, nct, target_info, source_info);
+                    const TC_typeid t = resolve_tc_type(instr.info.var_decl.type, nct, target_info, source_info, identifier_map);
                     if (!temporals_map->array[instr.info.var_decl.dest.val].known_temporal) {
                         WARN("VAR_DECL with declare unknown temporal")
                     }
@@ -366,7 +368,7 @@ void type_inference_pass_over_fn(
                 case IR_INST_TY__DROP: {
                     if (temporals_map->array[instr.info.drop.dest.val].known_temporal) break;
 
-                    const TC_typeid type = resolve_tc_type(instr.info.drop.type, nct, target_info, source_info);
+                    const TC_typeid type = resolve_tc_type(instr.info.drop.type, nct, target_info, source_info, identifier_map);
 
                     temporals_map->array[instr.info.drop.dest.val] = (TC_Entry){
                         .known_temporal = true,
@@ -413,19 +415,19 @@ void type_inference_pass_over_fn(
                     TC_typeid* out = malloc(sizeof(TC_typeid));
                     *out = src_t;
 
-                    const size_t MAX_SIZE = 128;
-                    char* new_type_name = malloc(sizeof(char) * MAX_SIZE);
-                    const int out_len = snprintf(new_type_name, MAX_SIZE, "Ref<"SV_format">",
-                                                 SV_v_args(src_t.full_typeuse_span.sv));
-                    new_type_name = realloc(new_type_name, sizeof(char) * out_len);
-                    const SV new_type = SV_from_str_len(new_type_name, out_len);
+                    // const size_t MAX_SIZE = 128;
+                    // char* new_type_name = malloc(sizeof(char) * MAX_SIZE);
+                    // const int out_len = snprintf(new_type_name, MAX_SIZE, "Ref<"SV_format">",
+                                                 // SV_v_args(src_t.full_typeuse_span.sv));
+                    // new_type_name = realloc(new_type_name, sizeof(char) * out_len);
+                    // const SV new_type = SV_from_str_len(new_type_name, out_len);
 
                     temporals_map->array[instr.info.ref_of.dest.val] = (TC_Entry){
                         .known_temporal = true,
                         .type = (TC_typeid){
                             .ty = TC_TY_Ref,
                             .info.contained = out,
-                            .full_typeuse_span = (TokenSpan){.sv = new_type},
+                            // .full_typeuse_span = (TokenSpan){.sv = new_type},
                         },
                         .is_value_known = false,
                         .is_addressable = false
@@ -485,7 +487,7 @@ void type_inference_pass_over_fn(
                             .type = (TC_typeid){
                                 .ty = TC_TY_Primitive,
                                 .info.primitive = TC_Primitive__Bool,
-                                .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)},
+                                // .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)},
                             },
                             .is_value_known = false,
                             .is_addressable = false
@@ -498,7 +500,7 @@ void type_inference_pass_over_fn(
                             .type = (TC_typeid){
                                 .ty = TC_TY_Primitive,
                                 .info.primitive = TC_Primitive__Bool,
-                                .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)},
+                                // .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)},
                             },
                             .is_value_known = false,
                             .is_addressable = false
@@ -511,7 +513,7 @@ void type_inference_pass_over_fn(
                             .type = (TC_typeid){
                                 .ty = TC_TY_Primitive,
                                 .info.primitive = TC_Primitive__Bool,
-                                .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)},
+                                // .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)},
                             },
                             .is_value_known = false,
                             .is_addressable = false
@@ -531,7 +533,7 @@ void type_inference_pass_over_fn(
                             .type = (TC_typeid){
                                 .ty = TC_TY_Primitive,
                                 .info.primitive = TC_Primitive__Bool,
-                                .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)},
+                                // .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)},
                             },
                             .is_value_known = false,
                             .is_addressable = false
@@ -606,18 +608,18 @@ void type_inference_pass_over_fn(
                         TC_typeid* inner = malloc(sizeof(TC_typeid));
                         *inner = first;
 
-                        const SV inner_sv = format_TC_typeid(inner, identifier_map, nct);
-                        const size_t MAX_SIZE = 256;
-                        char* name = malloc(MAX_SIZE);
-                        const int len = snprintf(name, MAX_SIZE, "Array<"SV_format", %lu>",
-                                                 SV_v_args(inner_sv), instr.info.make_array.items->len);
+                        // const SV inner_sv = format_TC_typeid(inner, identifier_map, nct);
+                        // const size_t MAX_SIZE = 256;
+                        // char* name = malloc(MAX_SIZE);
+                        // const int len = snprintf(name, MAX_SIZE, "Array<"SV_format", %lu>",
+                                                 // SV_v_args(inner_sv), instr.info.make_array.items->len);
 
                         temporals_map->array[instr.info.make_array.dest.val] = (TC_Entry){
                             .known_temporal = true,
                             .type = (TC_typeid){
                                 .ty = TC_TY_Array,
                                 .info.t_array = {inner, (uint32_t) instr.info.make_array.items->len},
-                                .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len(name, len)}
+                                // .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len(name, len)}
                             },
                             .is_value_known = false,
                             .is_addressable = false
@@ -657,7 +659,7 @@ void type_inference_pass_over_fn(
                             .type = (TC_typeid){
                                 .ty = TC_TY_Primitive,
                                 .info.primitive = TC_Primitive__Bool,
-                                .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)},
+                                // .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)},
                             },
                             .is_value_known = false,
                             .is_addressable = false
@@ -683,12 +685,12 @@ void type_inference_pass_over_fn(
                                     TC_typeid* ref_inner = malloc(sizeof(TC_typeid));
                                     *ref_inner = s->fields.array[n].type;
 
-                                    const size_t MAX_SIZE = 128;
-                                    char* new_type_name = malloc(sizeof(char) * MAX_SIZE);
-                                    const int out_len = snprintf(new_type_name, MAX_SIZE, "Ref<"SV_format">",
-                                                                 SV_v_args(ref_inner->full_typeuse_span.sv));
-                                    new_type_name = realloc(new_type_name, sizeof(char) * out_len);
-                                    const SV new_type = SV_from_str_len(new_type_name, out_len);
+                                    // const size_t MAX_SIZE = 128;
+                                    // char* new_type_name = malloc(sizeof(char) * MAX_SIZE);
+                                    // const int out_len = snprintf(new_type_name, MAX_SIZE, "Ref<"SV_format">",
+                                                                 // SV_v_args(ref_inner->full_typeuse_span.sv));
+                                    // new_type_name = realloc(new_type_name, sizeof(char) * out_len);
+                                    // const SV new_type = SV_from_str_len(new_type_name, out_len);
 
 
                                     temporals_map->array[instr.info.get_struct_field_ptr.dest.val] = (TC_Entry){
@@ -696,7 +698,7 @@ void type_inference_pass_over_fn(
                                         .type = (TC_typeid){
                                             .ty = TC_TY_Ref,
                                             .info.contained = ref_inner,
-                                            .full_typeuse_span = (TokenSpan){.sv = new_type},
+                                            // .full_typeuse_span = (TokenSpan){.sv = new_type},
                                             //ref_inner->full_typeuse_span
                                         },
                                         .is_value_known = false,
@@ -711,12 +713,12 @@ void type_inference_pass_over_fn(
                                 TC_typeid* ref_inner = malloc(sizeof(TC_typeid));
                                 *ref_inner = compiler_builtin__list_tc_structdef.fields.array[0].type;
 
-                                const size_t MAX_SIZE = 128;
-                                char* new_type_name = malloc(sizeof(char) * MAX_SIZE);
-                                const int out_len = snprintf(new_type_name, MAX_SIZE, "Ref<"SV_format">",
-                                                             SV_v_args(ref_inner->full_typeuse_span.sv));
-                                new_type_name = realloc(new_type_name, sizeof(char) * out_len);
-                                const SV new_type = SV_from_str_len(new_type_name, out_len);
+                                // const size_t MAX_SIZE = 128;
+                                // char* new_type_name = malloc(sizeof(char) * MAX_SIZE);
+                                // const int out_len = snprintf(new_type_name, MAX_SIZE, "Ref<"SV_format">",
+                                                             // SV_v_args(ref_inner->full_typeuse_span.sv));
+                                // new_type_name = realloc(new_type_name, sizeof(char) * out_len);
+                                // const SV new_type = SV_from_str_len(new_type_name, out_len);
 
 
                                 temporals_map->array[instr.info.get_struct_field_ptr.dest.val] = (TC_Entry){
@@ -724,7 +726,7 @@ void type_inference_pass_over_fn(
                                     .type = (TC_typeid){
                                         .ty = TC_TY_Ref,
                                         .info.contained = ref_inner,
-                                        .full_typeuse_span = (TokenSpan){.sv = new_type},
+                                        // .full_typeuse_span = (TokenSpan){.sv = new_type},
                                     },
                                     .is_value_known = false,
                                     .is_addressable = false
@@ -739,12 +741,12 @@ void type_inference_pass_over_fn(
                                 TC_typeid* ref_inner = malloc(sizeof(TC_typeid));
                                 *ref_inner = compiler_builtin__slice_tc_structdef.fields.array[0].type;
 
-                                const size_t MAX_SIZE = 128;
-                                char* new_type_name = malloc(sizeof(char) * MAX_SIZE);
-                                const int out_len = snprintf(new_type_name, MAX_SIZE, "Ref<"SV_format">",
-                                                             SV_v_args(ref_inner->full_typeuse_span.sv));
-                                new_type_name = realloc(new_type_name, sizeof(char) * out_len);
-                                const SV new_type = SV_from_str_len(new_type_name, out_len);
+                                // const size_t MAX_SIZE = 128;
+                                // char* new_type_name = malloc(sizeof(char) * MAX_SIZE);
+                                // const int out_len = snprintf(new_type_name, MAX_SIZE, "Ref<"SV_format">",
+                                                             // SV_v_args(ref_inner->full_typeuse_span.sv));
+                                // new_type_name = realloc(new_type_name, sizeof(char) * out_len);
+                                // const SV new_type = SV_from_str_len(new_type_name, out_len);
 
 
                                 temporals_map->array[instr.info.get_struct_field_ptr.dest.val] = (TC_Entry){
@@ -752,7 +754,7 @@ void type_inference_pass_over_fn(
                                     .type = (TC_typeid){
                                         .ty = TC_TY_Ref,
                                         .info.contained = ref_inner,
-                                        .full_typeuse_span = (TokenSpan){.sv = new_type},
+                                        // .full_typeuse_span = (TokenSpan){.sv = new_type},
                                     },
                                     .is_value_known = false,
                                     .is_addressable = false
@@ -809,19 +811,19 @@ void type_inference_pass_over_fn(
                         TC_typeid* out = malloc(sizeof(TC_typeid));
                         *out = dest;
 
-                        const size_t MAX_SIZE = 128;
-                        char* new_type_name = malloc(sizeof(char) * MAX_SIZE);
-                        const int out_len = snprintf(new_type_name, MAX_SIZE, "Ref<"SV_format">",
-                                                     SV_v_args(dest.full_typeuse_span.sv));
-                        new_type_name = realloc(new_type_name, sizeof(char) * out_len);
-                        const SV new_type = SV_from_str_len(new_type_name, out_len);
+                        // const size_t MAX_SIZE = 128;
+                        // char* new_type_name = malloc(sizeof(char) * MAX_SIZE);
+                        // const int out_len = snprintf(new_type_name, MAX_SIZE, "Ref<"SV_format">",
+                                                     // SV_v_args(dest.full_typeuse_span.sv));
+                        // new_type_name = realloc(new_type_name, sizeof(char) * out_len);
+                        // const SV new_type = SV_from_str_len(new_type_name, out_len);
 
                         temporals_map->array[instr.info.read_ptr.ptr.val] = (TC_Entry){
                             .known_temporal = true,
                             .type = (TC_typeid){
                                 .ty = TC_TY_Ref,
                                 .info.contained = out,
-                                .full_typeuse_span = (TokenSpan){.sv = new_type}, //ref_inner->full_typeuse_span
+                                // .full_typeuse_span = (TokenSpan){.sv = new_type}, //ref_inner->full_typeuse_span
                             },
                             .is_value_known = false,
                             .is_addressable = false
@@ -879,7 +881,7 @@ void type_inference_pass_over_fn(
                     if (dest_entry.known_temporal && dest_entry.type.ty == TC_TY_Struct) {
                         type = dest_entry.type;
                     } else {
-                        type = resolve_tc_type(instr.info.make_struct.type, nct, target_info, source_info);
+                        type = resolve_tc_type(instr.info.make_struct.type, nct, target_info, source_info, identifier_map);
                     }
 
                     if (type.ty != TC_TY_Struct) break;
@@ -925,7 +927,7 @@ void type_inference_pass_over_fn(
                         if (functions->array[n].fn_name.identifier == name) {
                             if (instr.ty == IR_INST_TY__FN_CALL_RETVAL) {
                                 const TC_typeid t = resolve_tc_type(&functions->array[n].fn_ret_t, nct, target_info,
-                                                                    source_info);
+                                                                    source_info, identifier_map);
                                 temporals_map->array[instr.info.fn_call_retval.dest.val] = (TC_Entry){
                                     .known_temporal = true,
                                     .type = t,
@@ -937,7 +939,7 @@ void type_inference_pass_over_fn(
                                 for (size_t k = 0; k < lk->len; k++) {
                                     if (!temporals_map->array[lk->array[k].val].known_temporal) {
                                         const TC_typeid type = resolve_tc_type(
-                                            &functions->array[n].args.array[k].type, nct, target_info, source_info);
+                                            &functions->array[n].args.array[k].type, nct, target_info, source_info, identifier_map);
                                         temporals_map->array[lk->array[k].val] = (TC_Entry){
                                             .known_temporal = true,
                                             .type = type,
@@ -987,17 +989,17 @@ void type_inference_pass_over_fn(
                             }
                         }
                         if (unpacked_array) {
-                            const size_t MAX_SIZE = 256;
-                            char* t_sv = malloc(sizeof(char) * MAX_SIZE);
-                            const SV inner_t_sv = format_TC_typeid(inner_type, identifier_map, nct);
-                            const int t_len = snprintf(t_sv, MAX_SIZE, "Ref<"SV_format">", SV_v_args(inner_t_sv));
+                            // const size_t MAX_SIZE = 256;
+                            // char* t_sv = malloc(sizeof(char) * MAX_SIZE);
+                            // const SV inner_t_sv = format_TC_typeid(inner_type, identifier_map, nct);
+                            // const int t_len = snprintf(t_sv, MAX_SIZE, "Ref<"SV_format">", SV_v_args(inner_t_sv));
 
                             temporals_map->array[instr.info.index_ptr.dest.val] = (TC_Entry){
                                 .known_temporal = true,
                                 .type = (TC_typeid){
                                     .ty = TC_TY_Ref,
                                     .info.contained = inner_type,
-                                    .full_typeuse_span = (TokenSpan){.sv = (SV){.start = t_sv, .len = t_len}}
+                                    // .full_typeuse_span = (TokenSpan){.sv = (SV){.start = t_sv, .len = t_len}}
                                 },
                                 .is_value_known = false,
                                 .is_addressable = false
@@ -1010,7 +1012,7 @@ void type_inference_pass_over_fn(
                             .type = (TC_typeid){
                                 .ty = TC_TY_Primitive,
                                 .info.primitive = TC_Primitive__Uint32,
-                                .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Uint32", 6)}
+                                // .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Uint32", 6)}
                             },
                             .is_value_known = false,
                             .is_addressable = false
@@ -1065,7 +1067,7 @@ void type_inference_pass_over_fn(
                 case IR_INST_TY__EXPLICIT_CAST: {
                     // EXPLICIT CAST HAS TYPE PRIORITY
                     // if (!temporals_map->array[instr.info.explicit_cast.dest.val].known_temporal) {
-                    const TC_typeid t = resolve_tc_type(instr.info.explicit_cast.type, nct, target_info, source_info);
+                    const TC_typeid t = resolve_tc_type(instr.info.explicit_cast.type, nct, target_info, source_info, identifier_map);
                     temporals_map->array[instr.info.explicit_cast.dest.val] = (TC_Entry){
                         .known_temporal = true,
                         .type = t,
@@ -1096,7 +1098,7 @@ void type_inference_pass_over_fn(
                     if (dest_entry.known_temporal && dest_entry.type.ty == TC_TY_Enum) {
                         type = dest_entry.type;
                     } else {
-                        type = resolve_tc_type(instr.info.make_enum.type, nct, target_info, source_info);
+                        type = resolve_tc_type(instr.info.make_enum.type, nct, target_info, source_info, identifier_map);
                     }
 
                     if (type.ty != TC_TY_Enum) break;
@@ -1199,7 +1201,7 @@ void type_inference_pass_over_fn(
                             .type = (TC_typeid){
                                 .ty = TC_TY_Primitive,
                                 .info.primitive = TC_Primitive__Uint32,
-                                .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Uint32", 6)}
+                                // .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Uint32", 6)}
                             },
                             .is_value_known = false,
                             .is_addressable = false,
@@ -1208,26 +1210,26 @@ void type_inference_pass_over_fn(
                     }
 
                     TC_Primitive_TY prim;
-                    SV prim_sv;
+                    // SV prim_sv;
                     switch (nct->enums.array[enum_t.info.type_id].discriminant_size) {
                         case 1: {
                             prim = TC_Primitive__Uint8;
-                            prim_sv = SV_from_str_len("Uint8", 5);
+                            // prim_sv = SV_from_str_len("Uint8", 5);
                             break;
                         }
                         case 2: {
                             prim = TC_Primitive__Uint16;
-                            prim_sv = SV_from_str_len("Uint16", 6);
+                            // prim_sv = SV_from_str_len("Uint16", 6);
                             break;
                         }
                         case 4: {
                             prim = TC_Primitive__Uint32;
-                            prim_sv = SV_from_str_len("Uint32", 6);
+                            // prim_sv = SV_from_str_len("Uint32", 6);
                             break;
                         }
                         case 8: {
                             prim = TC_Primitive__Uint64;
-                            prim_sv = SV_from_str_len("Uint64", 6);
+                            // prim_sv = SV_from_str_len("Uint64", 6);
                             break;
                         }
                         default: INTERNAL_ERROR()
@@ -1238,7 +1240,7 @@ void type_inference_pass_over_fn(
                         .type = (TC_typeid){
                             .ty = TC_TY_Primitive,
                             .info.primitive = prim,
-                            .full_typeuse_span = (TokenSpan){.sv = prim_sv}
+                            // .full_typeuse_span = (TokenSpan){.sv = prim_sv}
                         },
                         .is_value_known = false,
                         .is_addressable = false,

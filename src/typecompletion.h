@@ -57,7 +57,7 @@ typedef struct TC_typeid {
         } t_array;
         SpannedIdentifier external_type;
     } info;
-    TokenSpan full_typeuse_span;
+    // TokenSpan full_typeuse_span;
 } TC_typeid;
 
 init_prefixed_list_type(TC_typeid)
@@ -83,6 +83,9 @@ typedef struct {
     SpannedIdentifier name;
     TC_field_LIST fields;
     TC_struct_layout layout;
+    bool from_generic;
+    /// index into TC_TypeTable. TC_materialized_generic_index_record_LIST materialized_generics
+    size_t generic_cache_index;
 } TC_structdef;
 
 init_prefixed_list_type(TC_structdef)
@@ -102,6 +105,9 @@ typedef struct {
     uint32_t size;
     uint32_t discriminant_size;
     uint32_t align;
+    bool from_generic;
+    /// index into TC_TypeTable. TC_materialized_generic_index_record_LIST materialized_generics
+    size_t generic_cache_index;
 } TC_enumdef;
 
 init_prefixed_list_type(TC_enumdef)
@@ -168,6 +174,7 @@ typedef struct TC_TypeTable {
 
     TC_name_index_record_LIST name_index;
 
+
     // TC_materialized_generic_structdef_LIST materialized_generic_structs;
     // TC_materialized_generic_enumdef_LIST materialized_generic_enums;
     TC_materialized_generic_index_record_LIST materialized_generics;
@@ -201,6 +208,45 @@ IR_typeuse substitute_typeuse(
     const IR_typeuse* restrict args
 );
 
+typedef enum {
+    TC_LAYOUT_DEP_STRUCT_FIELD,
+    TC_LAYOUT_DEP_ENUM_VARIANT,
+    TC_LAYOUT_DEP_ARRAY_TYPE,
+} TC_layout_dependency_kind;
+
+typedef struct {
+    const TC_typeid* origin_type;
+    TC_layout_dependency_kind dependency_kind; // can be infered from if enum or struct
+    union {
+        struct {
+            SpannedIdentifier field_name;
+            TC_typeid* field_type;
+        } struct_field;
+        struct {
+            SpannedIdentifier variant_name;
+            TC_typeid* value_type;
+        } enum_variant;
+        struct {
+            void* null;
+        } array_type;
+    } dependency_info;
+} TC_layout_dependency;
+
+init_prefixed_list_type(TC_layout_dependency)
+
+
+SizeAlign calc_type_size(
+    const TC_typeid* restrict type,
+    // const TC_structdef_LIST* restrict out_structs,
+    // const TC_enumdef_LIST* restrict out_enums,
+    const TC_TypeTable* restrict nct,
+
+    TC_layout_dependency_LIST* restrict in_progress,
+
+    const TargetInfo* restrict target_info,
+    const SourceInfo* restrict source_info,
+    const khash_t(sv_u64_map)* restrict identifier_map
+);
 
 
 #endif //KLEPCOMPILER_TYPECOMPLETION_H

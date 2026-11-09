@@ -1,21 +1,23 @@
 #include "materialization.h"
 
 #include "passes/type_utils.h"
+#include "passes/typeresolve/type_resolve.h"
 
 
-IR_typeuse typeuse_from_tc(const TC_typeid* tc, TC_TypeTable* restrict nct) {
+/// todo: USE PROPERLY (NOT USED NOW)
+IR_typeuse typeuse_from_tc(const TC_typeid* tc, const TC_TypeTable* restrict nct) {
     switch (tc->ty) {
         case TC_TY_Void: {
             return (IR_typeuse){
                 .tt_ty = IR_TY_Void,
-                .full_typeuse_span = tc->full_typeuse_span
+                // .full_typeuse_span = tc->full_typeuse_span
             };
         }
         case TC_TY_Primitive: {
             return (IR_typeuse){
                 .tt_ty = IR_TY_Primitive,
                 .info.primitive = tc->info.primitive,
-                .full_typeuse_span = tc->full_typeuse_span
+                // .full_typeuse_span = tc->full_typeuse_span
             };
         }
         case TC_TY_Ref:
@@ -36,7 +38,7 @@ IR_typeuse typeuse_from_tc(const TC_typeid* tc, TC_TypeTable* restrict nct) {
                 .tt_ty = tt_ty,
                 .contained = inner,
                 .contained_len = 1,
-                .full_typeuse_span = tc->full_typeuse_span
+                // .full_typeuse_span = tc->full_typeuse_span
             };
         }
         case TC_TY_Array: {
@@ -46,20 +48,28 @@ IR_typeuse typeuse_from_tc(const TC_typeid* tc, TC_TypeTable* restrict nct) {
                 .tt_ty = IR_TY_Array,
                 .contained = inner,
                 .array_const_size = tc->info.t_array.array_size,
-                .full_typeuse_span = tc->full_typeuse_span
+                // .full_typeuse_span = tc->full_typeuse_span
             };
         }
         case TC_TY_Struct:
         case TC_TY_Enum: {
-            // 1. Check if this struct/enum was a materialized generic
-            for (size_t n = 0; n < nct->materialized_generics.len; n++) {
+
+
+            // // 1. Check if this struct/enum was a materialized generic
+            // for (size_t n = 0; n < nct->materialized_generics.len; n++) {
+            //     const TC_materialized_generic_index_record mr = nct->materialized_generics.array[n];
+            //     if (mr.nth == tc->info.type_id) {
+            //         if ((tc->ty == TC_TY_Struct && mr.kind == TC_NIRK_Struct) ||
+            //             (tc->ty == TC_TY_Enum && mr.kind == TC_NIRK_Enum)) {
+            //             return mr.generic; // Returns the original IR_typeuse with generic args!
+            //         }
+            //     }
+            // }
+            const bool was_generic = (tc->ty == TC_TY_Struct) ? nct->structs.array[tc->info.type_id].from_generic : nct->enums.array[tc->info.type_id].from_generic;
+            if (was_generic) {
+                const size_t n = (tc->ty == TC_TY_Struct) ? nct->structs.array[tc->info.type_id].generic_cache_index : nct->enums.array[tc->info.type_id].generic_cache_index;
                 const TC_materialized_generic_index_record mr = nct->materialized_generics.array[n];
-                if (mr.nth == tc->info.type_id) {
-                    if ((tc->ty == TC_TY_Struct && mr.kind == TC_NIRK_Struct) ||
-                        (tc->ty == TC_TY_Enum && mr.kind == TC_NIRK_Enum)) {
-                        return mr.generic; // Returns the original IR_typeuse with generic args!
-                    }
-                }
+                return mr.generic;
             }
 
             // 2. Otherwise, it's a regular non-generic struct/enum
@@ -70,14 +80,14 @@ IR_typeuse typeuse_from_tc(const TC_typeid* tc, TC_TypeTable* restrict nct) {
             return (IR_typeuse){
                 .tt_ty = IR_TY_Named,
                 .info.named = name,
-                .full_typeuse_span = tc->full_typeuse_span
+                // .full_typeuse_span = tc->full_typeuse_span
             };
         }
         case TC_TY_External_Type: {
             return (IR_typeuse){
                 .tt_ty = IR_TY_Named,
                 .info.named = tc->info.external_type,
-                .full_typeuse_span = tc->full_typeuse_span
+                // .full_typeuse_span = tc->full_typeuse_span
             };
         }
     }
@@ -86,12 +96,28 @@ IR_typeuse typeuse_from_tc(const TC_typeid* tc, TC_TypeTable* restrict nct) {
     UNREACHABLE()
 }
 
-
+// void find_type_param_parallel_ir(
+//     const IR_typeuse* restrict t1,
+//     const IR_typeuse* restrict t2,
+//     const SpannedIdentifier_LIST* restrict generic_args,
+//     TC_GenericArgMap_LIST* restrict out,
+//     const TC_TypeTable* restrict nct
+// ) {
+//
+// }
 
 /// returns true if found
-void find_type_param_parallel(const IR_typeuse* restrict t1, const TC_typeid* restrict t2,
-                              const SpannedIdentifier_LIST* restrict generic_args,
-                              TC_GenericArgMap_LIST* restrict out) {
+void find_type_param_parallel(
+    const IR_typeuse* restrict t1,
+    const TC_typeid* restrict t2,
+    const SpannedIdentifier_LIST* restrict generic_args,
+    TC_GenericArgMap_LIST* restrict out,
+    TC_TypeTable* restrict nct,
+    const TargetInfo* restrict target_info,
+    const SourceInfo* restrict source_info,
+    const khash_t(sv_u64_map)* restrict identifier_map
+) {
+
     if (t2->ty == TC_TY_Void) return; // used for function calls discarding return values
     switch (t1->tt_ty) {
         case IR_TY_Void: return;
@@ -128,25 +154,29 @@ void find_type_param_parallel(const IR_typeuse* restrict t1, const TC_typeid* re
             break;
         }
         case IR_TY_Ref: {
-            const TC_typeid* nx = t2->ty == TC_TY_Ref ? t2->info.contained : t2;
+            // const TC_typeid* nx = t2->ty == TC_TY_Ref ? t2->info.contained : t2;
             // if (t2->ty != TC_TY_Ref) {
             //     INTERNAL_ERROR("type error here")
             // }
-            find_type_param_parallel(t1->contained, nx, generic_args, out);
+            // find_type_param_parallel(t1->contained, nx, generic_args, out, nct);
+            if (t2->ty != TC_TY_Box) {
+                INTERNAL_ERROR("type error here")
+            }
+            find_type_param_parallel(t1->contained, t2->info.contained, generic_args, out, nct, target_info, source_info, identifier_map);
             break;
         }
         case IR_TY_Box: {
             if (t2->ty != TC_TY_Box) {
                 INTERNAL_ERROR("type error here")
             }
-            find_type_param_parallel(t1->contained, t2->info.contained, generic_args, out);
+            find_type_param_parallel(t1->contained, t2->info.contained, generic_args, out, nct, target_info, source_info, identifier_map);
             break;
         }
         case IR_TY_Slice: {
             if (t2->ty != TC_TY_Slice) {
                 INTERNAL_ERROR("type error here")
             }
-            find_type_param_parallel(t1->contained, t2->info.contained, generic_args, out);
+            find_type_param_parallel(t1->contained, t2->info.contained, generic_args, out, nct, target_info, source_info, identifier_map);
             break;
         }
         case IR_TY_Array: {
@@ -156,20 +186,49 @@ void find_type_param_parallel(const IR_typeuse* restrict t1, const TC_typeid* re
             if (t1->array_const_size != t2->info.t_array.array_size) {
                 INTERNAL_ERROR("type error here")
             }
-            find_type_param_parallel(t1->contained, t2->info.t_array.contained, generic_args, out);
+            find_type_param_parallel(t1->contained, t2->info.t_array.contained, generic_args, out, nct, target_info, source_info, identifier_map);
             break;
         }
         case IR_TY_List: {
             if (t2->ty != TC_TY_List) {
                 INTERNAL_ERROR("type error here")
             }
-            find_type_param_parallel(t1->contained, t2->info.contained, generic_args, out);
+            find_type_param_parallel(t1->contained, t2->info.contained, generic_args, out, nct, target_info, source_info, identifier_map);
             break;
         }
         case IR_TY_Generic: {
             if (t2->ty != TC_TY_Enum && t2->ty != TC_TY_Struct) {
                 INTERNAL_ERROR("type error here")
             }
+
+            const size_t t2_type_id = t2->info.type_id;
+            const bool from_generics = (t2->ty == TC_TY_Struct) ? nct->structs.array[t2_type_id].from_generic : nct->enums.array[t2_type_id].from_generic;
+            if (!from_generics) {
+                INTERNAL_ERROR("type error here")
+            }
+            const size_t mtr_index = (t2->ty == TC_TY_Struct) ? nct->structs.array[t2_type_id].generic_cache_index : nct->enums.array[t2_type_id].generic_cache_index;
+            if (mtr_index >= nct->materialized_generics.len) {
+                INTERNAL_ERROR()
+            }
+            const TC_materialized_generic_index_record* record = &nct->materialized_generics.array[mtr_index];
+            if (record->kind == TC_NIRK_Struct && t2->ty != TC_TY_Struct) {
+                INTERNAL_ERROR("type error here")
+            } else if (record->kind == TC_NIRK_Enum && t2->ty != TC_TY_Enum) {
+                INTERNAL_ERROR("type error here")
+            }
+
+
+            if (t1->contained_len != record->generic.contained_len) {
+                INTERNAL_ERROR("type error here")
+            }
+
+            for (size_t n = 0; n < t1->contained_len; n++) {
+                const TC_typeid tt = resolve_tc_type(&record->generic.contained[n], nct, target_info, source_info, identifier_map);
+                find_type_param_parallel(&t1->contained[n], &tt, generic_args, out, nct, target_info, source_info, identifier_map);
+            }
+
+            break;
+
             UNIMPLEMENTED()
             /*
             Ah, I see! Because TC_typeid for structs and enums uses an internal index (type_id) into
@@ -220,7 +279,7 @@ IR_typeuse materialization_fn_type_patch(const IR_typeuse* use, const TC_Generic
                 .info.named = use->info.named,
                 .contained = inner,
                 .contained_len = 1,
-                .full_typeuse_span = use->full_typeuse_span,
+                // .full_typeuse_span = use->full_typeuse_span,
             };
         }
         case IR_TY_Array: {
@@ -234,7 +293,7 @@ IR_typeuse materialization_fn_type_patch(const IR_typeuse* use, const TC_Generic
                 .contained = inner,
                 // .contained_len = 1,
                 .array_const_size = use->array_const_size,
-                .full_typeuse_span = use->full_typeuse_span,
+                // .full_typeuse_span = use->full_typeuse_span,
             };
         }
 
@@ -245,15 +304,21 @@ IR_typeuse materialization_fn_type_patch(const IR_typeuse* use, const TC_Generic
     UNREACHABLE()
 }
 
-const IR_func* materialize_function(const IR_generic_function* restrict gf, const TC_typeid_LIST found_args_t,
-                                    const TC_typeid* found_ret_t, TC_TypeTable* restrict nct) {
+const IR_func* materialize_function(
+    const IR_generic_function* restrict gf,
+    const TC_typeid_LIST found_args_t,
+    const TC_typeid* found_ret_t, TC_TypeTable* restrict nct,
+    const TargetInfo* restrict target_info,
+    const SourceInfo* restrict source_info,
+    const khash_t(sv_u64_map)* restrict identifier_map
+) {
     // find type args in functions args+ret -> in parallel, unwrap IR_typeuse and TC_typeid types
     TC_GenericArgMap_LIST map = TC_GenericArgMap_LIST_new_with_capacity(gf->generic_args.len);
 
-    find_type_param_parallel(&gf->fn.fn_ret_t, found_ret_t, &gf->generic_args, &map);
+    find_type_param_parallel(&gf->fn.fn_ret_t, found_ret_t, &gf->generic_args, &map, nct, target_info, source_info, identifier_map);
     for (size_t n = 0; n < found_args_t.len; n++) {
         if (map.len == gf->generic_args.len) break;
-        find_type_param_parallel(&gf->fn.args.array[n].type, &found_args_t.array[n], &gf->generic_args, &map);
+        find_type_param_parallel(&gf->fn.args.array[n].type, &found_args_t.array[n], &gf->generic_args, &map, nct, target_info, source_info, identifier_map);
     }
 
     if (map.len != gf->generic_args.len) {
@@ -315,6 +380,19 @@ const IR_func* materialize_function(const IR_generic_function* restrict gf, cons
                     const IR_typeuse out = materialization_fn_type_patch(instr.info.explicit_cast.type, &map, nct);
                     instr.info.explicit_cast.type = malloc(sizeof(IR_typeuse));
                     *instr.info.explicit_cast.type = out;
+                    break;
+                }
+                case IR_INST_TY__MAKE_STRUCT: {
+                    const IR_typeuse out = materialization_fn_type_patch(instr.info.make_struct.type, &map, nct);
+                    instr.info.make_struct.type = malloc(sizeof(IR_typeuse));
+                    *instr.info.make_struct.type = out;
+                    break;
+                }
+                case IR_INST_TY__MAKE_ENUM: {
+                    const IR_typeuse out = materialization_fn_type_patch(instr.info.make_enum.type, &map, nct);
+                    instr.info.make_enum.type = malloc(sizeof(IR_typeuse));
+                    *instr.info.make_enum.type = out;
+                    break;
                 }
                 default: {
                     break;

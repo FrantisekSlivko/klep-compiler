@@ -386,7 +386,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                     break;
                 }
                 case IR_INST_TY__DROP: {
-                    const TC_typeid t = resolve_tc_type(instr.info.drop.type, nct, target_info, source_info);
+                    const TC_typeid t = resolve_tc_type(instr.info.drop.type, nct, target_info, source_info, identifier_map);
                     const SV type_sv = format_TC_typeid(&t, identifier_map, nct);
                     printf("   DROP <"SV_format"> %%%lu ",SV_v_args(type_sv), instr.info.drop.dest.val);
                     if (t.ty == TC_TY_Primitive) {
@@ -462,7 +462,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                     temporals_map->array[instr.info.var_decl.dest.val].is_addressable = true;
                     const TC_typeid t = temporals_map->array[instr.info.var_decl.dest.val].type;
                     const TC_typeid original_t = resolve_tc_type(instr.info.var_decl.type, nct, target_info,
-                                                                 source_info);
+                                                                 source_info, identifier_map);
                     if (!is_type_eq(&t, &original_t)) {
                         INTERNAL_ERROR("should not happen")
                     }
@@ -517,14 +517,14 @@ MIR_func lowering_and_emission_pass_over_fn(
                     // can_be_explicit_casted
                     const TC_typeid src = temporals_map->array[instr.info.explicit_cast.src.val].type;
                     const TC_typeid cast_t = resolve_tc_type(instr.info.explicit_cast.type, nct, target_info,
-                                                             source_info);
+                                                             source_info, identifier_map);
 
                     const SV cast_t_sv = format_TC_typeid(&cast_t, identifier_map, nct);
 
                     if (!can_be_explicit_casted(&src, &cast_t)) {
                         const SV whole = fn.error_info_list.array[instr.error_info_index].info.explicit_cast.whole.sv;
                         const SV expr = fn.error_info_list.array[instr.error_info_index].info.explicit_cast.expr.sv;
-                        const SV type = fn.error_info_list.array[instr.error_info_index].info.explicit_cast.type.sv;
+                        // const SV type = fn.error_info_list.array[instr.error_info_index].info.explicit_cast.type.sv;
 
                         const size_t MAX_SIZE = 1024;
                         char* r_msg = malloc(sizeof(char) * MAX_SIZE);
@@ -548,8 +548,8 @@ MIR_func lowering_and_emission_pass_over_fn(
                         if (!can_be_implicit_casted(&cast_t, &dest_t)) {
                             const SV whole = fn.error_info_list.array[instr.error_info_index].info.explicit_cast.whole.
                                     sv;
-                            const SV expr = fn.error_info_list.array[instr.error_info_index].info.explicit_cast.expr.sv;
-                            const SV type = fn.error_info_list.array[instr.error_info_index].info.explicit_cast.type.sv;
+                            // const SV expr = fn.error_info_list.array[instr.error_info_index].info.explicit_cast.expr.sv;
+                            // const SV type = fn.error_info_list.array[instr.error_info_index].info.explicit_cast.type.sv;
 
                             // expected <T> but found <T>
                             const size_t MAX_SIZE = 1024;
@@ -721,7 +721,8 @@ MIR_func lowering_and_emission_pass_over_fn(
                         &temporals_map_values,
                         &promote_to_stack_temps,
                         nct,
-                        target_info
+                        target_info,
+                        identifier_map
                     );
 
                     // numeric promotion failed, but which of the two? or both
@@ -893,7 +894,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                     static TC_typeid bool_t = {
                         .ty = TC_TY_Primitive,
                         .info.primitive = TC_Primitive__Bool,
-                        .full_typeuse_span = {.sv = {"Bool", 4}}
+                        // .full_typeuse_span = {.sv = {"Bool", 4}}
                     };
 
                     uint64_t out_temporal = instr.info.math_cmp_boolean_op.dest.val;
@@ -968,14 +969,15 @@ MIR_func lowering_and_emission_pass_over_fn(
                         &temporals_map_values,
                         &promote_to_stack_temps,
                         nct,
-                        target_info
+                        target_info,
+                        identifier_map
                     );
 
                     // RESULT OF OPERATION IS BOOL TYPE
                     const TC_typeid res_t = (TC_typeid){
                         .ty = TC_TY_Primitive,
                         .info.primitive = TC_Primitive__Bool,
-                        .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)}
+                        // .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)}
                     };
 
 
@@ -1190,16 +1192,17 @@ MIR_func lowering_and_emission_pass_over_fn(
                     const SV ele_sv = format_TC_typeid(element_ty, identifier_map, nct);
                     // 3. Wrap it in a Reference! ('Ref<Char>')
                     // TC_typeid ref_ty = wrap_in_ref(element_ty);
-                    const size_t MAX_SIZE = 256;
-                    char* rs = malloc(sizeof(char) * MAX_SIZE);
-                    int len = snprintf(rs, MAX_SIZE, "Ref<"SV_format">", SV_v_args(ele_sv));
-                    rs = realloc(rs, len);
-                    const SV ref_span = SV_from_str_len(rs, len);
+
+                    // const size_t MAX_SIZE = 256;
+                    // char* rs = malloc(sizeof(char) * MAX_SIZE);
+                    // int len = snprintf(rs, MAX_SIZE, "Ref<"SV_format">", SV_v_args(ele_sv));
+                    // rs = realloc(rs, len);
+                    // const SV ref_span = SV_from_str_len(rs, len);
 
                     const TC_typeid ref_ty = (TC_typeid){
                         .ty = TC_TY_Ref,
                         .info.contained = (TC_typeid *) element_ty,
-                        .full_typeuse_span = (TokenSpan){.sv = ref_span}
+                        // .full_typeuse_span = (TokenSpan){.sv = ref_span}
                     };
 
                     // 4. Assign this type to the destination temporal (%13)
@@ -1452,7 +1455,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                                    &fn.error_info_list.array[instr.error_info_index].info.return_value.expr.sv, &msg);
                         exit(1);
                     }
-                    const TC_typeid t = resolve_tc_type(&fn.fn_ret_t, nct, target_info, source_info);
+                    const TC_typeid t = resolve_tc_type(&fn.fn_ret_t, nct, target_info, source_info, identifier_map);
                     const TC_typeid intake_t = temporals_map->array[instr.info.return_value.val].type;
                     const IR_temporal out = perf_autos(
                         &instr.info.return_value,
@@ -1663,7 +1666,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                                 TC_typeid_LIST_push(&found_args_t, arg_t);
                             }
 
-                            const IR_func* rs = materialize_function(&gf, found_args_t, expected_ret_t, nct);
+                            const IR_func* rs = materialize_function(&gf, found_args_t, expected_ret_t, nct, target_info, source_info, identifier_map);
                             target_fn = rs;
 
                             break;
@@ -1691,7 +1694,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                         const IR_temporal arg_temp = raw_args->array[k];
                         const TC_typeid arg_t = temporals_map->array[arg_temp.val].type;
                         const TC_typeid expected_t = resolve_tc_type(&target_fn->args.array[k].type, nct,
-                                                                     target_info, source_info);
+                                                                     target_info, source_info, identifier_map);
 
                         const TokenSpan arg_span = fn.error_info_list.array[instr.error_info_index].info.function_call.
                                 args[k];
@@ -1718,7 +1721,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                     // 3. Handle return value for RETVAL
                     if (is_retval) {
                         const TC_typeid expected_ret_t = temporals_map->array[instr.info.fn_call_retval.dest.val].type;
-                        const TC_typeid fn_ret_t = resolve_tc_type(&target_fn->fn_ret_t, nct, target_info, source_info);
+                        const TC_typeid fn_ret_t = resolve_tc_type(&target_fn->fn_ret_t, nct, target_info, source_info, identifier_map);
 
 
                         if (expected_ret_t.ty == TC_TY_Void) {

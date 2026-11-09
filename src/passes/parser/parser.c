@@ -136,7 +136,7 @@ IR_typeuse P_get_typeuse_intern_single_generic(Parser* p, const Token name, cons
         .info.named = {id_name, (TokenSpan){*name}},
         .tt_ty = ty,
         .contained = irt,
-        .full_typeuse_span = TS_merge(&(TokenSpan){*name}, &(TokenSpan){*end})
+        // .full_typeuse_span = TS_merge(&(TokenSpan){*name}, &(TokenSpan){*end})
     };
 }
 
@@ -182,7 +182,7 @@ IR_typeuse P_get_typeuse(Parser* p, const bool allow_void) {
             P_syntax_error(p, name, SV_from_str("void as type not allowed here"));
             exit(1);
         }
-        return (IR_typeuse){.tt_ty = IR_TY_Void, .full_typeuse_span = {*name}};
+        return (IR_typeuse){.tt_ty = IR_TY_Void}; // .full_typeuse_span = {*name}
     }
 
     SV defaulted_type_name;
@@ -193,7 +193,7 @@ IR_typeuse P_get_typeuse(Parser* p, const bool allow_void) {
 
     TC_Primitive_TY tt;
     if (TC_Primitive_TY_from_SV(&defaulted_type_name, &tt)) {
-        return (IR_typeuse){.info.primitive = tt, .tt_ty = IR_TY_Primitive, .full_typeuse_span = {*name}};
+        return (IR_typeuse){.info.primitive = tt, .tt_ty = IR_TY_Primitive}; // .full_typeuse_span = {*name}
     }
 
     if (Token_cmp(name, "Ref")) {
@@ -241,7 +241,7 @@ IR_typeuse P_get_typeuse(Parser* p, const bool allow_void) {
             .tt_ty = IR_TY_Array,
             .contained = irt,
             .array_const_size = array_len,
-            .full_typeuse_span = TS_merge(&(TokenSpan){*name}, &(TokenSpan){*end})
+            // .full_typeuse_span = TS_merge(&(TokenSpan){*name}, &(TokenSpan){*end})
         };
     }
 
@@ -262,13 +262,13 @@ IR_typeuse P_get_typeuse(Parser* p, const bool allow_void) {
 
         IR_typeuse_LIST irts = IR_typeuse_LIST_new();
 
-        SV end;
+        // SV end;
         while (1) {
             IR_typeuse_LIST_push(&irts, P_get_typeuse(p, allow_void));
             P_require_having_next_token(p, TT_Comma);
             const Token t = P_next_token(p);
             if (Token_cmp(t, ">")) {
-                end = *t;
+                // end = *t;
                 break;
             }
             if (!Token_cmp(t, ",")) {
@@ -287,7 +287,7 @@ IR_typeuse P_get_typeuse(Parser* p, const bool allow_void) {
             },
             .contained = irts.array, // res,
             .contained_len = irts.len,
-            .full_typeuse_span = TS_merge(&(TokenSpan){*name}, &(TokenSpan){end})
+            // .full_typeuse_span = TS_merge(&(TokenSpan){*name}, &(TokenSpan){end})
         };
     }
     return (IR_typeuse){
@@ -296,7 +296,7 @@ IR_typeuse P_get_typeuse(Parser* p, const bool allow_void) {
             (TokenSpan){*name}
         },
         .tt_ty = IR_TY_Named,
-        .full_typeuse_span = {*name}
+        // .full_typeuse_span = {*name}
     };
 }
 
@@ -394,6 +394,7 @@ IR_temporal P_new_temporal(Parser* p) {
 
 void P_get_var_dec_stmt(Parser* p) {
     // IR_typeuse* ty = malloc(sizeof(IR_typeuse));
+    const SV* ty_sv = P_peek_token(p);
     IR_typeuse ty = P_get_typeuse(p, false);
 
     P_require_having_next_token(p, TT_Identifier);
@@ -452,7 +453,7 @@ void P_get_var_dec_stmt(Parser* p) {
     IR_typeuse* ttype = malloc(sizeof(IR_typeuse));
     *ttype = ty;
 
-    const TokenSpan whole = TS_merge(&ty.full_typeuse_span, &rs.span);
+    const TokenSpan whole = TS_merge(&(TokenSpan){*ty_sv}, &rs.span);
     P_emit(p, (IR_instr){
                .ty = IR_INST_TY__VAR_DECL,
                .info.var_decl = {
@@ -464,7 +465,7 @@ void P_get_var_dec_stmt(Parser* p) {
                .kind = IR_IEI_variable_declaration,
                .info.variable_declaration = {
                    .name = name_span,
-                   .type = ty.full_typeuse_span,
+                   // .type = ty.full_typeuse_span,
                    .expr = rs.span,
                    .whole = whole
                }
@@ -2343,9 +2344,9 @@ void P_get_top_fn(Parser* p) {
                    .kind = IR_IEI_variable_declaration,
                    .info.variable_declaration = {
                        .name = args.array[n].name.span,
-                       .type = ttype->full_typeuse_span,
-                       .expr = TS_merge(&args.array[n].name.span, &ttype->full_typeuse_span),
-                       .whole = TS_merge(&args.array[n].name.span, &ttype->full_typeuse_span)
+                       // .type = ttype->full_typeuse_span,
+                       // .expr = TS_merge(&args.array[n].name.span, &ttype->full_typeuse_span),
+                       // .whole = TS_merge(&args.array[n].name.span, &ttype->full_typeuse_span)
                    }
                });
 
@@ -2941,9 +2942,9 @@ void P_get_top_generic_function(Parser* restrict p) {
                    .kind = IR_IEI_variable_declaration,
                    .info.variable_declaration = {
                        .name = args.array[n].name.span,
-                       .type = ttype->full_typeuse_span,
-                       .expr = TS_merge(&args.array[n].name.span, &ttype->full_typeuse_span),
-                       .whole = TS_merge(&args.array[n].name.span, &ttype->full_typeuse_span)
+                       // .type = ttype->full_typeuse_span,
+                       // .expr = TS_merge(&args.array[n].name.span, &ttype->full_typeuse_span),
+                       // .whole = TS_merge(&args.array[n].name.span, &ttype->full_typeuse_span)
                    }
                });
 

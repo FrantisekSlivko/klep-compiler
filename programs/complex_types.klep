@@ -1,0 +1,24 @@
+
+generic enum Option<T> {
+    None,
+    Some(T)
+}
+
+generic struct Node<T> {
+    T value;
+    Option<Box<Node<T>>> next;
+}
+
+// generic struct Node2<T> {
+//     T value;
+//     Option<Node2<T>> next;
+// }
+
+// Node2<Int32> n() {
+//     return new Node2 { value = 1, next = new Option::None };
+// }
+
+Void node_test() {
+    Node<Int32> n1 = new Node { value = 10, next = new Option::None };
+    Node<Int32> n2 = new Node { value = 11, next = new Option::Some(n1) };
+}

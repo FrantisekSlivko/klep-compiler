@@ -11,6 +11,7 @@
 
 void print_IR_typeuse(const IR_typeuse* restrict ty, const khash_t(sv_u64_map)* restrict identifier_map);
 
+SV format_IR_typeuse(const IR_typeuse* restrict ty, const khash_t(sv_u64_map)* restrict identifier_map);
 
 typedef struct {
     uint64_t val;
@@ -120,7 +121,6 @@ typedef struct {
         } math_operation;
         TokenSpan literal;
         struct {
-            TokenSpan type;
             TokenSpan expr;
             TokenSpan whole;
         } explicit_cast;
@@ -159,7 +159,6 @@ typedef struct {
         } index_array;
         struct {
             TokenSpan name;
-            TokenSpan type;
             TokenSpan expr;
             TokenSpan whole;
         } variable_declaration;

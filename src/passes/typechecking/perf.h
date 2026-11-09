@@ -45,7 +45,8 @@ DoubleIR_temporal_and_TC_typeid perf_numeric_promotion(
     const TC_Value_LIST* temporals_map_values,
     const IR_temporal_LIST* promoted,
     const TC_TypeTable* restrict nct,
-    const TargetInfo* restrict target_info
+    const TargetInfo* restrict target_info,
+    const khash_t(sv_u64_map)* restrict identifier_map
 );
 
 
