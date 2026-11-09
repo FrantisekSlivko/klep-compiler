@@ -1,7 +1,7 @@
 
 #include "typeinference.h"
 #include "passes/inference_check_types.h"
-#include "passes/typeresolve/type_resolve.h"
+#include "typeresolve/type_resolve.h"
 #include "passes/type_utils.h"
 #include "error.h"
 #include "utils/color.h"

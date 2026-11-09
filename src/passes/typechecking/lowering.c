@@ -4,7 +4,7 @@
 #include "perf.h"
 #include "passes/type_utils.h"
 #include "passes/typeinference/typeinference.h"
-#include "passes/typeresolve/type_resolve.h"
+#include "typeresolve/type_resolve.h"
 #include "error.h"
 #include "utils/color.h"
 #include "passes/parser/parser.h"

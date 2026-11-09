@@ -2,6 +2,8 @@
 
 #include "expr.h"
 #include "error.h"
+#include "overloading/resolve.h"
+#include "passes/type_utils.h"
 #include "passes/typeinference/typeinference.h"
 
 
@@ -2367,6 +2369,37 @@ void P_get_top_fn(Parser* p) {
 
     P_require_next_be(p, TT_EndBracket, SV_from_str_len(")", 1));
 
+    // -------------------------------------------------------------
+
+
+    size_t overloads_cnt = 0;
+    for (size_t n = 0; n < p->functions.len; n++) {
+        const IR_func* fn = &p->functions.array[n];
+        if(fn->fn_name.identifier == fn_name) {
+            if (fn->args.len != args.len) {
+                overloads_cnt += 1;
+                continue;
+            }
+            bool same = true;
+            for (size_t a = 0; a < fn->args.len; a++) {
+                if (!cmp_IR_typeuse(&fn->args.array[a].type, &args.array[a].type)) {
+                    same = false;
+                    break;
+                }
+            }
+            if (same) {
+                if (cmp_IR_typeuse(&fn->fn_ret_t, &fn_ret_t)) {
+                    P_syntax_error(p, raw_fn_name, SV_from_str("function redefinition"));
+                } else {
+                    P_syntax_error(p, raw_fn_name, SV_from_str("cannot overload function by return type alone"));
+                }
+                exit(1);
+            }
+            overloads_cnt += 1;
+        }
+    }
+    SV mangled_raw_fn_name = mangle_function_name(&(SpannedIdentifier){.identifier = fn_name, .span = (TokenSpan){.sv = *raw_fn_name}}, overloads_cnt);
+
 
     // -------------------------------------------------------------
 
@@ -2468,16 +2501,17 @@ void P_get_top_fn(Parser* p) {
 
     // -------------------------------------------------------------
 
-    const size_t new_name_size = sizeof(char)*raw_fn_name->len + 5;
-    char* new_name = malloc(new_name_size);
-    int ns = snprintf(new_name, new_name_size, "FN_"SV_format"", SV_p_args(raw_fn_name));
+    // const size_t new_name_size = sizeof(char)*raw_fn_name->len + 5;
+    // char* new_name = malloc(new_name_size);
+    // int ns = snprintf(new_name, new_name_size, "FN_"SV_format"", SV_p_args(raw_fn_name));
 
     IR_func_LIST_push(&p->functions, (IR_func){
                           .fn_ret_t = fn_ret_t,
                           .blocks = blocks,
                           .args = args,
                           .fn_name = (SpannedIdentifier){fn_name, (TokenSpan){*raw_fn_name}},
-                          .raw_name = SV_from_str_len(new_name, ns),
+                          // .raw_name = SV_from_str_len(new_name, ns),
+                          .raw_name = mangled_raw_fn_name,
                           .highest_temporal_number = p->temporal_fn_cnt,
                           .error_info_list = error_info_list
                       });

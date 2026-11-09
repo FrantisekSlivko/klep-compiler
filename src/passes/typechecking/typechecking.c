@@ -1,5 +1,5 @@
 #include "typechecking.h"
-#include "passes/typeresolve/type_resolve.h"
+#include "typeresolve/type_resolve.h"
 #include "passes/type_utils.h"
 
 

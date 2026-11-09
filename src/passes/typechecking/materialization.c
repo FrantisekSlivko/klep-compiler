@@ -1,7 +1,7 @@
 #include "materialization.h"
 
 #include "passes/type_utils.h"
-#include "passes/typeresolve/type_resolve.h"
+#include "typeresolve/type_resolve.h"
 
 
 /// todo: USE PROPERLY (NOT USED NOW)
