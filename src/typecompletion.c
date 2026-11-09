@@ -429,7 +429,7 @@ IR_typeuse substitute_typeuse(
 
             IR_typeuse* new_contained = malloc(sizeof(IR_typeuse));
             *new_contained = substitute_typeuse(input->contained, generic_args, args);
-            free(input->contained);
+            // free(input->contained);
 
             return (IR_typeuse) {
                 .tt_ty = input->tt_ty,
@@ -445,7 +445,7 @@ IR_typeuse substitute_typeuse(
                 new_contained[n] = substitute_typeuse(&input->contained[n], generic_args, args);
             }
 
-            free(input->contained);
+            // free(input->contained);
 
             return (IR_typeuse) {
                 .tt_ty = IR_TY_Generic,

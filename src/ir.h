@@ -108,6 +108,7 @@ typedef enum {
     IR_IEI__MATCH_META__match,
     IR_IEI_enum_get_field_ptr,
     IR_IEI_ref_of,
+    IR_IEI_make_box
 } IR_instr_error_info_kind;
 
 typedef struct {
@@ -194,6 +195,10 @@ typedef struct {
             bool is_from_match;
             TokenSpan match_kw; // later union if other cases arise from which REF_OF could originate
         } ref_of;
+        struct {
+            TokenSpan expr;
+            TokenSpan whole;
+        } make_box;
 
         void* null;
     } info;
@@ -290,7 +295,9 @@ typedef enum {
     IR_INST_TY__ENUM_VARIANT_NUMBER_EXTRACT,
 
     /// from enum name and variant name -> variant number and size -> gets replaced by CONST_INT
-    IR_INST_TY__ENUM_VARIANT_NUMBER_FROM_TYPE
+    IR_INST_TY__ENUM_VARIANT_NUMBER_FROM_TYPE,
+
+    IR_INST_TY__MAKE_BOX,
 } IR_instr_TY;
 
 
@@ -424,6 +431,10 @@ typedef struct {
             SpannedIdentifier enum_name;
             SpannedIdentifier variant_name;
         } enum_variant_number_from_type;
+        struct {
+            IR_temporal src;
+            IR_temporal dest;
+        } make_box;
     } info;
 } IR_instr;
 

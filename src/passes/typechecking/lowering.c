@@ -212,6 +212,10 @@ IR_instr instr_rewrite_process(const IR_instr instr, const IR_rewrite_LIST* rest
             out.info.enum_variant_number_from_type.dest = resolve(out.info.enum_variant_number_from_type.dest, rewrite_map);
             break;
         }
+        case IR_INST_TY__MAKE_BOX: {
+            out.info.make_box.dest = resolve(out.info.make_box.dest, rewrite_map);
+            break;
+        }
     }
     return out;
 }
@@ -1223,7 +1227,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                 case IR_INST_TY__MAKE_STRUCT: {
                     const TC_typeid struct_type = temporals_map->array[instr.info.make_struct.dest.val].type;
                     if (struct_type.ty != TC_TY_Struct) {
-                        INTERNAL_ERROR()
+                        INTERNAL_ERROR("MAKE_STRUCT with non struct type")
                     }
                     const TC_structdef sdef = nct->structs.array[struct_type.info.type_id];
                     IR_temporal_LIST args = IR_temporal_LIST_new_with_capacity(sdef.fields.len);
@@ -2036,6 +2040,44 @@ MIR_func lowering_and_emission_pass_over_fn(
                 }
                 case IR_INST_TY__ENUM_VARIANT_NUMBER_FROM_TYPE: {
                     INTERNAL_ERROR("should have been replaced by CONST_INT at type-inference pass")
+                    break;
+                }
+                case IR_INST_TY__MAKE_BOX: {
+                    if (!temporals_map->array[instr.info.make_box.dest.val].known_temporal) {
+                        INTERNAL_ERROR("MAKE_BOX dest temporal unknown");
+                    }
+                    const TC_typeid dest_t = temporals_map->array[instr.info.make_box.dest.val].type;
+                    if (dest_t.ty != TC_TY_Box) {
+                        INTERNAL_ERROR("MAKE_BOX dest is not Box");
+                    }
+                    if (!temporals_map->array[instr.info.make_box.src.val].known_temporal) {
+                        INTERNAL_ERROR("MAKE_BOX src temporal unknown");
+                    }
+                    const TC_typeid src_t = temporals_map->array[instr.info.make_box.src.val].type;
+                    const TC_typeid inner_t = *dest_t.info.contained;
+                    const TokenSpan arg_span = fn.error_info_list.array[instr.error_info_index].info.make_box.expr;
+                    const IR_temporal out = perf_autos(
+                        &instr.info.make_box.src,
+                        &src_t,
+                        &inner_t,
+                        &highest_temporal,
+                        identifier_map,
+                        nct,
+                        temporals_map,
+                        source_info,
+                        &arg_span.sv,
+                        &temporals_map_values,
+                        &promote_to_stack_temps,
+                        target_info
+                    );
+
+                    const SizeAlign sz = calc_size_of(&inner_t, nct, target_info);
+                    printf("   %%%lu = MAKE_BOX %%%lu {%lu bytes on heap, %lu align}\n",
+                           instr.info.make_box.dest.val,
+                           out.val,
+                           sz.size,
+                           sz.align);
+
                     break;
                 }
             }

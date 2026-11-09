@@ -406,13 +406,13 @@ void P_parse_char_literal(const Parser* p, const Token t, int64_t* out_val) {
 IR_temporal_with_span P_get_expr_val(Parser* p) {
     const Token t = P_next_token(p);
 
-    if (Token_cmp(t, "true") || Token_cmp(t, "false")) {
+    if (Token_cmp(t, "true") || Token_cmp(t, "True") || Token_cmp(t, "false") || Token_cmp(t, "False")) {
         const IR_temporal rs = P_new_temporal(p);
         P_emit(p, (IR_instr){
                    .ty = IR_INST_TY__CONST_INT,
                    .info.const_int = {
                        .dest = rs,
-                       .val = Token_cmp(t, "true") ? 1 : 0,
+                       .val = (Token_cmp(t, "true") || Token_cmp(t, "True")) ? 1 : 0,
                    }
                }, (IR_instr_error_info){
                    .kind = IR_IEI_literal,
@@ -421,7 +421,7 @@ IR_temporal_with_span P_get_expr_val(Parser* p) {
         return (IR_temporal_with_span){rs, {*t}};
     }
 
-    if (Token_cmp(t, "cast")) {
+    if (Token_cmp(t, "cast") || Token_cmp(t, "Cast")) {
         const Token start = P_require_next_be(p, TT_Less, SV_from_str_len("<", 1));
         const IR_typeuse type = P_get_typeuse(p, false);
         P_require_next_be(p, TT_Greater, SV_from_str_len(">", 1));
@@ -453,18 +453,35 @@ IR_temporal_with_span P_get_expr_val(Parser* p) {
 
 
         const IR_temporal_with_span wrapped_result = P_expr_accesors_wrapper(p, (IR_temporal_with_span){dest, whole});
-        // if (wrapped_result.temp.val != dest.val && out_requires_read_ptr) {
-        //     const IR_temporal val_load = P_new_temporal(p);
-        //     P_emit(p, (IR_instr){
-        //                .ty = IR_INST_TY__READ_PTR,
-        //                .info.read_ptr = {
-        //                    .dest = val_load,
-        //                    .ptr = wrapped_result.temp
-        //                }
-        //            }, (IR_instr_error_info){.kind = IR_IEI_none});
-        //     return (IR_temporal_with_span){val_load, wrapped_result.span};
-        // }
         return wrapped_result;
+    }
+
+    if (Token_cmp(t, "box") || Token_cmp(t, "Box")) {
+        P_require_next_be(p, TT_StartBracket, SV_from_str_len("(", 1));
+        const IR_temporal_with_span src = P_get_expr(p);
+        const Token end = P_require_next_be(p, TT_EndBracket, SV_from_str_len(")", 1));
+
+        const IR_temporal dest = P_new_temporal(p);
+
+        const TokenSpan whole = TS_merge(&(TokenSpan){*t}, &(TokenSpan){*end});
+
+        P_emit(p, (IR_instr){
+            .ty = IR_INST_TY__MAKE_BOX,
+            .info.make_box = {
+                .src = src.temp,
+                .dest = dest
+            }
+        }, (IR_instr_error_info) {
+            .kind = IR_IEI_make_box,
+            .info.make_box = {
+                .expr = src.span,
+                .whole = whole
+            }
+        });
+
+        const IR_temporal_with_span wrapped_result = P_expr_accesors_wrapper(p, (IR_temporal_with_span){dest, whole});
+        return wrapped_result;
+
     }
 
     if (Token_cmp(t, "new")) {

@@ -146,6 +146,7 @@ void variable_storage_promotion_pass(
                 case IR_INST_TY__MAKE_ENUM:
                 case IR_INST_TY__ENUM_VARIANT_NUMBER_EXTRACT:
                 case IR_INST_TY__ENUM_VARIANT_NUMBER_FROM_TYPE:
+                case IR_INST_TY__MAKE_BOX:
                     break;
             }
         }

@@ -381,6 +381,10 @@ void print_IR_instr(const IR_instr* restrict instr, const khash_t(sv_u64_map)* r
             printf("%%%lu = ENUM_VARIANT_NUMBER of '"SV_format"'::'"SV_format"'", instr->info.enum_variant_number_from_type.dest.val, SV_v_args(enum_name), SV_v_args(variant_name));
             break;
         }
+        case IR_INST_TY__MAKE_BOX: {
+            printf("%%%lu = MAKE_BOX %%%lu", instr->info.make_box.dest.val, instr->info.make_box.src.val);
+            break;
+        }
     }
 }
 

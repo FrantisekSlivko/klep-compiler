@@ -136,6 +136,7 @@ IR_typeuse P_get_typeuse_intern_single_generic(Parser* p, const Token name, cons
         .info.named = {id_name, (TokenSpan){*name}},
         .tt_ty = ty,
         .contained = irt,
+        .contained_len = 1
         // .full_typeuse_span = TS_merge(&(TokenSpan){*name}, &(TokenSpan){*end})
     };
 }
@@ -156,6 +157,57 @@ float64_t EX_token_to_float(const Parser* p, const Token t) {
         exit(1);
     }
     return val;
+}
+
+#define MAKE_SV_LIT(X) (SV){.start=X, .len=sizeof(X)-1}
+bool P_is_forbidden_type_name(Parser* restrict p, const Identifier name) {
+
+    static bool UNINICIALIZED = true;
+    static Identifier FORBIDDEN[21];
+
+    if (UNINICIALIZED) {
+        FORBIDDEN[0] = P_to_identifier(p, &MAKE_SV_LIT("Box"));
+        FORBIDDEN[1] = P_to_identifier(p, &MAKE_SV_LIT("List"));
+        FORBIDDEN[2] = P_to_identifier(p, &MAKE_SV_LIT("Ref"));
+        FORBIDDEN[3] = P_to_identifier(p, &MAKE_SV_LIT("Array"));
+        FORBIDDEN[4] = P_to_identifier(p, &MAKE_SV_LIT("Slice"));
+        FORBIDDEN[5] = P_to_identifier(p, &MAKE_SV_LIT("Void"));
+        FORBIDDEN[6] = P_to_identifier(p, &MAKE_SV_LIT("void"));
+
+        FORBIDDEN[7] = P_to_identifier(p, &MAKE_SV_LIT("Int"));
+        FORBIDDEN[8] = P_to_identifier(p, &MAKE_SV_LIT("Int8"));
+        FORBIDDEN[9] = P_to_identifier(p, &MAKE_SV_LIT("Int16"));
+        FORBIDDEN[10] = P_to_identifier(p, &MAKE_SV_LIT("Int32"));
+        FORBIDDEN[11] = P_to_identifier(p, &MAKE_SV_LIT("Int64"));
+
+        FORBIDDEN[12] = P_to_identifier(p, &MAKE_SV_LIT("Uint"));
+        FORBIDDEN[13] = P_to_identifier(p, &MAKE_SV_LIT("Uint8"));
+        FORBIDDEN[14] = P_to_identifier(p, &MAKE_SV_LIT("Uint16"));
+        FORBIDDEN[15] = P_to_identifier(p, &MAKE_SV_LIT("Uint32"));
+        FORBIDDEN[16] = P_to_identifier(p, &MAKE_SV_LIT("Uint64"));
+
+        FORBIDDEN[17] = P_to_identifier(p, &MAKE_SV_LIT("Float"));
+        FORBIDDEN[18] = P_to_identifier(p, &MAKE_SV_LIT("Float32"));
+        FORBIDDEN[19] = P_to_identifier(p, &MAKE_SV_LIT("Float64"));
+
+        FORBIDDEN[20] = P_to_identifier(p, &MAKE_SV_LIT("String"));
+
+        UNINICIALIZED = false;
+    }
+
+    for (size_t n = 0; n < 21; n++) {
+        if (name == FORBIDDEN[n]) {
+            return true;
+        }
+    }
+
+    return false;
+}
+void P_assert_valid_custom_type_name(Parser* restrict p, const Identifier name, const Token raw_name) {
+    if (P_is_forbidden_type_name(p, name)) {
+        P_syntax_error(p, raw_name, SV_from_str("defining type with the name of a built-in type is forbidden"));
+        exit(1);
+    }
 }
 
 void default_type_name(const Token name, SV* restrict out) {
@@ -969,6 +1021,12 @@ void P_get_while_stmt(Parser* p) {
                                 }
                                 case IR_INST_TY__ENUM_VARIANT_NUMBER_FROM_TYPE:
                                     break;
+                                case IR_INST_TY__MAKE_BOX: {
+                                    if (instr->info.make_box.src.val == what_to_replace.val) {
+                                        instr->info.make_box.src.val = replace_with.val;
+                                    }
+                                    break;
+                                }
                             }
                         }
                     }
@@ -2242,6 +2300,8 @@ void P_get_top_struct(Parser* p) {
     const Token raw_struct_name = P_next_token(p);
     const Identifier struct_name = P_to_identifier(p, raw_struct_name);
 
+    P_assert_valid_custom_type_name(p, struct_name, raw_struct_name);
+
     P_require_next_be(p, TT_StartCurlyBracket, SV_from_str_len("{", 1));
 
     IR_field_LIST fields = IR_field_LIST_new();
@@ -2507,6 +2567,8 @@ void P_get_top_enum(Parser* p) {
     const Token raw_enum_name = P_next_token(p);
     const Identifier enum_name = P_to_identifier(p, raw_enum_name);
 
+    P_assert_valid_custom_type_name(p, enum_name, raw_enum_name);
+
     P_require_next_be(p, TT_StartCurlyBracket, SV_from_str_len("{", 1));
 
     IR_enumdef_variant_LIST variants = IR_enumdef_variant_LIST_new();
@@ -2557,6 +2619,8 @@ void P_get_top_generic_struct(Parser* p) {
     const Token raw_generic_name = P_next_token(p);
     const Identifier generic_name = P_to_identifier(p, raw_generic_name);
 
+    P_assert_valid_custom_type_name(p, generic_name, raw_generic_name);
+
     P_require_next_be(p, TT_Less, SV_from_str_len("<", 1));
 
     SpannedIdentifier_LIST generic_args = SpannedIdentifier_LIST_new();
@@ -2582,6 +2646,8 @@ void P_get_top_generic_enum(Parser* p) {
     P_require_having_next_token(p, TT_Identifier);
     const Token raw_generic_name = P_next_token(p);
     const Identifier generic_name = P_to_identifier(p, raw_generic_name);
+
+    P_assert_valid_custom_type_name(p, generic_name, raw_generic_name);
 
     P_require_next_be(p, TT_Less, SV_from_str_len("<", 1));
 
@@ -2867,6 +2933,11 @@ void P_get_top_generic_function(Parser* restrict p) {
     P_require_having_next_token(p, TT_Identifier);
     const Token fn_name_raw = P_next_token(p);
     const Identifier fn_name = P_to_identifier(p, fn_name_raw);
+
+    if (Token_cmp(fn_name_raw, "box") || Token_cmp(fn_name_raw, "box")) {
+        P_syntax_error(p, fn_name_raw, SV_from_str("defining function with the name of a built-in function is forbidden"));
+        exit(1);
+    }
 
     P_require_next_be(p, TT_Less, SV_from_str_len("<", 1));
     SpannedIdentifier_LIST generic_args = SpannedIdentifier_LIST_new();

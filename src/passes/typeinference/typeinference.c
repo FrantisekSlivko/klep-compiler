@@ -1304,8 +1304,21 @@ void type_inference_pass_over_fn(
                             .val = variant_n
                         }
                     };
-                    instr_nth = instr_nth + 1; // whould it work??
+                    instr_nth = instr_nth + 1;
                     // printf("todo: IR_INST_TY__ENUM_VARIANT_NUMBER_FROM_TYPE | type inference pass\n");
+                    break;
+                }
+                case IR_INST_TY__MAKE_BOX: {
+                    if (!temporals_map->array[instr.info.make_box.dest.val].known_temporal) break;
+                    const TC_typeid dest_t = temporals_map->array[instr.info.make_box.dest.val].type;
+                    if (dest_t.ty != TC_TY_Box) break;
+                    if (temporals_map->array[instr.info.make_box.src.val].known_temporal) break;
+                    temporals_map->array[instr.info.make_box.src.val] = (TC_Entry) {
+                        .known_temporal = true,
+                        .type = *dest_t.info.contained,
+                        .is_value_known = false,
+                        .is_addressable = false
+                    };
                     break;
                 }
             }
