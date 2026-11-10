@@ -2398,7 +2398,7 @@ void P_get_top_fn(Parser* p) {
             overloads_cnt += 1;
         }
     }
-    SV mangled_raw_fn_name = mangle_function_name(&(SpannedIdentifier){.identifier = fn_name, .span = (TokenSpan){.sv = *raw_fn_name}}, overloads_cnt);
+    const SV mangled_raw_fn_name = mangle_function_name(&(SpannedIdentifier){.identifier = fn_name, .span = (TokenSpan){.sv = *raw_fn_name}}, overloads_cnt);
 
 
     // -------------------------------------------------------------
@@ -2716,7 +2716,7 @@ void P_get_top_extern_type(Parser* p) {
     P_require_semicolon();
 }
 
-void c_type_extension_void_fail(Parser* restrict p, const CFFI_c_typeuse* restrict in, const Token t) {
+void c_type_extension_void_fail(const Parser* restrict p, const CFFI_c_typeuse* restrict in, const Token t) {
     if (in->kind == CFFI_TY_VOID) {
         P_syntax_error(p, t, SV_from_str("not allowed on void, use extern type if needed"));
         exit(1);

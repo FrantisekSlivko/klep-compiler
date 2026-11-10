@@ -336,15 +336,9 @@ uint64_t calc_type_specificity(const IR_typeuse* t) {
 
 static bool generic_candidate_dominates(const IR_generic_function* a, const IR_generic_function* b, const khash_t(sv_u64_map)* restrict identifier_map) {
     bool one_less = false;
-    // remake to higher the better
     for (size_t n = 0; n < a->fn.args.len; n++) {
         const uint64_t as = calc_type_specificity(&a->fn.args.array[n].type);
         const uint64_t bs = calc_type_specificity(&b->fn.args.array[n].type);
-        // printf("generic_candidate_dominates calc %lu arg -> a=%lu vs b=%lu  | where a_type = '", n, as, bs);
-        // print_IR_typeuse(&a->fn.args.array[n].type, identifier_map);
-        // printf("', b_type = '");
-        // print_IR_typeuse(&b->fn.args.array[n].type, identifier_map);
-        // printf("'\n");
         if (as < bs) {
             return false;
         }
@@ -352,7 +346,6 @@ static bool generic_candidate_dominates(const IR_generic_function* a, const IR_g
             one_less = true;
         }
     }
-    // printf("result = %u\n", one_less);
     return one_less;
 }
 
@@ -442,8 +435,6 @@ OverloadResolutionResult resolve_function_overload(
             size_t_LIST_push(&generic_rejected_candidates_match, g);
         }
     }
-
-    // best_bound_map = TC_GenericArgMap_LIST_new_with_capacity(best_bound_map.len * 0);
 
     if (has_best_bound) {
         const TC_typeid found_ret_t = temporals_map->array[raw_return_v.val].type;
