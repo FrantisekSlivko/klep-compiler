@@ -464,6 +464,8 @@ bool can_be_explicit_casted(const TC_typeid* from, const TC_typeid* to) {
 
 bool can_const_narrow(const uint64_t temporal, const TC_typeid* to, const TC_Entry_LIST* temporals_map,
                       const TC_Value_LIST* temporals_map_values) {
+    if (temporals_map_values == NULL) return false;
+
     const TC_Entry* entry = &temporals_map->array[temporal];
 
     // If the compiler doesn't know the exact value at compile time, we must reject it.

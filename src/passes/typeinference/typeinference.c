@@ -4,6 +4,7 @@
 #include "typeresolve/type_resolve.h"
 #include "passes/type_utils.h"
 #include "error.h"
+#include "overloading/resolve.h"
 #include "utils/color.h"
 #include "passes/parser/parser.h"
 
@@ -923,34 +924,87 @@ void type_inference_pass_over_fn(
                                                 ? instr.info.fn_call_retval.name.identifier
                                                 : instr.info.fn_call_retvoid.name.identifier;
 
-                    for (size_t n = 0; n < functions->len; n++) {
-                        if (functions->array[n].fn_name.identifier == name) {
-                            if (instr.ty == IR_INST_TY__FN_CALL_RETVAL) {
-                                const TC_typeid t = resolve_tc_type(&functions->array[n].fn_ret_t, nct, target_info,
-                                                                    source_info, identifier_map);
-                                temporals_map->array[instr.info.fn_call_retval.dest.val] = (TC_Entry){
-                                    .known_temporal = true,
-                                    .type = t,
-                                    .is_value_known = false,
-                                    .is_addressable = false
+
+                    OverloadResolutionResult over_rs = resolve_function_overload(
+                        name,
+                        lk,
+                        instr.ty == IR_INST_TY__FN_CALL_RETVAL ? instr.info.fn_call_retval.dest : (IR_temporal){0},
+                        temporals_map,
+                        functions,
+                        nct,
+                        target_info,
+                        source_info,
+                        identifier_map,
+                        NULL
+                    );
+
+                    // printf("[INFERENCE] resolve_function_overload .status=%u, .is_success=%u\n", over_rs.status, over_rs.status == OVERLOAD_RESULT_SUCCESS);
+
+                    if (over_rs.status == OVERLOAD_RESULT_SUCCESS) {
+                        const IR_func* func = over_rs.resolved_fn;
+
+                        if (instr.ty == IR_INST_TY__FN_CALL_RETVAL) {
+                            const TC_typeid t = resolve_tc_type(&func->fn_ret_t, nct, target_info, source_info, identifier_map);
+                            temporals_map->array[instr.info.fn_call_retval.dest.val] = (TC_Entry){
+                                .known_temporal = true,
+                                .type = t,
+                                .is_value_known = false,
+                                .is_addressable = false
+                            };
+                        }
+
+                        if (func->args.len != lk->len) INTERNAL_ERROR()
+
+                        for (size_t n = 0; n < func->args.len; n++) {
+                            if (!temporals_map->array[lk->array[n].val].known_temporal) {
+
+                                const TC_typeid type = resolve_tc_type(
+                                    &over_rs.resolved_fn->args.array[n].type,
+                                    nct,
+                                    target_info,
+                                    source_info,
+                                    identifier_map
+                                );
+
+                                temporals_map->array[lk->array[n].val] = (TC_Entry){
+                                .known_temporal = true,
+                                .type = type,
+                                .is_value_known = false,
+                                .is_addressable = false
                                 };
-                            }
-                            if (lk->len == functions->array[n].args.len) {
-                                for (size_t k = 0; k < lk->len; k++) {
-                                    if (!temporals_map->array[lk->array[k].val].known_temporal) {
-                                        const TC_typeid type = resolve_tc_type(
-                                            &functions->array[n].args.array[k].type, nct, target_info, source_info, identifier_map);
-                                        temporals_map->array[lk->array[k].val] = (TC_Entry){
-                                            .known_temporal = true,
-                                            .type = type,
-                                            .is_value_known = false,
-                                            .is_addressable = false
-                                        };
-                                    }
-                                }
                             }
                         }
                     }
+
+                    // for (size_t n = 0; n < functions->len; n++) {
+                    //     if (functions->array[n].fn_name.identifier == name) {
+                    //         if (instr.ty == IR_INST_TY__FN_CALL_RETVAL) {
+                    //             const TC_typeid t = resolve_tc_type(&functions->array[n].fn_ret_t, nct, target_info,
+                    //                                                 source_info, identifier_map);
+                    //             temporals_map->array[instr.info.fn_call_retval.dest.val] = (TC_Entry){
+                    //                 .known_temporal = true,
+                    //                 .type = t,
+                    //                 .is_value_known = false,
+                    //                 .is_addressable = false
+                    //             };
+                    //         }
+                    //         if (lk->len == functions->array[n].args.len) {
+                    //             for (size_t k = 0; k < lk->len; k++) {
+                    //                 if (!temporals_map->array[lk->array[k].val].known_temporal) {
+                    //                     const TC_typeid type = resolve_tc_type(
+                    //                         &functions->array[n].args.array[k].type, nct, target_info, source_info, identifier_map);
+                    //                     temporals_map->array[lk->array[k].val] = (TC_Entry){
+                    //                         .known_temporal = true,
+                    //                         .type = type,
+                    //                         .is_value_known = false,
+                    //                         .is_addressable = false
+                    //                     };
+                    //                 }
+                    //             }
+                    //         }
+                    //     }
+                    // }
+
                     break;
                 }
                 case IR_INST_TY__INDEX_PTR: {

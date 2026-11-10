@@ -49,6 +49,7 @@ void free_overload_resolution_result(const OverloadResolutionResult* restrict re
 OverloadResolutionResult resolve_function_overload(
     Identifier fn_name,
     const IR_temporal_LIST* restrict raw_args,
+    IR_temporal raw_return_v,
     const TC_Entry_LIST* restrict temporals_map,
     const IR_func_LIST* restrict functions,
     TC_TypeTable* restrict nct,

@@ -74,7 +74,7 @@ SV format_IR_typeuse_inner(const SV buffer, const IR_typeuse* restrict ty, const
             const SV v1 = append_and_advance_buff(&buffer, ty->info.named.span.sv);
             const SV v2 = append_and_advance_buff(&v1, MAKE_SV_LIT("<"));
             const SV v3 = format_IR_typeuse_inner(v2, ty->contained, identifier_map);
-            return append_and_advance_buff(&v3, MAKE_SV_LIT("<"));
+            return append_and_advance_buff(&v3, MAKE_SV_LIT(">"));
         }
         case IR_TY_Array: {
             const SV v1 = append_and_advance_buff(&buffer, ty->info.named.span.sv);
@@ -92,7 +92,6 @@ SV format_IR_typeuse_inner(const SV buffer, const IR_typeuse* restrict ty, const
             for (size_t i=0; i<ty->contained_len; i++) {
                 nx = format_IR_typeuse_inner(nx, &ty->contained[i], identifier_map);
                 if (i+1 != ty->contained_len) {
-                    // printf(", ");
                     nx = append_and_advance_buff(&nx, MAKE_SV_LIT(", "));
                 }
             }

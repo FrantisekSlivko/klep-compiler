@@ -82,7 +82,6 @@ TC_typeid resolve_tc_type2_inner(
                 .info.t_array = {contained, type->array_const_size},
                 // .full_typeuse_span = type->full_typeuse_span
             };
-            break;
         }
         case IR_TY_Ref:
         case IR_TY_Box:
@@ -404,7 +403,7 @@ TC_typeid resolve_tc_type2_inner(
             UNREACHABLE()
         }
     }
-    UNREACHABLE()
+    UNREACHABLE("type->tt_ty = %u", type->tt_ty)
 }
 
 

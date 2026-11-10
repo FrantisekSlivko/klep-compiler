@@ -2957,6 +2957,73 @@ void P_get_top_extern_fn(Parser* p) {
     CFFI_IR_extern_fn_LIST_push(&p->external_functions, extern_fn);
 }
 
+bool cmp_IR_typeuse_with_generic_positions(const IR_typeuse* restrict at, const IR_typeuse* restrict bt, const SpannedIdentifier_LIST* restrict am, const SpannedIdentifier_LIST* restrict bm) {
+
+
+    /*
+
+Step 1: Build position maps
+For each previously-parsed generic function gf:
+
+• Build an array old_positions[] where old_positions[i] = gf->generic_args.array[i].identifier
+• Build an array new_positions[] where new_positions[i] = generic_args.array[i].identifier
+
+Step 2: Position-aware type comparison
+Implement a local helper (inline in the loop) that compares two IR_typeuse structs, but when encountering IR_TY_Generic, looks up the identifier's position in both position maps and compares the positions instead of the identifiers:
+
+• For IR_TY_Generic: find which position a->info.named.identifier occupies in old_positions[] → say position p. Find which position b->info.named.identifier occupies in new_positions[] → say position q. If p == q, continue comparing contained types. Otherwise, return false.
+• For all other types: same as cmp_IR_typeuse()
+
+     */
+    if (at->tt_ty != bt->tt_ty) {
+        return false;
+    }
+    switch (at->tt_ty) {
+        case IR_TY_Void: return true;
+        case IR_TY_Primitive: return at->info.primitive == bt->info.primitive;
+        case IR_TY_Named: {
+            bool is_generic = false;
+            size_t generic_index = 0;
+            for (size_t n = 0; n < am->len; n++) {
+                if (at->info.named.identifier == am->array[n].identifier) {
+                    is_generic = true;
+                    generic_index = n;
+                }
+            }
+            if (is_generic) {
+                return bt->info.named.identifier == bm->array[generic_index].identifier;
+            } else {
+                return at->info.named.identifier == bt->info.named.identifier;
+            }
+        }
+        case IR_TY_Ref:
+        case IR_TY_Box:
+        case IR_TY_Slice:
+        case IR_TY_List: {
+            return cmp_IR_typeuse_with_generic_positions(at->contained, bt->contained, am, bm);
+        }
+        case IR_TY_Array: {
+            if (at->array_const_size != bt->array_const_size) {
+                return false;
+            }
+            return cmp_IR_typeuse_with_generic_positions(at->contained, bt->contained, am, bm);
+        }
+        case IR_TY_Generic: {
+            if (at->contained_len != bt->contained_len) {
+                return false;
+            }
+            for (size_t n = 0; n < at->contained_len; n++) {
+                if (!cmp_IR_typeuse_with_generic_positions(&at->contained[n], &bt->contained[n], am, bm)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+    }
+    UNREACHABLE()
+
+}
+
 /// generic <type> <name> <A,B...> ( <args ) { <code> }
 void P_get_top_generic_function(Parser* restrict p) {
     p->temporal_fn_cnt = 0;
@@ -3009,6 +3076,51 @@ void P_get_top_generic_function(Parser* restrict p) {
 
 
     P_require_next_be(p, TT_EndBracket, SV_from_str_len(")", 1));
+
+    // check if this generic function is a redefinition
+
+    for (size_t n = 0; n < p->generic_functions.len; n++) {
+        const IR_generic_function* gf = &p->generic_functions.array[n];
+        if (gf->fn.fn_name.identifier != fn_name) {
+            continue;
+        }
+        if (gf->generic_args.len != generic_args.len) {
+            continue;
+        }
+        if (gf->fn.args.len != args.len) {
+            continue;
+        }
+
+        // the issue with comparing argument types is following:
+        // imagine following:
+        /*
+        generic f<A>(List<A> a) { ... }
+        generic f<B>(List<B> b) { ... }
+         */
+        // when parsing the second one, it should be judged as redefinition
+        bool found_diff = false;
+        for (size_t a = 0; a < args.len; a++) {
+            const IR_typeuse* at = &gf->fn.args.array[a].type;
+            const IR_typeuse* bt = &args.array[a].type;
+            if (!cmp_IR_typeuse_with_generic_positions(at, bt, &gf->generic_args, &generic_args)) {
+                found_diff = true;
+                break;
+            }
+        }
+        if (found_diff) {
+            continue;
+        }
+
+        const bool ret_matches = cmp_IR_typeuse_with_generic_positions(&gf->fn.fn_ret_t, &fn_ret_t, &gf->generic_args, &generic_args);
+
+        if (ret_matches) {
+            P_syntax_error(p, fn_name_raw, SV_from_str("generic function redefinition"));
+        } else {
+            P_syntax_error(p, fn_name_raw, SV_from_str("cannot overload generic function by return type alone"));
+        }
+
+        exit(1);
+    }
 
 
     // -------------------------------------------------------------

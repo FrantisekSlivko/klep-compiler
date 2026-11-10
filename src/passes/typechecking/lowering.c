@@ -10,6 +10,8 @@
 #include "passes/parser/parser.h"
 #include <ctype.h>
 
+#include "overloading/resolve.h"
+
 IR_temporal resolve(IR_temporal in, const IR_rewrite_LIST* restrict rewrite_map) {
     IR_temporal tmp = in;
     uint32_t cnt = 0;
@@ -1639,54 +1641,44 @@ MIR_func lowering_and_emission_pass_over_fn(
                                                       : instr.info.fn_call_retvoid.name.identifier;
 
 
-                    // 1. Find the target function
-                    const IR_func* target_fn = NULL;
-                    for (size_t n = 0; n < functions->len; n++) {
-                        if (functions->array[n].fn_name.identifier == fn_name_id) {
-                            target_fn = &functions->array[n];
-                            break;
-                        }
-                    }
-                    if (!target_fn) {
-                        // look into generic functions
-                        // generic cash name + <T, T, T,...>
+                    OverloadResolutionResult over_rs = resolve_function_overload(
+                        fn_name_id,
+                        raw_args,
+                        instr.ty == IR_INST_TY__FN_CALL_RETVAL ? instr.info.fn_call_retval.dest : (IR_temporal){0},
+                        temporals_map,
+                        functions,
+                        nct,
+                        target_info,
+                        source_info,
+                        identifier_map,
+                        &temporals_map_values
+                    );
 
-                        const TC_typeid* expected_ret_t = is_retval
-                                                              ? &temporals_map->array[instr.info.fn_call_retval.dest.
-                                                                  val].type
-                                                              : NULL;
+                    // printf("[LOWERING] resolve_function_overload .status=%u, .is_success=%u\n", over_rs.status, over_rs.status == OVERLOAD_RESULT_SUCCESS);
 
-                        for (size_t n = 0; n < nct->generic_functions.len; n++) {
-                            if (nct->generic_functions.array[n].fn.fn_name.identifier != fn_name_id) continue;
-
-                            // check materialization
-                            // return function
-                            const IR_generic_function gf = nct->generic_functions.array[n];
-
-                            TC_typeid_LIST found_args_t = TC_typeid_LIST_new_with_capacity(raw_args->len);
-                            for (size_t a = 0; a < raw_args->len; a++) {
-                                const IR_temporal arg_temp = raw_args->array[a];
-                                const TC_typeid arg_t = temporals_map->array[arg_temp.val].type;
-                                TC_typeid_LIST_push(&found_args_t, arg_t);
-                            }
-
-                            const IR_func* rs = materialize_function(&gf, found_args_t, expected_ret_t, nct, target_info, source_info, identifier_map);
-                            target_fn = rs;
-
-                            break;
-                        }
-                    }
-                    if (!target_fn) {
+                    if (over_rs.status != OVERLOAD_RESULT_SUCCESS) {
                         const TokenSpan fn_name_span = is_retval
-                                                           ? instr.info.fn_call_retval.name.span
-                                                           : instr.info.fn_call_retvoid.name.span;
+                        ? instr.info.fn_call_retval.name.span
+                        : instr.info.fn_call_retvoid.name.span;
 
+                        size_t MAX_SIZE = 1024;
+                        char* r_msg = malloc(sizeof(char) * MAX_SIZE);
+                        int len = 0;
 
-                        const SV msg = SV_from_str_len("unknown function", 16);
-
-                        syntax_error(&source_info->source, &source_info->source_filename, &fn_name_span.sv, &msg);
+                        if (over_rs.status == OVERLOAD_RESULT_ARITY_MISMATCH) {
+                            len = snprintf(r_msg, MAX_SIZE, "no overload of function '"SV_format"' takes %lu arguments",
+                                           SV_v_args(fn_name_span.sv), raw_args->len);
+                        } else if (over_rs.status == OVERLOAD_RESULT_AMBIGUOUS) {
+                            len = snprintf(r_msg, MAX_SIZE, "ambiguous call to function '"SV_format"'", SV_v_args(fn_name_span.sv));
+                        } else {
+                            len = snprintf(r_msg, MAX_SIZE, "no matching overload for function '"SV_format"'", SV_v_args(fn_name_span.sv));
+                        }
+                        const SV msg = SV_from_str_len(r_msg, len);
+                        type_error(&source_info->source, &source_info->source_filename, &fn_name_span.sv, &msg);
+                        free(r_msg);
                         exit(1);
                     }
+                    const IR_func* target_fn = over_rs.resolved_fn;
 
                     const SV raw_fn_name = target_fn->raw_name;
 

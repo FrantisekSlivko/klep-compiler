@@ -1,6 +1,7 @@
 #include "resolve.h"
 
 #include "passes/type_utils.h"
+#include "passes/typechecking/materialization.h"
 #include "passes/typechecking/perf.h"
 #include "typeresolve/type_resolve.h"
 
@@ -131,7 +132,7 @@ void free_overload_resolution_result(const OverloadResolutionResult* restrict re
 
 
 
-OverloadResolutionResult resolve_function_overload(
+OverloadResolutionResult resolve_function_overload_concreate(
     const Identifier fn_name,
     const IR_temporal_LIST* restrict raw_args,
     const TC_Entry_LIST* restrict temporals_map,
@@ -213,8 +214,6 @@ OverloadResolutionResult resolve_function_overload(
             .candidates_count = 0
         };
     }
-
-
 
 
     size_t arity_match_count = 0;
@@ -301,4 +300,161 @@ OverloadResolutionResult resolve_function_overload(
         .candidates = NULL,
         .candidates_count = 0
     };
+}
+
+
+/// basicly depth of specification
+uint64_t calc_type_specificity(const IR_typeuse* t) {
+    switch (t->tt_ty) {
+        case IR_TY_Void: {
+            return 1;
+        }
+        case IR_TY_Primitive:
+        case IR_TY_Named: {
+            return 1;
+        }
+        case IR_TY_Ref:
+        case IR_TY_Box:
+        case IR_TY_Slice:
+        case IR_TY_List:
+        case IR_TY_Array: {
+            return 1 + calc_type_specificity(t->contained);
+        }
+        case IR_TY_Generic: {
+            uint64_t max = 0;
+            for (size_t n = 0; n < t->contained_len; n++) {
+                const uint64_t v = calc_type_specificity(&t->contained[n]);
+                if (v > max) {
+                    max = v;
+                }
+            }
+            return max + 1;
+        }
+    }
+    UNREACHABLE()
+}
+
+static bool generic_candidate_dominates(const IR_generic_function* a, const IR_generic_function* b, const khash_t(sv_u64_map)* restrict identifier_map) {
+    bool one_less = false;
+    // remake to higher the better
+    for (size_t n = 0; n < a->fn.args.len; n++) {
+        const uint64_t as = calc_type_specificity(&a->fn.args.array[n].type);
+        const uint64_t bs = calc_type_specificity(&b->fn.args.array[n].type);
+        // printf("generic_candidate_dominates calc %lu arg -> a=%lu vs b=%lu  | where a_type = '", n, as, bs);
+        // print_IR_typeuse(&a->fn.args.array[n].type, identifier_map);
+        // printf("', b_type = '");
+        // print_IR_typeuse(&b->fn.args.array[n].type, identifier_map);
+        // printf("'\n");
+        if (as < bs) {
+            return false;
+        }
+        if (as > bs) {
+            one_less = true;
+        }
+    }
+    // printf("result = %u\n", one_less);
+    return one_less;
+}
+
+OverloadResolutionResult resolve_function_overload(
+    const Identifier fn_name,
+    const IR_temporal_LIST* restrict raw_args,
+    const IR_temporal raw_return_v,
+    const TC_Entry_LIST* restrict temporals_map,
+    const IR_func_LIST* restrict functions,
+    TC_TypeTable* restrict nct,
+    const TargetInfo* restrict target_info,
+    const SourceInfo* restrict source_info,
+    const khash_t(sv_u64_map)* restrict identifier_map,
+    const TC_Value_LIST* restrict temporals_map_values
+) {
+    const OverloadResolutionResult concreate_result = resolve_function_overload_concreate(
+        fn_name,
+        raw_args,
+        temporals_map,
+        functions,
+        nct,
+        target_info,
+        source_info,
+        identifier_map,
+        temporals_map_values
+    );
+
+    if (concreate_result.status == OVERLOAD_RESULT_SUCCESS) {
+        return concreate_result;
+    }
+
+    // check generic and rank
+    TC_typeid_LIST args = TC_typeid_LIST_new_with_capacity(raw_args->len);
+    for (size_t a = 0; a < raw_args->len; a++) {
+        if (temporals_map->array[raw_args->array[a].val].known_temporal) {
+            TC_typeid_LIST_push(&args, temporals_map->array[raw_args->array[a].val].type);
+        } else {
+            TC_typeid_LIST_push(&args, (TC_typeid){.ty = TC_TY_Void});
+        }
+    }
+
+    size_t_LIST generic_rejected_candidates_arity = size_t_LIST_new();
+    size_t_LIST generic_rejected_candidates_match = size_t_LIST_new();
+
+    bool has_best_bound = false;
+    // TC_GenericArgMap_LIST best_bound_map;
+    IR_generic_function* best_found_fn = NULL;
+
+    for (size_t g = 0; g < nct->generic_functions.len; g++) {
+        IR_generic_function* gf = &nct->generic_functions.array[g];
+        if (gf->fn.fn_name.identifier != fn_name) {
+            continue;
+        }
+        if (gf->fn.args.len != raw_args->len) {
+            size_t_LIST_push(&generic_rejected_candidates_arity, g);
+            continue;
+        }
+
+
+        TC_GenericArgMap_LIST map = TC_GenericArgMap_LIST_new_with_capacity(gf->generic_args.len);
+
+        const bool b = try_match_generic_function_args(
+            gf,
+            args,
+            temporals_map->array[raw_return_v.val].known_temporal ? &temporals_map->array[raw_return_v.val].type : &(TC_typeid){.ty = TC_TY_Void},
+            &map,
+            nct,
+            target_info,
+            source_info,
+            identifier_map
+        );
+        if (b) {
+            // look at `map` and compare if more specific than current best match
+            if (!has_best_bound) {
+                // best_bound_map = map;
+                best_found_fn = gf;
+                has_best_bound = true;
+            } else {
+                // compare what is more specific, this or `best_bound_map`
+                if (generic_candidate_dominates(gf, best_found_fn, identifier_map)) {
+                    best_found_fn = gf;
+                    // best_bound_map = map;
+                }
+            }
+        } else {
+            TC_GenericArgMap_LIST_free(&map);
+            size_t_LIST_push(&generic_rejected_candidates_match, g);
+        }
+    }
+
+    // best_bound_map = TC_GenericArgMap_LIST_new_with_capacity(best_bound_map.len * 0);
+
+    if (has_best_bound) {
+        const TC_typeid found_ret_t = temporals_map->array[raw_return_v.val].type;
+        const IR_func* out_fn = materialize_function(best_found_fn, args, &found_ret_t, nct, target_info, source_info, identifier_map);
+        return (OverloadResolutionResult) {
+            .status = OVERLOAD_RESULT_SUCCESS,
+            .resolved_fn = out_fn,
+            .candidates = NULL,
+            .candidates_count = 0
+        };
+    }
+
+    return concreate_result;
 }

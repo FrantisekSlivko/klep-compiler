@@ -161,6 +161,7 @@ typedef struct {
     Identifier fn_name;
     IR_func fn;
     TC_GenericArgMap_LIST map;
+    const IR_generic_function* original_gf;
 } IR_materialized_generic_function;
 
 init_prefixed_list_type(IR_materialized_generic_function)
