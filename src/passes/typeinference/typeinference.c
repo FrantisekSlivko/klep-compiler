@@ -447,6 +447,17 @@ void type_inference_pass_over_fn(
                     const TC_Entry dest = temporals_map->array[instr.info.math_cmp_boolean_op.dest.val];
                     if (!dest.known_temporal) break;
 
+                    // todo: add guard to not propagate non-integer types from dest
+                    if (
+                        dest.type.ty == TC_TY_Primitive &&
+                        (dest.type.info.primitive != TC_Primitive__Bool &&
+                            dest.type.info.primitive != TC_Primitive__Char)
+                    ) {
+                        // nice
+                    } else {
+                        break;
+                    }
+
                     if (!temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].known_temporal) {
                         temporals_map->array[instr.info.math_cmp_boolean_op.src1.val] = (TC_Entry){
                             .known_temporal = true,
@@ -479,49 +490,49 @@ void type_inference_pass_over_fn(
 
                     break;
                 }
-                case IR_INST_TY__OP_OR:
-                case IR_INST_TY__OP_AND: {
-                    // TODO: what to do here? Do i need <bool> <op> <bool> ???
-                    if (!temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].known_temporal) {
-                        temporals_map->array[instr.info.math_cmp_boolean_op.dest.val] = (TC_Entry){
-                            .known_temporal = true,
-                            .type = (TC_typeid){
-                                .ty = TC_TY_Primitive,
-                                .info.primitive = TC_Primitive__Bool,
-                                // .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)},
-                            },
-                            .is_value_known = false,
-                            .is_addressable = false
-                        };
-                    }
-
-                    if (!temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].known_temporal) {
-                        temporals_map->array[instr.info.math_cmp_boolean_op.src1.val] = (TC_Entry){
-                            .known_temporal = true,
-                            .type = (TC_typeid){
-                                .ty = TC_TY_Primitive,
-                                .info.primitive = TC_Primitive__Bool,
-                                // .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)},
-                            },
-                            .is_value_known = false,
-                            .is_addressable = false
-                        };
-                    }
-
-                    if (!temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].known_temporal) {
-                        temporals_map->array[instr.info.math_cmp_boolean_op.src2.val] = (TC_Entry){
-                            .known_temporal = true,
-                            .type = (TC_typeid){
-                                .ty = TC_TY_Primitive,
-                                .info.primitive = TC_Primitive__Bool,
-                                // .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)},
-                            },
-                            .is_value_known = false,
-                            .is_addressable = false
-                        };
-                    }
-                    break;
-                }
+                // case IR_INST_TY__OP_OR:
+                // case IR_INST_TY__OP_AND: {
+                //     // TODO: what to do here? Do i need <bool> <op> <bool> ???
+                //     if (!temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].known_temporal) {
+                //         temporals_map->array[instr.info.math_cmp_boolean_op.dest.val] = (TC_Entry){
+                //             .known_temporal = true,
+                //             .type = (TC_typeid){
+                //                 .ty = TC_TY_Primitive,
+                //                 .info.primitive = TC_Primitive__Bool,
+                //                 // .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)},
+                //             },
+                //             .is_value_known = false,
+                //             .is_addressable = false
+                //         };
+                //     }
+                //
+                //     if (!temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].known_temporal) {
+                //         temporals_map->array[instr.info.math_cmp_boolean_op.src1.val] = (TC_Entry){
+                //             .known_temporal = true,
+                //             .type = (TC_typeid){
+                //                 .ty = TC_TY_Primitive,
+                //                 .info.primitive = TC_Primitive__Bool,
+                //                 // .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)},
+                //             },
+                //             .is_value_known = false,
+                //             .is_addressable = false
+                //         };
+                //     }
+                //
+                //     if (!temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].known_temporal) {
+                //         temporals_map->array[instr.info.math_cmp_boolean_op.src2.val] = (TC_Entry){
+                //             .known_temporal = true,
+                //             .type = (TC_typeid){
+                //                 .ty = TC_TY_Primitive,
+                //                 .info.primitive = TC_Primitive__Bool,
+                //                 // .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)},
+                //             },
+                //             .is_value_known = false,
+                //             .is_addressable = false
+                //         };
+                //     }
+                //     break;
+                // }
                 case IR_INST_TY__OP_CMP_EQ:
                 case IR_INST_TY__OP_CMP_NOT_EQ:
                 case IR_INST_TY__OP_CMP_LESS:
@@ -562,6 +573,10 @@ void type_inference_pass_over_fn(
                         // printf("  PHI skipped, unknown dest, probably filled later by PHI\n");
                         break;
                     }
+
+                    // if (dest.type.ty == TC_TY_Primitive && dest.type.info.primitive == TC_Primitive__Bool) {
+                        // break;
+                    // }
 
                     ptrdiff_t highest_block = block_id;
                     for (size_t n = 0; n < phi_args->len; n++) {
@@ -654,19 +669,32 @@ void type_inference_pass_over_fn(
                     break;
                 }
                 case IR_INST_TY__BRANCH: {
-                    if (!temporals_map->array[instr.info.branch.cond.val].known_temporal) {
-                        temporals_map->array[instr.info.branch.cond.val] = (TC_Entry){
+                    // if (!temporals_map->array[instr.info.branch.cond.val].known_temporal) {
+                    //     temporals_map->array[instr.info.branch.cond.val] = (TC_Entry){
+                    //         .known_temporal = true,
+                    //         .type = (TC_typeid){
+                    //             .ty = TC_TY_Primitive,
+                    //             .info.primitive = TC_Primitive__Bool,
+                    //             // .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)},
+                    //         },
+                    //         .is_value_known = false,
+                    //         .is_addressable = false
+                    //     };
+                    // }
+                    break;
+                }
+                case IR_INST_TY__TO_BOOL: {
+                    if (!temporals_map->array[instr.info.to_bool.dest.val].known_temporal) {
+                        temporals_map->array[instr.info.to_bool.dest.val] = (TC_Entry){
                             .known_temporal = true,
                             .type = (TC_typeid){
                                 .ty = TC_TY_Primitive,
                                 .info.primitive = TC_Primitive__Bool,
-                                // .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Bool", 4)},
                             },
                             .is_value_known = false,
                             .is_addressable = false
                         };
                     }
-                    break;
                 }
                 case IR_INST_TY__GET_STRUCT_FIELD_PTR: {
                     if (temporals_map->array[instr.info.get_struct_field_ptr.struct_ptr.val].known_temporal &&

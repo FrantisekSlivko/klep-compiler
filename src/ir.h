@@ -244,8 +244,8 @@ typedef enum {
     IR_INST_TY__OP_MUL,
     IR_INST_TY__OP_POW,
 
-    IR_INST_TY__OP_OR,
-    IR_INST_TY__OP_AND,
+    // IR_INST_TY__OP_OR,
+    // IR_INST_TY__OP_AND,
 
     IR_INST_TY__OP_CMP_EQ,
     IR_INST_TY__OP_CMP_NOT_EQ,
@@ -257,6 +257,8 @@ typedef enum {
     /// .dest = cmp_rs.temp, .p1.br_true, .p2.br_false,
     IR_INST_TY__BRANCH,
     IR_INST_TY__JUMP,
+
+    IR_INST_TY__TO_BOOL,
 
     IR_INST_TY__RETURN_VOID,
     /// .dest={ret},
@@ -368,6 +370,11 @@ typedef struct {
         struct {
             size_t block;
         } jump;
+        struct {
+            IR_temporal dest;
+            IR_temporal src;
+            TokenSpan expr;
+        } to_bool;
         void* return_void;
         IR_temporal return_value;
         struct {

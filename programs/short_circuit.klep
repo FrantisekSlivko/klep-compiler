@@ -1,0 +1,12 @@
+
+
+
+Void main() {
+    Bool a = 1 || cast<Bool>(0 / 0);
+
+    // Bool b = 0 || cast<Bool>(1); // left is falsy, right side should be evaluated
+    // Bool c = 1 && cast<Bool>(0 / 0); // && operator with truthy left (right should NOT be evaluated due to short-circuit, but compilation should succeed)
+    // Bool d = 0 && cast<Bool>(1); // && operator with falsy left (right should not be evaluated)
+    // Bool e = 1 || 0; // both sides are numeric literals, no cast needed
+    // Bool f = 0 || 1; // both sides numeric, left is falsy
+}

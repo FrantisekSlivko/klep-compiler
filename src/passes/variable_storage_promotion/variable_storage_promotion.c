@@ -128,8 +128,8 @@ void variable_storage_promotion_pass(
                 case IR_INST_TY__OP_DIV:
                 case IR_INST_TY__OP_MUL:
                 case IR_INST_TY__OP_POW:
-                case IR_INST_TY__OP_OR:
-                case IR_INST_TY__OP_AND:
+                // case IR_INST_TY__OP_OR:
+                // case IR_INST_TY__OP_AND:
                 case IR_INST_TY__OP_CMP_EQ:
                 case IR_INST_TY__OP_CMP_NOT_EQ:
                 case IR_INST_TY__OP_CMP_LESS:
@@ -138,6 +138,7 @@ void variable_storage_promotion_pass(
                 case IR_INST_TY__OP_CMP_GREATER_EQ:
                 case IR_INST_TY__BRANCH:
                 case IR_INST_TY__JUMP:
+                case IR_INST_TY__TO_BOOL:
                 case IR_INST_TY__RETURN_VOID:
                 case IR_INST_TY__RETURN:
                 case IR_INST_TY__FN_CALL_RETVOID:

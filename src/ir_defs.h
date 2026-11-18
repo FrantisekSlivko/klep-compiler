@@ -81,7 +81,6 @@ typedef struct IR_typeuse {
         /// used for IR_TY_Array
         uint32_t array_const_size;
     };
-    // TokenSpan full_typeuse_span;
 } IR_typeuse;
 
 init_prefixed_list_type(IR_typeuse)
@@ -139,6 +138,28 @@ init_prefixed_list_type(IR_generic_enumdef)
 
 
 
+typedef enum {
+    IR_IMPORT_KIND__Module,
+    IR_IMPORT_KIND__ModuleAlias,
+    IR_IMPORT_KIND__Selective,
+    IR_IMPORT_KIND__Wildcard
+} IR_import_kind;
+
+typedef struct {
+    IR_import_kind kind;
+    SpannedIdentifier_LIST module_path;
+    SpannedIdentifier alias;
+    SpannedIdentifier_LIST items;
+} IR_import;
+
+init_prefixed_list_type(IR_import)
+
+
+
+
+
+
+
 typedef enum CFFI_ty_kind {
     CFFI_TY_PRIMITIVE,
     CFFI_TY_PTR, // uses inner (for Int32* and Int32[])
@@ -186,6 +207,11 @@ typedef struct {
 
 init_prefixed_list_type(CFFI_IR_extern_fn)
 
+
+
+
+
+
 typedef struct {
     IR_structdef_LIST structs;
     IR_enumdef_LIST enums;
@@ -193,6 +219,7 @@ typedef struct {
     IR_generic_structdef_LIST generic_structs;
     IR_generic_enumdef_LIST generic_enums;
     SpannedIdentifier_LIST extern_types;
+    IR_import_LIST imports;
 } IR_incomplete_TypeTable;
 
 #endif //KLEPCOMPILER_IR_DEFS_H

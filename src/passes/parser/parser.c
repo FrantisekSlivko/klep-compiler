@@ -43,6 +43,7 @@ char* TT_to_expected(const TokenType t) {
         case TT_StartSquareBracket: return "[";
         case TT_EndSquareBracket: return "]";
         case TT_Star: return "*";
+        case TT_DoubleDot: return ":";
         case TT_Integer: return "Integer";
     }
     UNREACHABLE();
@@ -101,7 +102,7 @@ Identifier P_to_identifier(Parser* restrict p, const Token restrict t) {
         P_syntax_error(p, t, msg);
         exit(1);
     }
-    return SV_to_identifier(p->identifier_map, &p->identifier_map_cnt, t);
+    return SV_to_identifier(p->global_compiler_state->identifier_map, &p->global_compiler_state->identifier_map_cnt, t);
 }
 
 
@@ -357,7 +358,7 @@ IR_typeuse P_get_typeuse(Parser* p, const bool allow_void) {
 // -------------------------------------------
 
 /// returns current block's index
-size_t P_get_current_block_index(const Parser* p) {
+size_t P_get_current_block_index(const Parser* restrict p) {
     return p->func_scope_blocks->len - 1;
 }
 
@@ -931,8 +932,8 @@ void P_get_while_stmt(Parser* p) {
                                 case IR_INST_TY__OP_DIV:
                                 case IR_INST_TY__OP_MUL:
                                 case IR_INST_TY__OP_POW:
-                                case IR_INST_TY__OP_OR:
-                                case IR_INST_TY__OP_AND:
+                                // case IR_INST_TY__OP_OR:
+                                // case IR_INST_TY__OP_AND:
                                 case IR_INST_TY__OP_CMP_EQ:
                                 case IR_INST_TY__OP_CMP_NOT_EQ:
                                 case IR_INST_TY__OP_CMP_LESS:
@@ -952,6 +953,11 @@ void P_get_while_stmt(Parser* p) {
                                         instr->info.branch.cond.val = replace_with.val;
                                     }
                                     break;
+                                case IR_INST_TY__TO_BOOL: {
+                                    if (instr->info.to_bool.src.val == what_to_replace.val) {
+                                        instr->info.to_bool.src.val = replace_with.val;
+                                    }
+                                }
                                 case IR_INST_TY__JUMP:
                                 case IR_INST_TY__RETURN_VOID:
                                     break;
@@ -3251,6 +3257,160 @@ void P_get_top_generic_function(Parser* restrict p) {
     P_compilation_scope_LIST_free(&p->compilation_scope);
 }
 
+void P_get_top_import(Parser* restrict p) {
+    const Token import_kw = P_next_token(p);
+    if (!Token_cmp(import_kw, "import")) INTERNAL_ERROR()
+
+    // P_require_having_next_token(p, TT_Identifier);
+    // const Token f_path_item = P_next_token(p);
+
+    SpannedIdentifier_LIST module_path = SpannedIdentifier_LIST_new();
+    // SpannedIdentifier_LIST_push(&module_path, (SpannedIdentifier) {
+        // .identifier = P_to_identifier(p, f_path_item),
+        // .span = (TokenSpan) { .sv = *f_path_item }
+    // });
+
+    bool nx_curly = false;
+
+    while (1) {
+        if (!P_has_next(p)) {
+            break;
+        }
+        const Token k = P_peek_token(p);
+        if (Token_cmp(k, "as")) {
+            break;
+        }
+        const Identifier i = P_to_identifier(p, k);
+        P_next_token(p);
+
+        SpannedIdentifier_LIST_push(&module_path, (SpannedIdentifier) {
+            .identifier = i,
+            .span = (TokenSpan) { .sv = *k }
+        });
+
+        P_require_having_next_token(p, TT_DoubleDot);
+        const Token nx = P_peek_token(p);
+        if (!Token_cmp(nx, ":")) {
+            break;
+        }
+        P_next_token(p);
+
+        P_require_having_next_token(p, TT_DoubleDot);
+        const Token nx2 = P_next_token(p);
+        if (!Token_cmp(nx2, ":")) {
+            P_syntax_error(p, nx2, SV_from_str("expected '::' in import path"));
+            exit(1);
+        }
+
+        P_require_having_next_token(p, TT_Identifier);
+        const Token nx3 = P_peek_token(p);
+        if (Token_cmp(nx3, "{")) {
+            nx_curly = true;
+            break;
+        }
+    }
+
+    if (nx_curly) {
+        P_next_token(p);
+        P_require_having_next_token(p, TT_EndCurlyBracket);
+
+        if (Token_cmp(P_peek_token(p), "*")) {
+            P_next_token(p);
+            IR_import_LIST_push(&p->type_table.imports, (IR_import) {
+                .kind = IR_IMPORT_KIND__Wildcard,
+                .module_path = module_path,
+                .alias = (SpannedIdentifier){0},
+                .items = (SpannedIdentifier_LIST){0}
+            });
+
+            P_require_next_be(p, TT_EndCurlyBracket, SV_from_str_len("}", 1));
+
+            P_require_semicolon()
+            return;
+        }
+        SpannedIdentifier_LIST items = SpannedIdentifier_LIST_new();
+
+
+        P_require_having_next_token(p, TT_Identifier);
+        const Token fi = P_next_token(p);
+        const Identifier fii = P_to_identifier(p, fi);
+        SpannedIdentifier_LIST_push(&items, (SpannedIdentifier){
+            .identifier = fii,
+            .span = (TokenSpan) {*fi}
+        });
+
+        while (1) {
+            if (!P_has_next(p)) {
+                break;
+            }
+            const Token comma = P_peek_token(p);
+            if (Token_cmp(comma, "}")) {
+                break;
+            }
+            if (!Token_cmp(comma, ",")) {
+                P_syntax_error(p, comma, SV_from_str("expected ',' or '}'"));
+                exit(1);
+            }
+
+            P_next_token(p);
+            const Token item = P_peek_token(p);
+            if (Token_cmp(item, "}")) {
+                break;
+            }
+            const Identifier itemi = P_to_identifier(p, item);
+            SpannedIdentifier_LIST_push(&items, (SpannedIdentifier){
+                .identifier = itemi,
+                .span = (TokenSpan) {*item}
+            });
+        }
+
+
+        IR_import_LIST_push(&p->type_table.imports, (IR_import) {
+            .kind = IR_IMPORT_KIND__Selective,
+            .module_path = module_path,
+            .alias = (SpannedIdentifier){0},
+            .items = items
+        });
+
+        P_require_next_be(p, TT_EndCurlyBracket, SV_from_str_len("}", 1));
+        P_require_semicolon()
+        return;
+    } else {
+        // either with or without AS
+        const Token as = P_peek_token(p);
+        if (Token_cmp(as, "as")) {
+            P_next_token(p);
+
+            P_require_having_next_token(p, TT_Identifier);
+            const Token alias = P_next_token(p);
+            const Identifier aliasi = P_to_identifier(p, alias);
+
+            P_require_semicolon()
+            IR_import_LIST_push(&p->type_table.imports, (IR_import) {
+                .kind = IR_IMPORT_KIND__Module,
+                .module_path = module_path,
+                .alias = (SpannedIdentifier){
+                    .identifier = aliasi,
+                    .span = (TokenSpan) {*alias}
+                },
+                .items = (SpannedIdentifier_LIST){0}
+            });
+            return;
+        } else {
+            P_require_semicolon()
+            IR_import_LIST_push(&p->type_table.imports, (IR_import) {
+                .kind = IR_IMPORT_KIND__Module,
+                .module_path = module_path,
+                .alias = (SpannedIdentifier){0},
+                .items = (SpannedIdentifier_LIST){0}
+            });
+            return;
+        }
+
+    }
+    UNREACHABLE()
+}
+
 void P_get_top(Parser* p) {
     const Token t1 = P_peek_token(p);
     if (Token_cmp(t1, "struct")) {
@@ -3268,12 +3428,7 @@ void P_get_top(Parser* p) {
             P_next_token(p);
             P_get_top_generic_enum(p);
         } else {
-
-            // generic function
             P_get_top_generic_function(p);
-
-            // P_syntax_error(p, t2, SV_from_str("expected either 'struct' or 'enum'"));
-            // exit(1);
         }
     } else if (Token_cmp(t1, "extern")) {
         P_next_token(p);
@@ -3285,27 +3440,29 @@ void P_get_top(Parser* p) {
         } else {
             P_get_top_extern_fn(p);
         }
+    } else if (Token_cmp(t1, "import")){
+        P_get_top_import(p);
     } else {
         P_get_top_fn(p);
     }
 }
 
 
-TC_TypeTable parse(
+Parser parse(
     SVList* restrict tokens,
     const SourceInfo source_info,
-    const TargetInfo target_info,
-    khash_t(sv_u64_map)* restrict identifier_map,
-    IR_func_LIST* restrict functions,
-    CFFI_IR_extern_fn_LIST* restrict external_functions
+    // const TargetInfo target_info,
+    GlobalCompilerState* restrict global_compiler_state
+    // khash_t(sv_u64_map)* restrict identifier_map,
+    // IR_func_LIST* restrict functions,
+    // CFFI_IR_extern_fn_LIST* restrict external_functions
 ) {
     Parser p = (Parser){
         SVList_to_view(tokens),
         source_info.source,
         source_info.source_filename,
         IR_func_LIST_new(),
-        identifier_map,
-        1,
+        global_compiler_state,
         NULL,
         NULL,
         0,
@@ -3317,12 +3474,13 @@ TC_TypeTable parse(
             IR_generic_structdef_LIST_new(),
             IR_generic_enumdef_LIST_new(),
             SpannedIdentifier_LIST_new(),
+            IR_import_LIST_new()
         },
         CFFI_IR_extern_fn_LIST_new(),
         IR_generic_function_LIST_new()
     };
 
-    init__compiler_builtin__tc_types(p.identifier_map, &p.identifier_map_cnt, &target_info);
+    init__compiler_builtin__tc_types(p.global_compiler_state->identifier_map, &p.global_compiler_state->identifier_map_cnt, &p.global_compiler_state->target_info);
 
 
     // ---------------------------------------------------------------------------------
@@ -3394,10 +3552,5 @@ TC_TypeTable parse(
 
     // ---------------------------------------------------------------------------------
 
-    const TC_TypeTable nct = close_type_table(&p.type_table, p.identifier_map, p.generic_functions, &target_info, &source_info);
-
-    *functions = p.functions;
-    *external_functions = p.external_functions;
-
-    return nct;
+    return p;
 }

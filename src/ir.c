@@ -266,14 +266,14 @@ void print_IR_instr(const IR_instr* restrict instr, const khash_t(sv_u64_map)* r
         }
 
 
-        case IR_INST_TY__OP_OR: {
-            printf("%%%lu = OR %%%lu, %%%lu", instr->info.math_cmp_boolean_op.dest.val, instr->info.math_cmp_boolean_op.src1.val, instr->info.math_cmp_boolean_op.src2.val);
-            break;
-        }
-        case IR_INST_TY__OP_AND: {
-            printf("%%%lu = AND %%%lu, %%%lu", instr->info.math_cmp_boolean_op.dest.val, instr->info.math_cmp_boolean_op.src1.val, instr->info.math_cmp_boolean_op.src2.val);
-            break;
-        }
+        // case IR_INST_TY__OP_OR: {
+        //     printf("%%%lu = OR %%%lu, %%%lu", instr->info.math_cmp_boolean_op.dest.val, instr->info.math_cmp_boolean_op.src1.val, instr->info.math_cmp_boolean_op.src2.val);
+        //     break;
+        // }
+        // case IR_INST_TY__OP_AND: {
+        //     printf("%%%lu = AND %%%lu, %%%lu", instr->info.math_cmp_boolean_op.dest.val, instr->info.math_cmp_boolean_op.src1.val, instr->info.math_cmp_boolean_op.src2.val);
+        //     break;
+        // }
 
 
 
@@ -305,11 +305,16 @@ void print_IR_instr(const IR_instr* restrict instr, const khash_t(sv_u64_map)* r
 
 
         case IR_INST_TY__BRANCH: {
-            printf("BR %%%lu, BLOCK<%lu>, BLOCK<%lu>", instr->info.branch.cond.val, instr->info.branch.branch_true, instr->info.branch.branch_false);
+            printf("BR %%%lu, (TRUE)->BLOCK<%lu>, (FALSE)->BLOCK<%lu>", instr->info.branch.cond.val, instr->info.branch.branch_true, instr->info.branch.branch_false);
             break;
         }
         case IR_INST_TY__JUMP: {
             printf("JUMP BLOCK<%lu>", instr->info.jump.block);
+            break;
+        }
+
+        case IR_INST_TY__TO_BOOL: {
+            printf("%%%lu = TO_BOOL %%%lu", instr->info.to_bool.dest.val, instr->info.to_bool.src.val);
             break;
         }
 

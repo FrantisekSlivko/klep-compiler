@@ -123,8 +123,8 @@ IR_instr instr_rewrite_process(const IR_instr instr, const IR_rewrite_LIST* rest
         case IR_INST_TY__OP_DIV:
         case IR_INST_TY__OP_MUL:
         case IR_INST_TY__OP_POW:
-        case IR_INST_TY__OP_OR:
-        case IR_INST_TY__OP_AND:
+        // case IR_INST_TY__OP_OR:
+        // case IR_INST_TY__OP_AND:
         case IR_INST_TY__OP_CMP_EQ:
         case IR_INST_TY__OP_CMP_NOT_EQ:
         case IR_INST_TY__OP_CMP_LESS:
@@ -139,6 +139,10 @@ IR_instr instr_rewrite_process(const IR_instr instr, const IR_rewrite_LIST* rest
         case IR_INST_TY__BRANCH: {
             out.info.branch.cond = resolve(out.info.branch.cond, rewrite_map);
             break;
+        }
+        case IR_INST_TY__TO_BOOL: {
+            out.info.to_bool.src = resolve(out.info.to_bool.src, rewrite_map);
+            out.info.to_bool.dest = resolve(out.info.to_bool.dest, rewrite_map); // ?
         }
         case IR_INST_TY__JUMP:
             break;
@@ -265,8 +269,6 @@ MIR_func lowering_and_emission_pass_over_fn(
             const IR_instr instr = instr_rewrite_process(instr_original, &rewrite_map);
 
 
-
-
             switch (instr.ty) {
                 case IR_INST_TY__INVALID: {
                     INTERNAL_ERROR("IR_INST_TY__INVALID");
@@ -320,6 +322,23 @@ MIR_func lowering_and_emission_pass_over_fn(
                     for (size_t n = 0; n < instr.info.phi.args->len; n++) {
                         const IR_temporal_block_phi_record* record = &instr.info.phi.args->array[n];
 
+                        // if (dest_t.ty == TC_TY_Primitive && dest_t.info.primitive == TC_Primitive__Bool) {
+                        //     if (!is_type_eq(&dest_t, &temporals_map->array[record->temp.val].type)) {
+                        //         // perf_bool()
+                        //         IR_temporal coerced = perf_bool(
+                        //             &record->temp,
+                        //             &temporals_map->array[record->temp.val].type,
+                        //             &highest_temporal,
+                        //             temporals_map,
+                        //             &promote_to_stack_temps,
+                        //             nct,
+                        //             target_info
+                        //         );
+                        //         rewrite_map.array[record->temp.val].has_rewrite = true;
+                        //         rewrite_map.array[record->temp.val].rewrite = coerced;
+                        //     }
+                        //     continue;
+                        // }
                         if (!is_type_eq(&dest_t, &temporals_map->array[record->temp.val].type)) {
                             const SV dest_t_sv = format_TC_typeid(&dest_t, identifier_map, nct);
                             const SV sec_t_sv = format_TC_typeid(&temporals_map->array[record->temp.val].type, identifier_map, nct);
@@ -886,73 +905,73 @@ MIR_func lowering_and_emission_pass_over_fn(
                     }
                     break;
                 }
-                case IR_INST_TY__OP_OR:
-                case IR_INST_TY__OP_AND: {
-                    const TC_typeid src1_t = temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type;
-                    const TC_typeid src2_t = temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].type;
-                    const TC_typeid dest_t = temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type;
-
-                    const IR_temporal src1_it = perf_bool(&instr.info.math_cmp_boolean_op.src1, &src1_t,
-                                                          &highest_temporal, temporals_map, &promote_to_stack_temps, nct, target_info);
-                    const IR_temporal src2_it = perf_bool(&instr.info.math_cmp_boolean_op.src2, &src2_t,
-                                                          &highest_temporal, temporals_map, &promote_to_stack_temps, nct, target_info);
-
-                    static TC_typeid bool_t = {
-                        .ty = TC_TY_Primitive,
-                        .info.primitive = TC_Primitive__Bool,
-                        // .full_typeuse_span = {.sv = {"Bool", 4}}
-                    };
-
-                    uint64_t out_temporal = instr.info.math_cmp_boolean_op.dest.val;
-                    if (dest_t.ty != TC_TY_Primitive || dest_t.info.primitive != TC_Primitive__Bool) {
-                        out_temporal = highest_temporal++;
-
-                        if (out_temporal + 1 > temporals_map->cap) {
-                            TC_Entry_LIST_inflate(temporals_map, out_temporal + 5);
-                        }
-                        temporals_map->array[out_temporal] = (TC_Entry){
-                            .type = dest_t,
-                            .known_temporal = true,
-                            .is_value_known = false,
-                            .is_addressable = false,
-                        };
-
-                        if (!can_be_implicit_casted(&bool_t, &dest_t)) {
-                            INTERNAL_ERROR("TYPE ERROR HERE");
-                        } else {
-                            printf("   [D] implicit type conversion from ");
-                            print_TC_typeid(&bool_t, identifier_map, nct);
-                            printf(" to ");
-                            print_TC_typeid(&dest_t, identifier_map, nct);
-                            printf(" is possible \n");
-                        }
-                    }
-
-                    printf("   %%%lu = ", out_temporal);
-                    switch (instr.ty) {
-                        case IR_INST_TY__OP_OR: {
-                            printf("OP_OR");
-                            break;
-                        }
-                        case IR_INST_TY__OP_AND: {
-                            printf("OP_AND");
-                            break;
-                        }
-                        default: INTERNAL_ERROR()
-                    }
-
-                    printf(" <");
-                    print_TC_typeid(&bool_t, identifier_map, nct);
-                    printf("> %%%lu, %%%lu\n", src1_it.val, src2_it.val);
-
-                    if (out_temporal != instr.info.math_cmp_boolean_op.dest.val) {
-                        printf("   %%%lu = CAST<", instr.info.math_cmp_boolean_op.dest.val);
-                        print_TC_typeid(&dest_t, identifier_map, nct);
-                        printf(">(%%%lu) [IMPLICIT]\n", out_temporal);
-                    }
-
-                    break;
-                }
+                // case IR_INST_TY__OP_OR:
+                // case IR_INST_TY__OP_AND: {
+                //     const TC_typeid src1_t = temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type;
+                //     const TC_typeid src2_t = temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].type;
+                //     const TC_typeid dest_t = temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type;
+                //
+                //     const IR_temporal src1_it = perf_bool(&instr.info.math_cmp_boolean_op.src1, &src1_t,
+                //                                           &highest_temporal, temporals_map, &promote_to_stack_temps, nct, target_info);
+                //     const IR_temporal src2_it = perf_bool(&instr.info.math_cmp_boolean_op.src2, &src2_t,
+                //                                           &highest_temporal, temporals_map, &promote_to_stack_temps, nct, target_info);
+                //
+                //     static TC_typeid bool_t = {
+                //         .ty = TC_TY_Primitive,
+                //         .info.primitive = TC_Primitive__Bool,
+                //         // .full_typeuse_span = {.sv = {"Bool", 4}}
+                //     };
+                //
+                //     uint64_t out_temporal = instr.info.math_cmp_boolean_op.dest.val;
+                //     if (dest_t.ty != TC_TY_Primitive || dest_t.info.primitive != TC_Primitive__Bool) {
+                //         out_temporal = highest_temporal++;
+                //
+                //         if (out_temporal + 1 > temporals_map->cap) {
+                //             TC_Entry_LIST_inflate(temporals_map, out_temporal + 5);
+                //         }
+                //         temporals_map->array[out_temporal] = (TC_Entry){
+                //             .type = dest_t,
+                //             .known_temporal = true,
+                //             .is_value_known = false,
+                //             .is_addressable = false,
+                //         };
+                //
+                //         if (!can_be_implicit_casted(&bool_t, &dest_t)) {
+                //             INTERNAL_ERROR("TYPE ERROR HERE");
+                //         } else {
+                //             printf("   [D] implicit type conversion from ");
+                //             print_TC_typeid(&bool_t, identifier_map, nct);
+                //             printf(" to ");
+                //             print_TC_typeid(&dest_t, identifier_map, nct);
+                //             printf(" is possible \n");
+                //         }
+                //     }
+                //
+                //     printf("   %%%lu = ", out_temporal);
+                //     switch (instr.ty) {
+                //         case IR_INST_TY__OP_OR: {
+                //             printf("OP_OR");
+                //             break;
+                //         }
+                //         case IR_INST_TY__OP_AND: {
+                //             printf("OP_AND");
+                //             break;
+                //         }
+                //         default: INTERNAL_ERROR()
+                //     }
+                //
+                //     printf(" <");
+                //     print_TC_typeid(&bool_t, identifier_map, nct);
+                //     printf("> %%%lu, %%%lu\n", src1_it.val, src2_it.val);
+                //
+                //     if (out_temporal != instr.info.math_cmp_boolean_op.dest.val) {
+                //         printf("   %%%lu = CAST<", instr.info.math_cmp_boolean_op.dest.val);
+                //         print_TC_typeid(&dest_t, identifier_map, nct);
+                //         printf(">(%%%lu) [IMPLICIT]\n", out_temporal);
+                //     }
+                //
+                //     break;
+                // }
                 case IR_INST_TY__OP_CMP_EQ:
                 case IR_INST_TY__OP_CMP_NOT_EQ:
                 case IR_INST_TY__OP_CMP_LESS:
@@ -1448,6 +1467,34 @@ MIR_func lowering_and_emission_pass_over_fn(
                 }
                 case IR_INST_TY__JUMP: {
                     printf("   JUMP Block %lu\n", instr.info.jump.block);
+                    break;
+                }
+                case IR_INST_TY__TO_BOOL: {
+                    const TC_typeid src_t = temporals_map->array[instr.info.to_bool.src.val].type;
+                    const IR_temporal_and_TC_type new_src = perf_auto_deref(
+                        &src_t,
+                        &instr.info.to_bool.src,
+                        &highest_temporal,
+                        temporals_map,
+                        &promote_to_stack_temps,
+                        nct,
+                        target_info
+                    );
+                    if (new_src.type.ty == TC_TY_Primitive && new_src.type.info.primitive == TC_Primitive__Bool) {
+                        // rewrite map new_stc -> dest
+                        rewrite_map.array[instr.info.to_bool.dest.val].has_rewrite = true;
+                        rewrite_map.array[instr.info.to_bool.dest.val].rewrite = new_src.temporal;
+                    } else if (new_src.type.ty == TC_TY_Primitive) {
+                        printf("   %%%lu = CMP_NOT_EQ %%%lu, 0\n", instr.info.to_bool.dest.val, new_src.temporal.val);
+                    } else {
+                        // type error
+                        char r_msg[1024] = {0};
+                        const SV got_t_sv = format_TC_typeid(&new_src.type, identifier_map, nct);
+                        int len = snprintf(r_msg, 1024, "needs to be a "C_BOLD"Bool"C_RESET" value, got "C_BOLD""SV_format""C_RESET"", SV_v_args(got_t_sv));
+                        const SV msg = SV_from_str_len(r_msg, len);
+                        type_error(&source_info->source, &source_info->source_filename, &instr.info.to_bool.expr.sv, &msg);
+                        exit(1);
+                    }
                     break;
                 }
                 case IR_INST_TY__RETURN_VOID: {

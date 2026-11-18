@@ -34,7 +34,7 @@ bool EX_is_OP(const Token op) {
 }
 
 P_OP EX_token_to_op(const Token op) {
-    if (Token_cmp(op, "and")) return P_OP__AND;
+    // if (Token_cmp(op, "and")) return P_OP__AND;
 
     if (op->len == 1) {
         switch (op->start[0]) {
@@ -71,19 +71,19 @@ P_OP EX_token_to_op(const Token op) {
         if (c1 == '>' && c2 == '=') {
             return P_OP__CMP_GREATER_EQ;
         }
-        if (c1 == 'o' && c2 == 'r') {
-            return P_OP__OR;
-        }
+        // if (c1 == 'o' && c2 == 'r') {
+            // return P_OP__OR;
+        // }
     }
     INTERNAL_ERROR("invalid OP '" SV_format "'", SV_p_args(op))
 }
 
 uint8_t EX_precedence(const P_OP op) {
     switch (op) {
-        case P_OP__OR:
-            return 10;
-        case P_OP__AND:
-            return 15;
+        // case P_OP__OR:
+            // return 10;
+        // case P_OP__AND:
+            // return 15;
         case P_OP__CMP_EQ:
             return 20;
         case P_OP__CMP_NOT_EQ:
@@ -1071,8 +1071,195 @@ IR_temporal_with_span P_get_expr_val(Parser* p) {
     }
 }
 
+IR_temporal_with_span P_get_expr_base(Parser* p);
+
+IR_temporal_with_span P_get_expr(Parser* p);
+
 /// returns IR handle to value that the expr produced
+IR_temporal_with_span P_get_expr_and_base(Parser* p) {
+    const IR_temporal_with_span first = P_get_expr_base(p);
+    IR_temporal_with_span left = first;
+    while (Token_cmp(P_peek_token(p), "&&")) {
+        const Token op_token = P_next_token(p); // &&
+        const TokenSpan op_span = (TokenSpan) {*op_token};
+
+        const size_t left_end_block = P_get_current_block_index(p);
+        const IR_SSA_binding_LIST left_bindings = IR_SSA_bindings_deep_clone(P_get_current_block_bindings(p));
+
+        P_append_block_with_bindings(p, IR_SSA_bindings_deep_clone(&left_bindings));
+        const size_t right_start_block = P_get_current_block_index(p);
+        const IR_temporal_with_span right = P_get_expr_base(p);
+
+        const size_t right_end_block = P_get_current_block_index(p);
+        const IR_SSA_binding_LIST right_bindings = IR_SSA_bindings_deep_clone(P_get_current_block_bindings(p));
+
+        P_append_block(p);
+        const size_t merge_block = P_get_current_block_index(p);
+
+        // short-circuit
+        P_emit_to_block(p, left_end_block, (IR_instr) {
+            .ty = IR_INST_TY__BRANCH,
+            .info.branch = {
+                .cond = left.temp,
+                .branch_true = right_start_block,
+                .branch_false = merge_block,
+            }
+        }, (IR_instr_error_info) {});
+
+
+        bool right_end_block_terminated = P_block_is_terminated(p, right_end_block);
+        if (!right_end_block_terminated) {
+            P_emit_to_block(p, right_end_block, (IR_instr){
+                .ty = IR_INST_TY__JUMP,
+                .info.jump = {merge_block}
+            }, (IR_instr_error_info){});
+        }
+
+        const IR_temporal rs = P_new_temporal(p);
+        IR_temporal_block_phi_record_LIST* phi_args = malloc(sizeof(IR_temporal_block_phi_record_LIST));
+        *phi_args = IR_temporal_block_phi_record_LIST_new_with_capacity(2);
+
+        IR_temporal out_rs;
+        if (!right_end_block_terminated) {
+            IR_temporal_block_phi_record_LIST_push(phi_args, (IR_temporal_block_phi_record) {
+            .temp = left.temp,
+            .block = left_end_block,
+        });
+
+            IR_temporal_block_phi_record_LIST_push(phi_args, (IR_temporal_block_phi_record) {
+                .temp = right.temp,
+                .block = right_end_block,
+            });
+
+            P_emit(p, (IR_instr) {
+                .ty = IR_INST_TY__PHI,
+                .info.phi = {
+                    .dest = rs,
+                    .args = phi_args
+                }
+            }, (IR_instr_error_info) {});
+
+            out_rs = rs;
+
+            *P_get_current_block_bindings(p) = P_PHI_CONDITIONAL_BRANCHING_MERGER(p, &left_bindings, left_end_block, &right_bindings, right_end_block, op_span);
+        }  else {
+            out_rs = left.temp;
+
+            *P_get_current_block_bindings(p) = left_bindings;
+        }
+
+
+        left = (IR_temporal_with_span) {
+            .temp = out_rs,
+            .span = TS_merge(&left.span, &right.span),
+        };
+    }
+
+    return left;
+}
+
 IR_temporal_with_span P_get_expr(Parser* p) {
+    const IR_temporal_with_span first = P_get_expr_and_base(p);
+    IR_temporal_with_span r_left = first;
+    while (Token_cmp(P_peek_token(p), "||")) {
+        const Token op_token = P_next_token(p); // ||
+        const TokenSpan op_span = (TokenSpan) {*op_token};
+
+        const IR_temporal_with_span left = (IR_temporal_with_span) { P_new_temporal(p), r_left.span };
+        P_emit(p, (IR_instr) {
+            .ty = IR_INST_TY__TO_BOOL,
+            .info.to_bool = {
+                .dest = left.temp,
+                .src = r_left.temp
+            }
+        }, (IR_instr_error_info){});
+
+        const size_t left_end_block = P_get_current_block_index(p);
+        const IR_SSA_binding_LIST left_bindings = IR_SSA_bindings_deep_clone(P_get_current_block_bindings(p));
+
+        P_append_block_with_bindings(p, IR_SSA_bindings_deep_clone(&left_bindings));
+        const size_t right_start_block = P_get_current_block_index(p);
+        const IR_temporal_with_span r_right = P_get_expr_and_base(p);
+
+        const IR_temporal_with_span right = (IR_temporal_with_span) {P_new_temporal(p), r_right.span};
+        P_emit(p, (IR_instr){
+            .ty = IR_INST_TY__TO_BOOL,
+            .info.to_bool = {
+                .dest = right.temp,
+                .src = r_right.temp
+            }
+        },(IR_instr_error_info){});
+
+        const size_t right_end_block = P_get_current_block_index(p);
+        const IR_SSA_binding_LIST right_bindings = IR_SSA_bindings_deep_clone(P_get_current_block_bindings(p));
+
+        P_append_block(p);
+        const size_t merge_block = P_get_current_block_index(p);
+
+        // short-circuit
+        P_emit_to_block(p, left_end_block, (IR_instr) {
+            .ty = IR_INST_TY__BRANCH,
+            .info.branch = {
+                .cond = left.temp,
+                .branch_true = merge_block,
+                .branch_false = right_start_block,
+            }
+        }, (IR_instr_error_info) {});
+
+
+        bool right_end_block_terminated = P_block_is_terminated(p, right_end_block);
+        if (!right_end_block_terminated) {
+            P_emit_to_block(p, right_end_block, (IR_instr){
+                .ty = IR_INST_TY__JUMP,
+                .info.jump = {merge_block}
+            }, (IR_instr_error_info){});
+        }
+
+        IR_temporal out_rs;
+        if (!right_end_block_terminated) {
+            const IR_temporal rs = P_new_temporal(p);
+            IR_temporal_block_phi_record_LIST* phi_args = malloc(sizeof(IR_temporal_block_phi_record_LIST));
+            *phi_args = IR_temporal_block_phi_record_LIST_new_with_capacity(2);
+
+            IR_temporal_block_phi_record_LIST_push(phi_args, (IR_temporal_block_phi_record) {
+                .temp = left.temp,
+                .block = left_end_block,
+            });
+
+            IR_temporal_block_phi_record_LIST_push(phi_args, (IR_temporal_block_phi_record) {
+                .temp = right.temp,
+                .block = right_end_block,
+            });
+
+            P_emit(p, (IR_instr) {
+                .ty = IR_INST_TY__PHI,
+                .info.phi = {
+                    .dest = rs,
+                    .args = phi_args
+                }
+            }, (IR_instr_error_info) {});
+
+            out_rs = rs;
+
+            *P_get_current_block_bindings(p) = P_PHI_CONDITIONAL_BRANCHING_MERGER(p, &left_bindings, left_end_block, &right_bindings, right_end_block, op_span);
+        }  else {
+            out_rs = left.temp;
+
+            *P_get_current_block_bindings(p) = left_bindings;
+        }
+
+
+        r_left = (IR_temporal_with_span) {
+            .temp = out_rs,
+            .span = TS_merge(&left.span, &right.span),
+        };
+    }
+
+    return r_left;
+
+}
+
+IR_temporal_with_span P_get_expr_base(Parser* p) {
     P_OP_LIST ops = P_OP_LIST_new();
     TokenSpan_LIST ops_spans = TokenSpan_LIST_new();
 
@@ -1141,12 +1328,12 @@ IR_temporal_with_span P_get_expr(Parser* p) {
                             ty = IR_INST_TY__OP_POW;
                             break;
 
-                        case P_OP__OR:
-                            ty = IR_INST_TY__OP_OR;
-                            break;
-                        case P_OP__AND:
-                            ty = IR_INST_TY__OP_AND;
-                            break;
+                        // case P_OP__OR:
+                            // ty = IR_INST_TY__OP_OR;
+                            // break;
+                        // case P_OP__AND:
+                            // ty = IR_INST_TY__OP_AND;
+                            // break;
 
 
                         case P_OP__CMP_EQ:
@@ -1229,12 +1416,12 @@ IR_temporal_with_span P_get_expr(Parser* p) {
                 ty = IR_INST_TY__OP_POW;
                 break;
 
-            case P_OP__OR:
-                ty = IR_INST_TY__OP_OR;
-                break;
-            case P_OP__AND:
-                ty = IR_INST_TY__OP_AND;
-                break;
+            // case P_OP__OR:
+                // ty = IR_INST_TY__OP_OR;
+                // break;
+            // case P_OP__AND:
+                // ty = IR_INST_TY__OP_AND;
+                // break;
 
 
             case P_OP__CMP_EQ:

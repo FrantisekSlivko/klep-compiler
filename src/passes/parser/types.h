@@ -5,6 +5,7 @@
 #include <ctype.h>
 
 
+#include "compiler.h"
 #include "string_view.h"
 
 #include "ir.h"
@@ -31,6 +32,7 @@ typedef enum {
     TT_StartSquareBracket,
     TT_EndSquareBracket,
     TT_Star,
+    TT_DoubleDot,
     TT_Integer
 } TokenType;
 
@@ -98,8 +100,9 @@ typedef struct {
 
     // global result accumulation
     IR_func_LIST functions;
-    khash_t(sv_u64_map)* identifier_map;
-    uint64_t identifier_map_cnt;
+    // khash_t(sv_u64_map)* identifier_map;
+    // uint64_t identifier_map_cnt;
+    GlobalCompilerState* global_compiler_state;
 
     // per-function code compilation
     IR_block_LIST* func_scope_blocks;
@@ -127,8 +130,8 @@ typedef enum {
     P_OP__CMP_GREATER,
     P_OP__CMP_GREATER_EQ,
 
-    P_OP__OR,
-    P_OP__AND,
+    // P_OP__OR,
+    // P_OP__AND,
 } P_OP;
 
 init_list_type(P_OP, P_OP_LIST)
