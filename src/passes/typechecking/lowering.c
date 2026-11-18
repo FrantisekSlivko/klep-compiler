@@ -262,7 +262,7 @@ MIR_func lowering_and_emission_pass_over_fn(
         const IR_block block = fn.blocks.array[block_id];
         MIR_instr_LIST mir_instrs = MIR_instr_LIST_new_with_capacity(block.instructions.len);
 
-        printf("  BLOCK %lu:\n", block_id);
+        // printf("  BLOCK %lu:\n", block_id);
         for (size_t instr_nth = 0; instr_nth < block.instructions.len; instr_nth++) {
             const IR_instr instr_original = block.instructions.array[instr_nth];
 
@@ -279,10 +279,26 @@ MIR_func lowering_and_emission_pass_over_fn(
                     bool is_value = true;
                     if(
                         temporals_map->array[instr.info.assign.old.val].type.ty == TC_TY_Ref &&
-                        !(temporals_map->array[instr.info.assign.new.val].type.ty == TC_TY_Ref)
+                        temporals_map->array[instr.info.assign.new.val].type.ty != TC_TY_Ref
                     ) {
-                        printf("   DROP %%%lu (ASSIGN) {drop value in}\n", instr.info.assign.old.val);
-                        printf("   STORE INTO %%%lu VALUE %%%lu (ASSIGN)\n", instr.info.assign.old.val, instr.info.assign.new.val);
+                        // should be DROP of the Ref<T>, drop T
+                        mir_emit(&mir_instrs, (MIR_instr) {
+                            .type = MIR_TY__DROP,
+                            .info.drop = {
+                                .dest = instr.info.assign.old.val,
+                                .type = temporals_map->array[instr.info.assign.old.val].type,
+                                .drop_inside = true
+                            }
+                        });
+                        mir_emit(&mir_instrs, (MIR_instr) {
+                            .type = MIR_TY__STORE,
+                            .info.store = {
+                                .ptr = instr.info.assign.old.val,
+                                .val = instr.info.assign.new.val
+                            }
+                        });
+                        // printf("   DROP %%%lu (ASSIGN) {drop value in}\n", instr.info.assign.old.val);
+                        // printf("   STORE INTO %%%lu VALUE %%%lu (ASSIGN)\n", instr.info.assign.old.val, instr.info.assign.new.val);
                         rewrite_map.array[instr.info.assign.dest.val].has_rewrite = true;
                         rewrite_map.array[instr.info.assign.dest.val].rewrite = instr.info.assign.old;
                         break;
@@ -298,19 +314,45 @@ MIR_func lowering_and_emission_pass_over_fn(
                     }
 
                     if (is_value) {
-                        printf("   %%%lu = MOVE %%%lu (ASSIGN)\n", instr.info.assign.dest.val, instr.info.assign.new.val);
-                        printf("   DROP %%%lu (ASSIGN)\n", instr.info.assign.old.val);
+                        mir_emit(&mir_instrs, (MIR_instr) {
+                            .type = MIR_TY__MOVE,
+                            .info.move = {
+                                .dest = instr.info.assign.dest.val,
+                                .src = instr.info.assign.new.val
+                            }
+                        });
+                        mir_emit(&mir_instrs, (MIR_instr) {
+                            .type = MIR_TY__DROP,
+                            .info.drop = {
+                                .dest = instr.info.assign.old.val,
+                                .type = temporals_map->array[instr.info.assign.old.val].type,
+                                .drop_inside = true
+                            }
+                        });
+                        // printf("   %%%lu = MOVE %%%lu (ASSIGN)\n", instr.info.assign.dest.val, instr.info.assign.new.val);
+                        // printf("   DROP %%%lu (ASSIGN)\n", instr.info.assign.old.val);
                     } else {
-                        printf("   DROP %%%lu (ASSIGN) {drop value in}\n", instr.info.assign.old.val);
-                        printf("   STORE INTO %%%lu VALUE %%%lu (ASSIGN)\n", instr.info.assign.old.val, instr.info.assign.new.val);
-                        // todo: rewrite %dest to %old everywhere
-                        // URGENT
+                        mir_emit(&mir_instrs, (MIR_instr) {
+                            .type = MIR_TY__DROP,
+                            .info.drop = {
+                                .dest = instr.info.assign.old.val,
+                                .type = temporals_map->array[instr.info.assign.old.val].type,
+                                .drop_inside = true
+                            }
+                        });
+                        mir_emit(&mir_instrs, (MIR_instr) {
+                            .type = MIR_TY__STORE,
+                            .info.store = {
+                                .ptr = instr.info.assign.old.val,
+                                .val = instr.info.assign.new.val
+                            }
+                        });
+                        // printf("   DROP %%%lu (ASSIGN) {drop value in}\n", instr.info.assign.old.val);
+                        // printf("   STORE INTO %%%lu VALUE %%%lu (ASSIGN)\n", instr.info.assign.old.val, instr.info.assign.new.val);
+
                         rewrite_map.array[instr.info.assign.dest.val].has_rewrite = true;
                         rewrite_map.array[instr.info.assign.dest.val].rewrite = instr.info.assign.old;
-//                         printf("   [D] rewrite_map.add(rewrite %%%lu to %%%lu)\n", instr.info.assign.dest.val, instr.info.assign.old.val);
                     }
-//                     instr.info.assign.old
-//                     UNIMPLEMENTED()
                     break;
                 }
 
@@ -400,27 +442,51 @@ MIR_func lowering_and_emission_pass_over_fn(
                         break;
                     }
 
-
-                    printf("   %%%lu = PHI { ", instr.info.phi.dest.val);
+                    MIR_phi_arg_LIST args = MIR_phi_arg_LIST_new_with_capacity(instr.info.phi.args->len);
                     for (size_t n = 0; n < instr.info.phi.args->len; n++) {
-                        printf("<BLOCK %lu, %%%lu>", instr.info.phi.args->array[n].block,
-                               instr.info.phi.args->array[n].temp.val);
-                        if (n + 1 != instr.info.phi.args->len) printf(", ");
+                        MIR_phi_arg_LIST_push(&args, (MIR_phi_arg) {
+                            .block_id = instr.info.phi.args->array[n].block,
+                            .temp = instr.info.phi.args->array[n].temp.val
+                        });
                     }
-                    printf("}\n");
+                    mir_emit(&mir_instrs, (MIR_instr) {
+                        .type = MIR_TY__PHI,
+                        .info.phi = {
+                            .dest = instr.info.phi.dest.val,
+                            .type = temporals_map->array[instr.info.phi.dest.val].type,
+                            .args = args
+                        }
+                    });
+
+                    // printf("   %%%lu = PHI { ", instr.info.phi.dest.val);
+                    // for (size_t n = 0; n < instr.info.phi.args->len; n++) {
+                    //     printf("<BLOCK %lu, %%%lu>", instr.info.phi.args->array[n].block,
+                    //            instr.info.phi.args->array[n].temp.val);
+                    //     if (n + 1 != instr.info.phi.args->len) printf(", ");
+                    // }
+                    // printf("}\n");
                     break;
                 }
                 case IR_INST_TY__DROP: {
                     const TC_typeid t = resolve_tc_type(instr.info.drop.type, nct, target_info, source_info, identifier_map);
-                    const SV type_sv = format_TC_typeid(&t, identifier_map, nct);
-                    printf("   DROP <"SV_format"> %%%lu ",SV_v_args(type_sv), instr.info.drop.dest.val);
-                    if (t.ty == TC_TY_Primitive) {
-                        printf("[STACK]\n");
-                    } else if (t.ty == TC_TY_Ref || t.ty == TC_TY_Slice) {
-                        printf("[STACK]\n");
-                    } else {
-                        printf("[STACK+RAII]\n");
-                    }
+                    mir_emit(&mir_instrs, (MIR_instr) {
+                        .type = MIR_TY__DROP,
+                        .info.drop = {
+                            .dest = instr.info.drop.dest.val,
+                            .type = t,
+                            .drop_inside = t.ty == TC_TY_Primitive || t.ty == TC_TY_Ref || t.ty == TC_TY_Slice
+                        }
+                    });
+
+                    // const SV type_sv = format_TC_typeid(&t, identifier_map, nct);
+                    // printf("   DROP <"SV_format"> %%%lu ",SV_v_args(type_sv), instr.info.drop.dest.val);
+                    // if (t.ty == TC_TY_Primitive) {
+                    //     printf("[STACK]\n");
+                    // } else if (t.ty == TC_TY_Ref || t.ty == TC_TY_Slice) {
+                    //     printf("[STACK]\n");
+                    // } else {
+                    //     printf("[STACK+RAII]\n");
+                    // }
                     break;
                 }
                 case IR_INST_TY__MOVE: {
@@ -428,7 +494,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                     const TC_typeid dest_t = temporals_map->array[instr.info.move.dest.val].type;
                     const TC_typeid src_t = temporals_map->array[instr.info.move.src.val].type;
 
-//                     printf("[D] %%%lu = MOVE %%%lu\n", instr.info.move.dest.val, instr.info.move.src.val);
+                    //                     printf("[D] %%%lu = MOVE %%%lu\n", instr.info.move.dest.val, instr.info.move.src.val);
 
                     const IR_temporal out = perf_autos(
                         &instr.info.move.src,
@@ -444,7 +510,14 @@ MIR_func lowering_and_emission_pass_over_fn(
                         &promote_to_stack_temps,
                         target_info
                     );
-                    printf("   %%%lu = MOVE %%%lu\n", instr.info.move.dest.val, out.val);
+                    // printf("   %%%lu = MOVE %%%lu\n", instr.info.move.dest.val, out.val);
+                    mir_emit(&mir_instrs, (MIR_instr) {
+                        .type = MIR_TY__MOVE,
+                        .info.move = {
+                            .dest = instr.info.move.dest.val,
+                            .src = out.val
+                        }
+                    });
 
                     break;
                 }
@@ -456,7 +529,14 @@ MIR_func lowering_and_emission_pass_over_fn(
 
                     if (instr_nth + 1 < block.instructions.len && block.instructions.array[instr_nth+1].ty == IR_INST_TY__MATCH_META__TARGET && src_t.ty == TC_TY_Ref) {
                         // emit MOVE
-                        printf("   %%%lu = MOVE %%%lu\n", instr.info.ref_of.dest.val, instr.info.ref_of.src.val);
+                        mir_emit(&mir_instrs, (MIR_instr) {
+                            .type = MIR_TY__MOVE,
+                            .info.move = {
+                                .dest = instr.info.ref_of.dest.val,
+                                .src = instr.info.ref_of.src.val
+                            }
+                        });
+                        // printf("   %%%lu = MOVE %%%lu\n", instr.info.ref_of.dest.val, instr.info.ref_of.src.val);
                         temporals_map->array[instr.info.ref_of.dest.val].type = src_t;
                         break;
                     }
@@ -479,7 +559,14 @@ MIR_func lowering_and_emission_pass_over_fn(
                         }
                     }
 
-                    printf("   %%%lu = REF_OF %%%lu\n", instr.info.ref_of.dest.val, instr.info.ref_of.src.val);
+                    mir_emit(&mir_instrs, (MIR_instr) {
+                        .type = MIR_TY__REF_OF,
+                        .info.ref_of = {
+                            .dest = instr.info.ref_of.dest.val,
+                            .src = instr.info.ref_of.src.val
+                        }
+                    });
+                    // printf("   %%%lu = REF_OF %%%lu\n", instr.info.ref_of.dest.val, instr.info.ref_of.src.val);
 
                     break;
                 }
@@ -491,16 +578,28 @@ MIR_func lowering_and_emission_pass_over_fn(
                     if (!is_type_eq(&t, &original_t)) {
                         INTERNAL_ERROR("should not happen")
                     }
-                    const SV t_sv = format_TC_typeid(&t, identifier_map, nct);
-                    char* value_vs_stack = "value";
+                    // const SV t_sv = format_TC_typeid(&t, identifier_map, nct);
+                    // char* value_vs_stack = "value";
+                    bool value = true;
                     for(size_t n = 0; n < promote_to_stack_temps.len; n++) {
                         if(promote_to_stack_temps.array[n].val == instr.info.var_decl.dest.val) {
-                            value_vs_stack = "stack";
+                            // value_vs_stack = "stack";
+                            value = false;
                             break;
                         }
                     }
 
-                    printf("   VAR_DECL %%%lu {on %s} <"SV_format">\n", instr.info.var_decl.dest.val, value_vs_stack, SV_v_args(t_sv));
+
+                    mir_emit(&mir_instrs, (MIR_instr) {
+                        .type = MIR_TY__ALLOC,
+                        .info.alloc = {
+                            .dest = instr.info.var_decl.dest.val,
+                            .type = temporals_map->array[instr.info.var_decl.dest.val].type,
+                            .is_stack = !value
+                        }
+                    });
+
+                    // printf("   VAR_DECL %%%lu {on %s} <"SV_format">\n", instr.info.var_decl.dest.val, value_vs_stack, SV_v_args(t_sv));
                     break;
                 }
                 case IR_INST_TY__STORE_PTR: {
@@ -532,10 +631,16 @@ MIR_func lowering_and_emission_pass_over_fn(
                         target_info
                     );
 
-                    // 4. Emit the finalized STORE instruction!
-                    printf("   STORE INTO %%%lu VALUE %%%lu\n",
-                           instr.info.store_ptr.ptr.val,
-                           coerced_val.val);
+                    mir_emit(&mir_instrs, (MIR_instr) {
+                        .type = MIR_TY__STORE,
+                        .info.store = {
+                            .ptr = instr.info.store_ptr.ptr.val,
+                            .val = coerced_val.val
+                        }
+                    });
+                    // printf("   STORE INTO %%%lu VALUE %%%lu\n",
+                    //        instr.info.store_ptr.ptr.val,
+                    //        coerced_val.val);
                     break;
                 }
                 case IR_INST_TY__EXPLICIT_CAST: {
@@ -597,15 +702,37 @@ MIR_func lowering_and_emission_pass_over_fn(
                     // printf("   %%%lu = CAST<", out_temporal);
                     // print_TC_typeid(&cast_t, identifier_map, nct);
                     // printf(">(%%%lu) [EXPLICIT]\n", instr.info.explicit_cast.src.val);
-                    printf("   %%%lu = CAST<"SV_format">(%%%lu) [EXPLICIT]\n", out_temporal, SV_v_args(cast_t_sv),
-                           instr.info.explicit_cast.src.val);
+
+                    // printf("   %%%lu = CAST<"SV_format">(%%%lu) [EXPLICIT]\n", out_temporal, SV_v_args(cast_t_sv), instr.info.explicit_cast.src.val);
+                    mir_emit(&mir_instrs, (MIR_instr) {
+                        .type = MIR_TY__CAST,
+                        .info.cast = {
+                            .dest = out_temporal,
+                            .src = instr.info.explicit_cast.src.val,
+                            .from_type = temporals_map->array[instr.info.explicit_cast.src.val].type,
+                            .to_type = temporals_map->array[instr.info.explicit_cast.src.val].type,
+                            .cast_kind = MIR_CAST_EXPLICIT
+                        }
+                    });
 
                     if (out_temporal != instr.info.explicit_cast.dest.val) {
                         // printf("   %%%lu = CAST<", instr.info.explicit_cast.dest.val);
                         // print_TC_typeid(&dest_t, identifier_map, nct);
                         // printf(">(%%%lu) [IMPLICIT]\n", out_temporal);
-                        printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT]\n", instr.info.explicit_cast.dest.val,
-                               SV_v_args(dest_t_sv), out_temporal);
+
+
+                        // printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT]\n", instr.info.explicit_cast.dest.val, SV_v_args(dest_t_sv), out_temporal);
+                        mir_emit(&mir_instrs, (MIR_instr) {
+                            .type = MIR_TY__CAST,
+                            .info.cast = {
+                                .dest = instr.info.explicit_cast.dest.val,
+                                .src = out_temporal,
+                                .from_type = temporals_map->array[out_temporal].type,
+                                .to_type = temporals_map->array[instr.info.explicit_cast.dest.val].type,
+                                .cast_kind = MIR_CAST_IMPLICIT
+                            }
+                        });
+
 
                         temporals_map->array[out_temporal] = (TC_Entry){
                             .known_temporal = true,
@@ -618,8 +745,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                 }
                 case IR_INST_TY__CONST_INT: {
                     const TC_typeid dest_t = temporals_map->array[instr.info.const_int.dest.val].type;
-                    const SV t_sv = format_TC_typeid(&dest_t,
-                                                     identifier_map, nct);
+                    const SV t_sv = format_TC_typeid(&dest_t, identifier_map, nct);
 
                     if (dest_t.ty == TC_TY_Primitive && (
                         dest_t.info.primitive == TC_Primitive__Uint8 ||
@@ -641,8 +767,16 @@ MIR_func lowering_and_emission_pass_over_fn(
                         exit(1);
                     }
 
-                    printf("   %%%lu = CONST_INT <"SV_format"> (%li)\n", instr.info.const_int.dest.val, SV_v_args(t_sv),
-                           instr.info.const_int.val);
+                    // printf("   %%%lu = CONST_INT <"SV_format"> (%li)\n", instr.info.const_int.dest.val, SV_v_args(t_sv), instr.info.const_int.val);
+                    mir_emit(&mir_instrs, (MIR_instr) {
+                        .type = MIR_TY__CONST_INT,
+                        .info.const_int = {
+                            .dest = instr.info.const_int.dest.val,
+                            .val = instr.info.const_int.val,
+                            .type = temporals_map->array[instr.info.const_int.dest.val].type
+                        }
+                    });
+
                     if (instr.info.const_int.dest.val + 1 > temporals_map_values.cap) {
                         TC_Value_LIST_inflate(&temporals_map_values, instr.info.const_int.dest.val + 1);
                     }
@@ -668,8 +802,18 @@ MIR_func lowering_and_emission_pass_over_fn(
                         exit(1);
                     }
 
-                    printf("   %%%lu = CONST_FLOAT <"SV_format"> (%lf)\n", instr.info.const_float.dest.val,
-                           SV_v_args(t_sv), instr.info.const_float.val);
+                    // printf("   %%%lu = CONST_FLOAT <"SV_format"> (%lf)\n", instr.info.const_float.dest.val, SV_v_args(t_sv), instr.info.const_float.val);
+                    mir_emit(&mir_instrs, (MIR_instr) {
+                        .type = MIR_TY__CONST_FLOAT,
+                        .info.const_float = {
+                            .dest = instr.info.const_float.dest.val,
+                            .val = instr.info.const_float.val,
+                            .type = temporals_map->array[instr.info.const_float.dest.val].type
+                        }
+                    });
+
+
+
                     if (instr.info.const_float.dest.val + 1 > temporals_map_values.cap) {
                         TC_Value_LIST_inflate(&temporals_map_values, instr.info.const_float.dest.val + 1);
                     }
@@ -713,18 +857,28 @@ MIR_func lowering_and_emission_pass_over_fn(
                     }
 
                     const SV val = SV_from_identifiermap_lookup(identifier_map, instr.info.const_string.string);
-                    printf("   %%%lu = CONST_STRING <"SV_format"> (\"", instr.info.const_string.dest.val,
-                           SV_v_args(t_sv));
-                    for (size_t i = 0; i < val.len; i++) {
-                        unsigned char c = val.start[i];
-                        if (c == '\n') printf("\\n");
-                        else if (c == '\t') printf("\\t");
-                        else if (c == '\r') printf("\\r");
-                        else if (c == '\\') printf("\\\\");
-                        else if (isprint(c)) putchar(c);
-                        else printf("\\x%02X", c);
-                    }
-                    printf("\")\n");
+
+                    mir_emit(&mir_instrs, (MIR_instr) {
+                        .type = MIR_TY__CONST_STRING,
+                        .info.const_string = {
+                            .dest = instr.info.const_string.dest.val,
+                            .str_val = val,
+                            .type = temporals_map->array[instr.info.const_string.dest.val].type
+                        }
+                    });
+
+                    // printf("   %%%lu = CONST_STRING <"SV_format"> (\"", instr.info.const_string.dest.val,
+                    //        SV_v_args(t_sv));
+                    // for (size_t i = 0; i < val.len; i++) {
+                    //     unsigned char c = val.start[i];
+                    //     if (c == '\n') printf("\\n");
+                    //     else if (c == '\t') printf("\\t");
+                    //     else if (c == '\r') printf("\\r");
+                    //     else if (c == '\\') printf("\\\\");
+                    //     else if (isprint(c)) putchar(c);
+                    //     else printf("\\x%02X", c);
+                    // }
+                    // printf("\")\n");
                     break;
                 }
                 case IR_INST_TY__OP_ADD:
@@ -854,41 +1008,91 @@ MIR_func lowering_and_emission_pass_over_fn(
                             // printf(" is possible \n");
                         }
                     }
-                    printf("   %%%lu = ", out_temporal);
+
+                    MIR_binop_kind mik;
                     switch (instr.ty) {
                         case IR_INST_TY__OP_ADD: {
-                            printf("OP_ADD");
+                            mik = MIR_BINOP_ADD;
                             break;
                         }
                         case IR_INST_TY__OP_SUB: {
-                            printf("OP_SUB");
+                            mik = MIR_BINOP_SUB;
                             break;
                         }
                         case IR_INST_TY__OP_DIV: {
-                            printf("OP_DIV");
+                            mik = MIR_BINOP_DIV;
                             break;
                         }
                         case IR_INST_TY__OP_MUL: {
-                            printf("OP_MUL");
+                            mik = MIR_BINOP_MUL;
                             break;
                         }
                         case IR_INST_TY__OP_POW: {
-                            printf("OP_POW");
+                            mik = MIR_BINOP_POW;
                             break;
                         }
                         default: INTERNAL_ERROR()
                     }
+
+                    mir_emit(&mir_instrs, (MIR_instr) {
+                        .type = MIR_TY__OP_BINOP,
+                        .info.binop = {
+                            .dest = out_temporal,
+                            .a = res.a.val,
+                            .b = res.b.val,
+                            .type = res.t,
+                            .op = mik
+                        }
+                    });
+                    // printf("   %%%lu = ", out_temporal);
+                    // switch (instr.ty) {
+                    //     case IR_INST_TY__OP_ADD: {
+                    //         printf("OP_ADD");
+                    //         break;
+                    //     }
+                    //     case IR_INST_TY__OP_SUB: {
+                    //         printf("OP_SUB");
+                    //         break;
+                    //     }
+                    //     case IR_INST_TY__OP_DIV: {
+                    //         printf("OP_DIV");
+                    //         break;
+                    //     }
+                    //     case IR_INST_TY__OP_MUL: {
+                    //         printf("OP_MUL");
+                    //         break;
+                    //     }
+                    //     case IR_INST_TY__OP_POW: {
+                    //         printf("OP_POW");
+                    //         break;
+                    //     }
+                    //     default: INTERNAL_ERROR()
+                    // }
+
+
                     // printf(" <");
                     // print_TC_typeid(&res.t, identifier_map, nct);
                     // printf("> %%%lu, %%%lu\n", res.a.val, res.b.val);
-                    printf(" <"SV_format"> %%%lu, %%%lu\n", SV_v_args(res_t_sv), res.a.val, res.b.val);
+
+                    // printf(" <"SV_format"> %%%lu, %%%lu\n", SV_v_args(res_t_sv), res.a.val, res.b.val);
 
                     if (out_temporal != instr.info.math_cmp_boolean_op.dest.val) {
                         // printf("   %%%lu = CAST<", instr.info.math_cmp_boolean_op.dest.val);
                         // print_TC_typeid(&temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type, identifier_map, nct);
                         // printf(">(%%%lu) [IMPLICIT]\n", out_temporal);
-                        printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT]\n",
-                               instr.info.math_cmp_boolean_op.dest.val, SV_v_args(dest_t_sv), out_temporal);
+
+                        // printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT]\n", instr.info.math_cmp_boolean_op.dest.val, SV_v_args(dest_t_sv), out_temporal);
+                        mir_emit(&mir_instrs, (MIR_instr) {
+                            .type = MIR_TY__CAST,
+                            .info.cast = {
+                                .dest = instr.info.math_cmp_boolean_op.dest.val,
+                                .src = out_temporal,
+                                .from_type = temporals_map->array[out_temporal].type,
+                                .to_type = dest_t,
+                                .cast_kind = MIR_CAST_IMPLICIT
+                            }
+                        });
+
                     }
 
                     if (!temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].known_temporal) {
@@ -900,7 +1104,14 @@ MIR_func lowering_and_emission_pass_over_fn(
                         };
                     } else {
                         if (dest_t.ty == TC_TY_Ref && is_type_eq(&res.t, dest_t.info.contained)) {
-                            printf("   STORE_PTR INTO %%%lu VALUE %%%lu\n", instr.info.math_cmp_boolean_op.dest.val, out_temporal);
+                            // printf("   STORE_PTR INTO %%%lu VALUE %%%lu\n", instr.info.math_cmp_boolean_op.dest.val, out_temporal);
+                            mir_emit(&mir_instrs, (MIR_instr) {
+                                .type = MIR_TY__STORE,
+                                .info.store = {
+                                    .ptr = instr.info.math_cmp_boolean_op.dest.val,
+                                    .val = out_temporal
+                                }
+                            });
                         }
                     }
                     break;
@@ -1119,39 +1330,89 @@ MIR_func lowering_and_emission_pass_over_fn(
                             // printf(" is possible \n");
                         }
                     }
-                    printf("   %%%lu = ", out_temporal);
+
+
+
+                    // printf("   %%%lu = ", out_temporal);
+                    // switch (instr.ty) {
+                    //     case IR_INST_TY__OP_CMP_EQ: {
+                    //         printf("CMP_EQ");
+                    //         break;
+                    //     }
+                    //     case IR_INST_TY__OP_CMP_NOT_EQ: {
+                    //         printf("CMP_NOT_EQ");
+                    //         break;
+                    //     }
+                    //     case IR_INST_TY__OP_CMP_LESS: {
+                    //         printf("CMP_LESS");
+                    //         break;
+                    //     }
+                    //     case IR_INST_TY__OP_CMP_LESS_EQ: {
+                    //         printf("CMP_LESS_EQ");
+                    //         break;
+                    //     }
+                    //     case IR_INST_TY__OP_CMP_GREATER: {
+                    //         printf("CMP_GREATER");
+                    //         break;
+                    //     }
+                    //     case IR_INST_TY__OP_CMP_GREATER_EQ: {
+                    //         printf("CMP_GREATER_EQ");
+                    //         break;
+                    //     }
+                    //     default: INTERNAL_ERROR()
+                    // }
+                    // printf(" <"SV_format"> %%%lu, %%%lu\n", SV_v_args(res_t_sv), res.a.val, res.b.val);
+                    MIR_cmp_kind cmp_kind;
                     switch (instr.ty) {
                         case IR_INST_TY__OP_CMP_EQ: {
-                            printf("CMP_EQ");
+                            cmp_kind = MIR_CMP_EQ;
                             break;
                         }
                         case IR_INST_TY__OP_CMP_NOT_EQ: {
-                            printf("CMP_NOT_EQ");
+                            cmp_kind = MIR_CMP_NOT_EQ;
                             break;
                         }
                         case IR_INST_TY__OP_CMP_LESS: {
-                            printf("CMP_LESS");
+                            cmp_kind = MIR_CMP_LESS;
                             break;
                         }
                         case IR_INST_TY__OP_CMP_LESS_EQ: {
-                            printf("CMP_LESS_EQ");
+                            cmp_kind = MIR_CMP_LESS_EQ;
                             break;
                         }
                         case IR_INST_TY__OP_CMP_GREATER: {
-                            printf("CMP_GREATER");
+                            cmp_kind = MIR_CMP_GREATER;
                             break;
                         }
                         case IR_INST_TY__OP_CMP_GREATER_EQ: {
-                            printf("CMP_GREATER_EQ");
+                            cmp_kind = MIR_CMP_GREATER_EQ;
                             break;
                         }
                         default: INTERNAL_ERROR()
                     }
-                    printf(" <"SV_format"> %%%lu, %%%lu\n", SV_v_args(res_t_sv), res.a.val, res.b.val);
+                    mir_emit(&mir_instrs, (MIR_instr) {
+                        .type = MIR_TY__OP_CMP,
+                        .info.cmp = {
+                            .dest = out_temporal,
+                            .a = res.a.val,
+                            .b = res.b.val,
+                            .type = res.t,
+                            .cmp_kind = cmp_kind
+                        }
+                    });
 
                     if (out_temporal != instr.info.math_cmp_boolean_op.dest.val) {
-                        printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT]\n",
-                               instr.info.math_cmp_boolean_op.dest.val, SV_v_args(dest_t_sv), out_temporal);
+                        // printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT]\n", instr.info.math_cmp_boolean_op.dest.val, SV_v_args(dest_t_sv), out_temporal);
+                        mir_emit(&mir_instrs, (MIR_instr) {
+                            .type = MIR_TY__CAST,
+                            .info.cast = {
+                                .dest = instr.info.math_cmp_boolean_op.dest.val,
+                                .src = out_temporal,
+                                .from_type = temporals_map->array[out_temporal].type,
+                                .to_type = temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type,
+                                .cast_kind = MIR_CAST_IMPLICIT
+                            }
+                        });
                     }
                     break;
                 }
@@ -1234,15 +1495,39 @@ MIR_func lowering_and_emission_pass_over_fn(
                     temporals_map->array[instr.info.index_ptr.dest.val].type = ref_ty;
 
                     // 5. Emit the instruction
-                    printf("   %%%lu = INDEX_PTR %%%lu [ %%%lu ]\n",
-                           instr.info.index_ptr.dest.val,
-                           //instr.info.index_ptr.array_ptr.val,
-                           list.temporal.val,
-                           instr.info.index_ptr.index_val.val);
+                    // printf("   %%%lu = INDEX_PTR %%%lu [ %%%lu ]\n",
+                    //        instr.info.index_ptr.dest.val,
+                    //        //instr.info.index_ptr.array_ptr.val,
+                    //        list.temporal.val,
+                    //        instr.info.index_ptr.index_val.val);
+                    SizeAlign sz = calc_size_of(&temporals_map->array[list.temporal.val].type, nct, target_info);
+                    mir_emit(&mir_instrs, (MIR_instr) {
+                        .type = MIR_TY__CALC_PTR,
+                        .info.calc_ptr = {
+                            .dest = instr.info.index_ptr.dest.val,
+                            .base = list.temporal.val,
+                            .offset = 0,
+                            .scale = sz.size,
+                            .index = instr.info.index_ptr.index_val.val,
+                            .has_index = true
+                        }
+                    });
+
+
                     break;
                 }
                 case IR_INST_TY__READ_PTR: {
-                    printf("   %%%lu = READ_PTR %%%lu\n", instr.info.read_ptr.dest.val, instr.info.read_ptr.ptr.val);
+                    // printf("   %%%lu = READ_PTR %%%lu\n", instr.info.read_ptr.dest.val, instr.info.read_ptr.ptr.val);
+                    SizeAlign sz = calc_size_of(&temporals_map->array[instr.info.read_ptr.dest.val].type, nct, target_info);
+                    mir_emit(&mir_instrs, (MIR_instr) {
+                        .type = MIR_TY__READ_PTR,
+                        .info.read_ptr = {
+                            .dest = instr.info.read_ptr.dest.val,
+                            .ptr = instr.info.read_ptr.ptr.val,
+                            .offset = 0,
+                            .read_size = sz.size
+                        }
+                    });
                     break;
                 }
                 case IR_INST_TY__MAKE_STRUCT: {
@@ -1304,14 +1589,35 @@ MIR_func lowering_and_emission_pass_over_fn(
                         }
                     }
 
-                    printf("   %%%lu = MAKE_STRUCT (%u size, %u align) { ", instr.info.make_struct.dest.val,
-                           sdef.layout.size, sdef.layout.align);
+
+                    MIR_struct_init_field_LIST fields = MIR_struct_init_field_LIST_new_with_capacity(sdef.fields.len);
                     for (size_t n = 0; n < sdef.fields.len; n++) {
-                        printf("%%%lu at %u", args.array[n].val, sdef.layout.field_offsets[n]);
-                        if (n + 1 != sdef.fields.len) printf(", ");
-                        else printf(" ");
+                        MIR_struct_init_field_LIST_push(&fields, (MIR_struct_init_field){
+                            .offset = sdef.layout.field_offsets[n],
+                            .temp = args.array[n].val
+                        });
                     }
-                    printf("}\n");
+
+                    mir_emit(&mir_instrs, (MIR_instr) {
+                        .type = MIR_TY__STRUCT_INIT,
+                        .info.struct_init = {
+                            .dest = instr.info.make_struct.dest.val,
+                            .struct_type_id = struct_type.info.type_id,
+                            .fields = fields,
+                            .sa = calc_size_of(&struct_type, nct, target_info)
+                        }
+                    });
+
+                    // printf("   %%%lu = MAKE_STRUCT (%u size, %u align) { ", instr.info.make_struct.dest.val,
+                    //        sdef.layout.size, sdef.layout.align);
+                    // for (size_t n = 0; n < sdef.fields.len; n++) {
+                    //     printf("%%%lu at %u", args.array[n].val, sdef.layout.field_offsets[n]);
+                    //     if (n + 1 != sdef.fields.len) printf(", ");
+                    //     else printf(" ");
+                    // }
+                    // printf("}\n");
+
+
                     break;
                 }
                 case IR_INST_TY__MAKE_ENUM: {
@@ -1332,13 +1638,11 @@ MIR_func lowering_and_emission_pass_over_fn(
                     if (!variant_n_found)
                         INTERNAL_ERROR()
 
-                    IR_temporal_LIST args = IR_temporal_LIST_new_with_capacity(
-                        edef.variants.array[variant_n].values_len);
+                    IR_temporal_LIST args = IR_temporal_LIST_new_with_capacity(edef.variants.array[variant_n].values_len);
                     for (size_t n = 0; n < edef.variants.array[variant_n].values_len; n++) {
                         const TC_typeid arg_t = edef.variants.array[variant_n].values[n];
                         const IR_temporal arg_v = instr.info.make_enum.args->array[n];
-                        const TokenSpan arg_span = fn.error_info_list.array[instr.error_info_index].info.make_enum.items
-                                [n];
+                        const TokenSpan arg_span = fn.error_info_list.array[instr.error_info_index].info.make_enum.items[n];
 
                         const TC_typeid arg_v_t = temporals_map->array[arg_v.val].type;
                         const IR_temporal out = perf_autos(
@@ -1357,17 +1661,36 @@ MIR_func lowering_and_emission_pass_over_fn(
                         );
                         IR_temporal_LIST_push(&args, out);
                     }
-                    printf("   %%%lu = MAKE_ENUM (size %u, align %u) { .variant_val=%lu", instr.info.make_enum.dest.val,
-                           edef.size, edef.align, variant_n);
-                    if (args.len > 0) printf(", .value=[");
-                    else printf(" ");
 
+
+
+                    MIR_temporal_id_LIST mir_args = MIR_temporal_id_LIST_new_with_capacity(args.len);
                     for (size_t n = 0; n < args.len; n++) {
-                        printf("%%%lu", args.array[n].val);
-                        if (n + 1 != args.len) printf(", ");
+                        MIR_temporal_id_LIST_push(&mir_args, args.array[n].val);
                     }
-                    if (args.len > 0) printf("] ");
-                    printf("}\n");
+
+                    mir_emit(&mir_instrs, (MIR_instr) {
+                        .type = MIR_TY__MAKE_ENUM,
+                        .info.make_enum = {
+                            .dest = instr.info.make_enum.dest.val,
+                            .enum_type_id = enum_type.info.type_id,
+                            .variant_idx = variant_n,
+                            .args = mir_args,
+                            .sa = calc_size_of(&enum_type, nct, target_info)
+                        }
+                    });
+
+                    // printf("   %%%lu = MAKE_ENUM (size %u, align %u) { .variant_val=%lu", instr.info.make_enum.dest.val,
+                    //        edef.size, edef.align, variant_n);
+                    // if (args.len > 0) printf(", .value=[");
+                    // else printf(" ");
+                    //
+                    // for (size_t n = 0; n < args.len; n++) {
+                    //     printf("%%%lu", args.array[n].val);
+                    //     if (n + 1 != args.len) printf(", ");
+                    // }
+                    // if (args.len > 0) printf("] ");
+                    // printf("}\n");
 
                     break;
                 }
@@ -1424,28 +1747,49 @@ MIR_func lowering_and_emission_pass_over_fn(
                         IR_temporal_LIST_push(&items, out);
                     }
 
-                    const SizeAlign sa = calc_size_of(&base_type, nct, target_info);
-                    const SizeAlign it_sa = calc_size_of(&inner_type, nct, target_info);
-                    printf("   %%%lu = MAKE_ARRAY (stack: size %lu, align %lu) ", instr.info.make_array.dest.val,
-                           sa.size, sa.align);
-                    if (base_type.ty == TC_TY_Array) {
-                        printf("{STACK ARRAY}");
-                    } else if (base_type.ty == TC_TY_List) {
-                        printf("{HEAP ARRAY}");
-                        // instr.info.make_array.items->len;
+                    // const SizeAlign sa = calc_size_of(&base_type, nct, target_info);
+                    // const SizeAlign it_sa = calc_size_of(&inner_type, nct, target_info);
 
-                        printf(" {%lu bytes on heap, %lu align}", it_sa.size * instr.info.make_array.items->len,
-                               it_sa.align);
-                    } else {
-                        INTERNAL_ERROR("unknown list type");
-                    }
-                    printf(" [ ");
+                    MIR_temporal_id_LIST mir_items = MIR_temporal_id_LIST_new_with_capacity(items.len);
                     for (size_t n = 0; n < items.len; n++) {
-                        printf("%%%lu", items.array[n].val);
-                        if (n + 1 != items.len) printf(", ");
-                        else printf(" ");
+                        MIR_temporal_id_LIST_push(&mir_items, items.array[n].val);
                     }
-                    printf("]\n");
+
+                    if (base_type.ty != TC_TY_Array && base_type.ty != TC_TY_List) {
+                        INTERNAL_ERROR()
+                    }
+
+                    mir_emit(&mir_instrs, (MIR_instr) {
+                        .type = MIR_TY__MAKE_ARRAY,
+                        .info.make_array = {
+                            .dest = instr.info.make_array.dest.val,
+                            .array_type = base_type,
+                            .item_type = inner_type,
+                            .items = mir_items,
+                            .is_heap = base_type.ty != TC_TY_Array
+                        }
+                    });
+
+                    // printf("   %%%lu = MAKE_ARRAY (stack: size %lu, align %lu) ", instr.info.make_array.dest.val,
+                    //        sa.size, sa.align);
+                    // if (base_type.ty == TC_TY_Array) {
+                    //     printf("{STACK ARRAY}");
+                    // } else if (base_type.ty == TC_TY_List) {
+                    //     printf("{HEAP ARRAY}");
+                    //     // instr.info.make_array.items->len;
+                    //
+                    //     printf(" {%lu bytes on heap, %lu align}", it_sa.size * instr.info.make_array.items->len,
+                    //            it_sa.align);
+                    // } else {
+                    //     INTERNAL_ERROR("unknown list type");
+                    // }
+                    // printf(" [ ");
+                    // for (size_t n = 0; n < items.len; n++) {
+                    //     printf("%%%lu", items.array[n].val);
+                    //     if (n + 1 != items.len) printf(", ");
+                    //     else printf(" ");
+                    // }
+                    // printf("]\n");
 
                     break;
                 }
@@ -1461,12 +1805,27 @@ MIR_func lowering_and_emission_pass_over_fn(
                         nct,
                         target_info
                     );
-                    printf("   BRANCH <Bool> %%%lu, Block %lu, Block %lu\n", out.val, instr.info.branch.branch_true,
-                           instr.info.branch.branch_false);
+
+
+                    // printf("   BRANCH <Bool> %%%lu, Block %lu, Block %lu\n", out.val, instr.info.branch.branch_true, instr.info.branch.branch_false);
+                    mir_emit(&mir_instrs, (MIR_instr) {
+                        .type = MIR_TY__BRANCH,
+                        .info.branch = {
+                            .cond = out.val,
+                            .branch_true = instr.info.branch.branch_true,
+                            .branch_false = instr.info.branch.branch_false
+                        }
+                    });
                     break;
                 }
                 case IR_INST_TY__JUMP: {
-                    printf("   JUMP Block %lu\n", instr.info.jump.block);
+                    mir_emit(&mir_instrs, (MIR_instr) {
+                        .type = MIR_TY__JUMP,
+                        .info.jump = {
+                            .target_block = instr.info.jump.block
+                        }
+                    });
+                    // printf("   JUMP Block %lu\n", instr.info.jump.block);
                     break;
                 }
                 case IR_INST_TY__TO_BOOL: {
@@ -1485,7 +1844,27 @@ MIR_func lowering_and_emission_pass_over_fn(
                         rewrite_map.array[instr.info.to_bool.dest.val].has_rewrite = true;
                         rewrite_map.array[instr.info.to_bool.dest.val].rewrite = new_src.temporal;
                     } else if (new_src.type.ty == TC_TY_Primitive) {
-                        printf("   %%%lu = CMP_NOT_EQ %%%lu, 0\n", instr.info.to_bool.dest.val, new_src.temporal.val);
+
+                        const size_t c_zero = highest_temporal++;
+                        mir_emit(&mir_instrs, (MIR_instr){
+                            .type = MIR_TY__CONST_INT,
+                            .info.const_int = {
+                                .dest = c_zero,
+                                .val = 0,
+                                .type = new_src.type
+                            }
+                        });
+                        mir_emit(&mir_instrs, (MIR_instr) {
+                            .type = MIR_TY__OP_CMP,
+                            .info.cmp = {
+                                .dest = instr.info.to_bool.dest.val,
+                                .a = new_src.temporal.val,
+                                .b = c_zero,
+                                .type = new_src.type,
+                                .cmp_kind = MIR_CMP_NOT_EQ
+                            }
+                        });
+                        // printf("   %%%lu = CMP_NOT_EQ %%%lu, 0\n", instr.info.to_bool.dest.val, new_src.temporal.val);
                     } else {
                         // type error
                         char r_msg[1024] = {0};
@@ -1498,7 +1877,10 @@ MIR_func lowering_and_emission_pass_over_fn(
                     break;
                 }
                 case IR_INST_TY__RETURN_VOID: {
-                    printf("   RETURN\n");
+                    mir_emit(&mir_instrs, (MIR_instr) {
+                        .type = MIR_TY__RETURN_VOID,
+                    });
+                    // printf("   RETURN\n");
                     break;
                 }
                 case IR_INST_TY__RETURN: {
@@ -1523,8 +1905,15 @@ MIR_func lowering_and_emission_pass_over_fn(
                         &promote_to_stack_temps,
                         target_info
                     );
-                    const SV out_t_sv = format_TC_typeid(&t, identifier_map, nct);
-                    printf("   RETURN <"SV_format"> %%%lu\n", SV_v_args(out_t_sv), out.val);
+                    // const SV out_t_sv = format_TC_typeid(&t, identifier_map, nct);
+                    // printf("   RETURN <"SV_format"> %%%lu\n", SV_v_args(out_t_sv), out.val);
+                    mir_emit(&mir_instrs, (MIR_instr) {
+                        .type = MIR_TY__RETURN,
+                        .info.return_val = {
+                            .val = out.val,
+                            .type = t
+                        }
+                    });
                     break;
                 }
                 case IR_INST_TY__GET_STRUCT_FIELD_PTR: {
@@ -1593,8 +1982,18 @@ MIR_func lowering_and_emission_pass_over_fn(
                             }
 
 
-                            printf("   %%%lu = CONST_INT <Uint32> (%u)\n", instr.info.get_struct_field_ptr.dest.val,
-                                   struct_t.info.t_array.array_size);
+                            // printf("   %%%lu = CONST_INT <Uint32> (%u)\n", instr.info.get_struct_field_ptr.dest.val, struct_t.info.t_array.array_size);
+                            mir_emit(&mir_instrs, (MIR_instr) {
+                                .type = MIR_TY__CONST_INT,
+                                .info.const_int = {
+                                    .dest = instr.info.get_struct_field_ptr.dest.val,
+                                    .val = struct_t.info.t_array.array_size,
+                                    .type = (TC_typeid) {
+                                        .ty = TC_TY_Primitive,
+                                        .info.primitive = TC_Primitive__Uint32
+                                    }
+                                }
+                            });
 
                             break_out = true;
                             break;
@@ -1645,17 +2044,26 @@ MIR_func lowering_and_emission_pass_over_fn(
                             }
 
                             // %n = GET_STRUCT_PTR offset x bytes, read size x bytes, read type <>, ptr %x, ptr type <>
-                            printf(
-                                "   %%%lu = GET_STRUCT_FIELD_PTR offset %u bytes, read size %lu bytes, read align %lu bytes, read type "
-                                SV_format", ptr %%%lu, ptr type "SV_format"\n",
-                                instr.info.get_struct_field_ptr.dest.val,
-                                sdef.layout.field_offsets[n],
-                                field_sz.size,
-                                field_sz.align,
-                                SV_v_args(field_t_sv),
-                                instr.info.get_struct_field_ptr.struct_ptr.val,
-                                SV_v_args(struct_ptr_t_sv)
-                            );
+                            // printf("   %%%lu = GET_STRUCT_FIELD_PTR offset %u bytes, read size %lu bytes, read align %lu bytes, read type "SV_format", ptr %%%lu, ptr type "SV_format"\n",
+                            //     instr.info.get_struct_field_ptr.dest.val,
+                            //     sdef.layout.field_offsets[n],
+                            //     field_sz.size,
+                            //     field_sz.align,
+                            //     SV_v_args(field_t_sv),
+                            //     instr.info.get_struct_field_ptr.struct_ptr.val,
+                            //     SV_v_args(struct_ptr_t_sv)
+                            // );
+                            mir_emit(&mir_instrs, (MIR_instr) {
+                                .type = MIR_TY__CALC_PTR,
+                                .info.calc_ptr = {
+                                    .dest = instr.info.get_struct_field_ptr.dest.val,
+                                    .base = instr.info.get_struct_field_ptr.struct_ptr.val,
+                                    .offset = sdef.layout.field_offsets[n],
+                                    .scale = field_sz.size,
+                                    .index = 0,
+                                    .has_index = false,
+                                }
+                            });
 
                             found = true;
                             break;
@@ -1679,6 +2087,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                 }
                 case IR_INST_TY__FN_CALL_RETVOID:
                 case IR_INST_TY__FN_CALL_RETVAL: {
+                    UNIMPLEMENTED("mir emit")
                     const bool is_retval = (instr.ty == IR_INST_TY__FN_CALL_RETVAL);
                     const IR_temporal_LIST* raw_args = is_retval
                                                            ? instr.info.fn_call_retval.args
@@ -2037,12 +2446,23 @@ MIR_func lowering_and_emission_pass_over_fn(
                     val_offset = (val_offset + sz.align - 1) & ~(sz.align - 1);
 
 
-                    printf("   %%%lu = CALC_PTR (%%%lu + %lu) {read size = %lu bytes}\n",
-                        instr.info.enum_get_field_ptr.dest.val,
-                        instr.info.enum_get_field_ptr.enum_src.val,
-                        val_offset,
-                        sz.size
-                    );
+                    mir_emit(&mir_instrs, (MIR_instr) {
+                        .type = MIR_TY__CALC_PTR,
+                        .info.calc_ptr = {
+                            .dest = instr.info.enum_get_field_ptr.dest.val,
+                            .base = instr.info.enum_get_field_ptr.enum_src.val,
+                            .offset = val_offset,
+                            .scale = sz.size,
+                            .index = 0,
+                            .has_index = false
+                        }
+                    });
+                    // printf("   %%%lu = CALC_PTR (%%%lu + %lu) {read size = %lu bytes}\n",
+                    //     instr.info.enum_get_field_ptr.dest.val,
+                    //     instr.info.enum_get_field_ptr.enum_src.val,
+                    //     val_offset,
+                    //     sz.size
+                    // );
 
                     // printf("   %%%lu = ENUM_VALUE_EXTRACT from %%%lu at offset %lu {.value size=%lu bytes}\n",
                     //     instr.info.enum_value_extract.dest.val,
@@ -2069,12 +2489,24 @@ MIR_func lowering_and_emission_pass_over_fn(
                     }
                     const TC_enumdef edef = nct->enums.array[au_t_type.info.type_id];
                     // printf("   %%%lu = ENUM_VARIANT_NUMBER EXTRACT from %%%lu {.variant number size=%u bytes}\n", instr.info.enum_variant_number_extract.dest.val, au_t.temporal.val, edef.discriminant_size);
-                    printf("   %%%lu = READ_PTR from (%%%lu + %u) {read size = %u bytes}\n",
-                        instr.info.enum_variant_number_extract.dest.val,
-                        instr.info.enum_variant_number_extract.enum_src.val,
-                        0u,
-                        edef.discriminant_size
-                    );
+
+                    // printf("   %%%lu = READ_PTR from (%%%lu + %u) {read size = %u bytes}\n",
+                    //     instr.info.enum_variant_number_extract.dest.val,
+                    //     instr.info.enum_variant_number_extract.enum_src.val,
+                    //     0u,
+                    //     edef.discriminant_size
+                    // );
+
+                    mir_emit(&mir_instrs, (MIR_instr) {
+                        .type = MIR_TY__READ_PTR,
+                        .info.read_ptr = {
+                            .dest = instr.info.enum_variant_number_extract.dest.val,
+                            .ptr = instr.info.enum_variant_number_extract.enum_src.val,
+                            .offset = 0,
+                            .read_size = edef.discriminant_size
+                        }
+                    });
+
                     break;
                 }
                 case IR_INST_TY__ENUM_VARIANT_NUMBER_FROM_TYPE: {
@@ -2111,11 +2543,20 @@ MIR_func lowering_and_emission_pass_over_fn(
                     );
 
                     const SizeAlign sz = calc_size_of(&inner_t, nct, target_info);
-                    printf("   %%%lu = MAKE_BOX %%%lu {%lu bytes on heap, %lu align}\n",
-                           instr.info.make_box.dest.val,
-                           out.val,
-                           sz.size,
-                           sz.align);
+
+                    // printf("   %%%lu = MAKE_BOX %%%lu {%lu bytes on heap, %lu align}\n",
+                    //        instr.info.make_box.dest.val,
+                    //        out.val,
+                    //        sz.size,
+                    //        sz.align);
+                    mir_emit(&mir_instrs, (MIR_instr) {
+                        .type = MIR_TY__MAKE_BOX,
+                        .info.make_box = {
+                            .dest = instr.info.make_box.dest.val,
+                            .src = out.val,
+                            .inner_sa = sz
+                        }
+                    });
 
                     break;
                 }

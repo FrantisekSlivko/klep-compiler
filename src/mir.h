@@ -136,20 +136,22 @@ typedef struct {
         } calc_ptr;
         struct {
             MIR_temporal_id dest;
-            TC_typeid type;
+            /// index into nct.structs
+            uint32_t struct_type_id;
             MIR_struct_init_field_LIST fields;
             SizeAlign sa;
         } struct_init;
         struct {
             MIR_temporal_id dest;
-            TC_typeid type;
+            TC_typeid array_type;
+            TC_typeid item_type;
             MIR_temporal_id_LIST items;
-            SizeAlign sa;
             bool is_heap;
         } make_array;
         struct {
             MIR_temporal_id dest;
-            TC_typeid type;
+            /// index into nct.enums
+            uint32_t enum_type_id;
             uint64_t variant_idx;
             MIR_temporal_id_LIST args;
             SizeAlign sa;
@@ -210,29 +212,32 @@ typedef struct {
         } return_val;
         struct {
             MIR_temporal_id dest;
-            TC_typeid type; bool is_raii;
+            TC_typeid type;
+            bool drop_inside;
         } drop;
         struct {
             MIR_temporal_id dest;
-            TC_typeid type; MIR_phi_arg_LIST args;
+            TC_typeid type;
+            MIR_phi_arg_LIST args;
         } phi;
         struct {
             MIR_temporal_id dest;
-            TC_typeid type; bool is_stack;
+            TC_typeid type;
+            bool is_stack;
         } alloc;
     } info;
 } MIR_instr;
 
 init_prefixed_list_type(MIR_instr)
 
-typedef struct {
-    MIR_instr_LIST* current_block_instrs;
-    MIR_temporal_LIST* temporals;
-    TC_Entry_LIST* temporals_map;
-    size_t* highest_temporal;
-    const TargetInfo* target_info;
-    const TC_TypeTable* nct;
-} MIR_emitter;
+// typedef struct {
+//     MIR_instr_LIST* current_block_instrs;
+//     MIR_temporal_LIST* temporals;
+//     TC_Entry_LIST* temporals_map;
+//     size_t* highest_temporal;
+//     const TargetInfo* target_info;
+//     const TC_TypeTable* nct;
+// } MIR_emitter;
 
 
 typedef struct {
@@ -247,5 +252,15 @@ typedef struct {
     size_t highest_temporal_number;
     MIR_temporal_LIST temporals;
 } MIR_func;
+
+// ------------------------------------
+
+void mir_emit(
+    MIR_instr_LIST* restrict mir_instr_list,
+    MIR_instr instr
+);
+
+
+
 
 #endif //KLEPCOMPILER_MIR_H

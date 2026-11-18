@@ -50,9 +50,7 @@ MIR_func TC_process_fn(
         printf("  %%%lu\n", promote_to_stack_temps.array[n].val);
     }
 
-//     UNIMPLEMENTED("variable storage promotion analys pass");
 
-    // todo: pass `promote_to_stack_temps` into lowering_and_emission_pass_over_fn
     const MIR_func mir_fn = lowering_and_emission_pass_over_fn(
         fn,
         identifier_map,
@@ -63,6 +61,8 @@ MIR_func TC_process_fn(
         promote_to_stack_temps,
         type_needing_destructor
     );
+
+    // TODO: print mir_fn.blocks
 
     TC_Entry_LIST_free(&temporals);
     return mir_fn;
