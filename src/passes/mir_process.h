@@ -17,7 +17,7 @@ MIR_func TC_process_fn(
     TC_typeid_LIST* restrict type_needing_destructor
 );
 
-void TC_typecheck_and_lower(
+MIR_func_LIST TC_typecheck_and_lower(
     khash_t(sv_u64_map)* restrict identifier_map,
     const IR_func_LIST* restrict functions,
     const CFFI_IR_extern_fn_LIST* restrict external_functions,

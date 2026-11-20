@@ -72,7 +72,7 @@ MIR_func TC_process_fn(
 
 /// typechecking pass (two passes) + lowering to MIR
 /// performs Bidirectional Typechecking
-void TC_typecheck_and_lower(
+MIR_func_LIST TC_typecheck_and_lower(
     khash_t(sv_u64_map)* restrict identifier_map,
     const IR_func_LIST* restrict functions,
     const CFFI_IR_extern_fn_LIST* restrict external_functions,
@@ -81,10 +81,11 @@ void TC_typecheck_and_lower(
     const SourceInfo* restrict source_info,
     TC_typeid_LIST* restrict type_needing_destructor
 ) {
-    printf("(fist type is from type_id, second from type's span)\n");
+    // printf("(fist type is from type_id, second from type's span)\n");
+    MIR_func_LIST mir_functions = MIR_func_LIST_new();
     for (size_t n = 0; n < functions->len; n++) {
         const IR_func fn = functions->array[n];
-        TC_process_fn(fn, identifier_map,
+        const MIR_func mf = TC_process_fn(fn, identifier_map,
                       functions,
                       external_functions,
                       nct,
@@ -92,10 +93,11 @@ void TC_typecheck_and_lower(
                       source_info,
                       type_needing_destructor
         );
+        MIR_func_LIST_push(&mir_functions, mf);
     }
     for (size_t n = 0; n < nct->materialized_generic_functions.len; n++) {
         const IR_func fn = nct->materialized_generic_functions.array[n].fn;
-        TC_process_fn(fn, identifier_map,
+        const MIR_func mf = TC_process_fn(fn, identifier_map,
                       functions,
                       external_functions,
                       nct,
@@ -103,5 +105,7 @@ void TC_typecheck_and_lower(
                       source_info,
                       type_needing_destructor
         );
+        MIR_func_LIST_push(&mir_functions, mf);
     }
+    return mir_functions;
 }

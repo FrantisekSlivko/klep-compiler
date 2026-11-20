@@ -107,6 +107,7 @@ typedef struct {
         struct {
             MIR_temporal_id dest;
             MIR_temporal_id src;
+            TC_typeid type;
         } move;
         struct {
             MIR_temporal_id dest;
@@ -248,10 +249,16 @@ init_prefixed_list_type(MIR_block)
 
 typedef struct {
     SpannedIdentifier fn_name;
+    SV fn_raw_name;
     MIR_block_LIST blocks;
     size_t highest_temporal_number;
     MIR_temporal_LIST temporals;
+    TC_typeid_LIST args;
+    bool has_ret;
+    TC_typeid ret_type;
 } MIR_func;
+
+init_prefixed_list_type(MIR_func)
 
 // ------------------------------------
 

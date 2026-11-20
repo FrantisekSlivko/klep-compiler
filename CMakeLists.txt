@@ -32,7 +32,7 @@ if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_C_COMPILER_ID MATCHES "Clang")
     )
 
     target_compile_options(main PRIVATE
-            $<$<CONFIG:Debug>:   -O0 -g -fsanitize=address>
+            $<$<CONFIG:Debug>:   -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer>
             $<$<CONFIG:Release>: -O2 -DNDEBUG -static>
     )
 endif()

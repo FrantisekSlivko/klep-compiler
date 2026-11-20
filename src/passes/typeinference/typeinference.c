@@ -19,7 +19,7 @@ void type_inference_over_match_meta(const Pattern p, TC_Entry_LIST* restrict tem
         case PAT_BINDING: {
             temporals_map->array[p.info.binding.temp.val] = (TC_Entry){
                 .known_temporal = true,
-                .type = *target_t,
+                .type = TC_typeid_deep_copy(target_t), //*target_t,
                 .is_value_known = false,
                 .is_addressable = false,
             };
@@ -64,8 +64,9 @@ void type_inference_over_match_meta(const Pattern p, TC_Entry_LIST* restrict tem
                     .ty = TC_TY_Ref,
                     .info.contained = ut
                 };
-                TC_typeid* target_inner = malloc(sizeof(TC_typeid));
-                *target_inner = edef.variants.array[ix].values[n];
+                TC_typeid* target_inner = TC_typeid_new_copy(&edef.variants.array[ix].values[n]);
+                // TC_typeid* target_inner = malloc(sizeof(TC_typeid));
+                // *target_inner = edef.variants.array[ix].values[n];
                 const TC_typeid target = (TC_typeid) {
                     .ty = TC_TY_Ref,
                     .info.contained = target_inner
@@ -212,7 +213,7 @@ void type_inference_pass_over_fn(
         // printf("}\n");
         TC_Entry_LIST_push(temporals_map, (TC_Entry){
                                .known_temporal = true,
-                               .type = args.array[n].type,
+                               .type = TC_typeid_deep_copy(&args.array[n].type),
                                .is_addressable = false
                            });
     }
@@ -273,7 +274,7 @@ void type_inference_pass_over_fn(
                     if(!temporals_map->array[instr.info.assign.old.val].known_temporal) {
                         temporals_map->array[instr.info.assign.old.val] = (TC_Entry){
                             .known_temporal = true,
-                            .type = dest_t,
+                            .type = TC_typeid_deep_copy(&dest_t),
                             .is_addressable = false,
                             .is_value_known = false,
                         };
@@ -284,7 +285,7 @@ void type_inference_pass_over_fn(
                     if(!temporals_map->array[instr.info.assign.new.val].known_temporal) {
                         temporals_map->array[instr.info.assign.new.val] = (TC_Entry){
                             .known_temporal = true,
-                            .type = new_t,
+                            .type = TC_typeid_deep_copy(&new_t),
                             .is_addressable = false,
                             .is_value_known = false,
                         };
@@ -395,7 +396,7 @@ void type_inference_pass_over_fn(
                         }
                         temporals_map->array[instr.info.move.src.val] = (TC_Entry){
                             .known_temporal = true,
-                            .type = dest_type,
+                            .type = TC_typeid_deep_copy(&dest_type),
                             .is_value_known = false,
                             .is_addressable = false
                         };
@@ -413,8 +414,8 @@ void type_inference_pass_over_fn(
 
                     const TC_typeid src_t = temporals_map->array[instr.info.ref_of.src.val].type;
 
-                    TC_typeid* out = malloc(sizeof(TC_typeid));
-                    *out = src_t;
+                    // TC_typeid* out = malloc(sizeof(TC_typeid));
+                    // *out = src_t;
 
                     // const size_t MAX_SIZE = 128;
                     // char* new_type_name = malloc(sizeof(char) * MAX_SIZE);
@@ -427,7 +428,7 @@ void type_inference_pass_over_fn(
                         .known_temporal = true,
                         .type = (TC_typeid){
                             .ty = TC_TY_Ref,
-                            .info.contained = out,
+                            .info.contained = TC_typeid_new_copy(&src_t), //out,
                             // .full_typeuse_span = (TokenSpan){.sv = new_type},
                         },
                         .is_value_known = false,
@@ -621,8 +622,9 @@ void type_inference_pass_over_fn(
                             }
                         }
 
-                        TC_typeid* inner = malloc(sizeof(TC_typeid));
-                        *inner = first;
+                        // TC_typeid* inner = malloc(sizeof(TC_typeid));
+                        // *inner = first;
+                        TC_typeid* inner = TC_typeid_new_copy(&first);
 
                         // const SV inner_sv = format_TC_typeid(inner, identifier_map, nct);
                         // const size_t MAX_SIZE = 256;
@@ -644,9 +646,10 @@ void type_inference_pass_over_fn(
                         perf_jump = true;
                         break;
                     }
-                    const TC_typeid dest_type = temporals_map->array[instr.info.make_array.dest.val].type;
+                    // const TC_typeid dest_type = temporals_map->array[instr.info.make_array.dest.val].type;
+                    TC_typeid inner = temporals_map->array[instr.info.make_array.dest.val].type;
                     // get inner array type
-                    TC_typeid inner = dest_type;
+                    // TC_typeid inner = dest_type;
                     while (inner.ty == TC_TY_Ref || inner.ty == TC_TY_Box) inner = *inner.info.contained;
                     if (inner.ty == TC_TY_Array || inner.ty == TC_TY_List || inner.ty == TC_TY_Slice) {
                         if (inner.ty == TC_TY_Array) {
@@ -659,7 +662,7 @@ void type_inference_pass_over_fn(
                             if (!temporals_map->array[item.val].known_temporal) {
                                 temporals_map->array[item.val] = (TC_Entry){
                                     .known_temporal = true,
-                                    .type = inner,
+                                    .type = TC_typeid_deep_copy(&inner),
                                     .is_value_known = false,
                                     .is_addressable = false
                                 };
@@ -700,8 +703,7 @@ void type_inference_pass_over_fn(
                     if (temporals_map->array[instr.info.get_struct_field_ptr.struct_ptr.val].known_temporal &&
                         !temporals_map->array[instr.info.get_struct_field_ptr.dest.val].known_temporal
                     ) {
-                        const TC_typeid src_struct = temporals_map->array[instr.info.get_struct_field_ptr.struct_ptr.
-                            val].type;
+                        const TC_typeid src_struct = temporals_map->array[instr.info.get_struct_field_ptr.struct_ptr.val].type;
                         TC_typeid inner_src = src_struct;
                         while (inner_src.ty == TC_TY_Ref || inner_src.ty == TC_TY_Box) {
                             inner_src = *inner_src.info.contained;
@@ -711,8 +713,8 @@ void type_inference_pass_over_fn(
                             for (size_t n = 0; n < s->fields.len; n++) {
                                 if (s->fields.array[n].name.identifier == instr.info.get_struct_field_ptr.field_name.
                                     identifier) {
-                                    TC_typeid* ref_inner = malloc(sizeof(TC_typeid));
-                                    *ref_inner = s->fields.array[n].type;
+                                    // TC_typeid* ref_inner = malloc(sizeof(TC_typeid));
+                                    // *ref_inner = s->fields.array[n].type;
 
                                     // const size_t MAX_SIZE = 128;
                                     // char* new_type_name = malloc(sizeof(char) * MAX_SIZE);
@@ -726,7 +728,7 @@ void type_inference_pass_over_fn(
                                         .known_temporal = true,
                                         .type = (TC_typeid){
                                             .ty = TC_TY_Ref,
-                                            .info.contained = ref_inner,
+                                            .info.contained = TC_typeid_new_copy(&s->fields.array[n].type),
                                             // .full_typeuse_span = (TokenSpan){.sv = new_type},
                                             //ref_inner->full_typeuse_span
                                         },
@@ -836,9 +838,9 @@ void type_inference_pass_over_fn(
                     if (temporals_map->array[instr.info.read_ptr.dest.val].known_temporal &&
                         !temporals_map->array[instr.info.read_ptr.ptr.val].known_temporal
                     ) {
-                        const TC_typeid dest = temporals_map->array[instr.info.read_ptr.dest.val].type;
-                        TC_typeid* out = malloc(sizeof(TC_typeid));
-                        *out = dest;
+                        const TC_typeid* dest = &temporals_map->array[instr.info.read_ptr.dest.val].type;
+                        // TC_typeid* out = malloc(sizeof(TC_typeid));
+                        // *out = dest;
 
                         // const size_t MAX_SIZE = 128;
                         // char* new_type_name = malloc(sizeof(char) * MAX_SIZE);
@@ -851,7 +853,7 @@ void type_inference_pass_over_fn(
                             .known_temporal = true,
                             .type = (TC_typeid){
                                 .ty = TC_TY_Ref,
-                                .info.contained = out,
+                                .info.contained = TC_typeid_new_copy(dest), // out
                                 // .full_typeuse_span = (TokenSpan){.sv = new_type}, //ref_inner->full_typeuse_span
                             },
                             .is_value_known = false,
@@ -868,7 +870,7 @@ void type_inference_pass_over_fn(
                             inner = *inner.info.contained;
                             temporals_map->array[instr.info.read_ptr.dest.val] = (TC_Entry){
                                 .known_temporal = true,
-                                .type = inner,
+                                .type = TC_typeid_deep_copy(&inner),
                                 .is_value_known = false,
                                 .is_addressable = true
                             };
@@ -932,7 +934,7 @@ void type_inference_pass_over_fn(
                             if (st->fields.array[k].name.identifier == arg.name.identifier) {
                                 temporals_map->array[arg.value.val] = (TC_Entry){
                                     .known_temporal = true,
-                                    .type = st->fields.array[k].type,
+                                    .type = TC_typeid_deep_copy(&st->fields.array[k].type),
                                     .is_value_known = false,
                                     .is_addressable = false
                                 };
@@ -1080,7 +1082,7 @@ void type_inference_pass_over_fn(
                                 .known_temporal = true,
                                 .type = (TC_typeid){
                                     .ty = TC_TY_Ref,
-                                    .info.contained = inner_type,
+                                    .info.contained = TC_typeid_new_copy(inner_type),
                                     // .full_typeuse_span = (TokenSpan){.sv = (SV){.start = t_sv, .len = t_len}}
                                 },
                                 .is_value_known = false,
@@ -1130,7 +1132,7 @@ void type_inference_pass_over_fn(
                         if (unpacked) {
                             temporals_map->array[instr.info.store_ptr.value.val] = (TC_Entry){
                                 .known_temporal = true,
-                                .type = inner_type,
+                                .type = TC_typeid_deep_copy(&inner_type),
                                 .is_value_known = false,
                                 .is_addressable = false
                             };
@@ -1250,13 +1252,13 @@ void type_inference_pass_over_fn(
                         if (edef.variants.array[n].name.identifier == instr.info.enum_get_field_ptr.variant_name.
                             identifier) {
                             if (edef.variants.array[n].values_len > instr.info.enum_get_field_ptr.value_nth) {
-                                TC_typeid* inner = malloc(sizeof(TC_typeid));
-                                *inner = edef.variants.array[n].values[instr.info.enum_get_field_ptr.value_nth];
+                                // TC_typeid* inner = malloc(sizeof(TC_typeid));
+                                // *inner = edef.variants.array[n].values[instr.info.enum_get_field_ptr.value_nth];
                                 temporals_map->array[instr.info.enum_get_field_ptr.dest.val] = (TC_Entry){
                                     .known_temporal = true,
                                     .type = (TC_typeid) {
                                         .ty = TC_TY_Ref,
-                                        .info.contained = inner,
+                                        .info.contained = TC_typeid_new_copy(&edef.variants.array[n].values[instr.info.enum_get_field_ptr.value_nth]),
                                     },
                                     .is_value_known = false,
                                     .is_addressable = false
@@ -1328,9 +1330,6 @@ void type_inference_pass_over_fn(
                         .is_addressable = false,
                     };
                     break;
-
-
-                    break;
                 }
                 case IR_INST_TY__ENUM_VARIANT_NUMBER_FROM_TYPE: {
                     // TODO: replace this instr with CONST_INT??
@@ -1397,7 +1396,7 @@ void type_inference_pass_over_fn(
                     if (temporals_map->array[instr.info.make_box.src.val].known_temporal) break;
                     temporals_map->array[instr.info.make_box.src.val] = (TC_Entry) {
                         .known_temporal = true,
-                        .type = *dest_t.info.contained,
+                        .type = TC_typeid_deep_copy(dest_t.info.contained),
                         .is_value_known = false,
                         .is_addressable = false
                     };

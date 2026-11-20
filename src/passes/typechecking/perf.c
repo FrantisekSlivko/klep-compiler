@@ -45,11 +45,19 @@ IR_temporal use_value(
     const uint64_t new_temporal = (*highest_temporal)++;
     printf("   %%%lu = LOAD %%%lu (from slot)\n", new_temporal, t.val);
 
-    while(temporals_map->len <= new_temporal) TC_Entry_LIST_push(temporals_map, (TC_Entry) {
-        .known_temporal = false
-    });
-    temporals_map->array[new_temporal] = temporals_map->array[t.val];
-    temporals_map->array[new_temporal].is_addressable = false;
+    TC_Entry entry_copy = temporals_map->array[t.val];
+    entry_copy.type = TC_typeid_deep_copy(&entry_copy.type);
+    entry_copy.is_addressable = false;
+
+    while (temporals_map->len <= new_temporal) {
+        TC_Entry_LIST_push(temporals_map, (TC_Entry) {
+            .known_temporal = false
+        });
+    }
+
+    temporals_map->array[new_temporal] = entry_copy;
+    // temporals_map->array[new_temporal] = temporals_map->array[t.val];
+    // temporals_map->array[new_temporal].is_addressable = false;
 
     return (IR_temporal){new_temporal};
 }
@@ -66,18 +74,20 @@ IR_temporal_and_TC_type perf_auto_deref(
     const TC_TypeTable* restrict nct,
     const TargetInfo* restrict target_info
 ) {
+    // TC_typeid t = *type;
+    TC_typeid t = TC_typeid_deep_copy(type);
     if (type->ty != TC_TY_Ref) {
         const IR_temporal v = use_value(*intake, highest_temporal, temporals_map, promoted, nct, target_info);
-        return (IR_temporal_and_TC_type){.temporal = v, .type = *type}; //  = *intake
+        return (IR_temporal_and_TC_type){.temporal = v, .type = t}; //  = *intake
     }
-    TC_typeid t = *type;
+
 //     uint64_t te = intake->val;
     uint64_t te = use_value(*intake, highest_temporal, temporals_map, promoted, nct, target_info).val;
     while (t.ty == TC_TY_Ref) {
         const uint64_t new_temporal = (*highest_temporal)++;
         printf("   %%%lu = READ_PTR %%%lu\n", new_temporal, te);
         te = new_temporal;
-        t = *t.info.contained;
+        t = TC_typeid_deep_copy(t.info.contained);
         if (new_temporal + 1 > temporals_map->cap) {
             TC_Entry_LIST_inflate(temporals_map, new_temporal + 5);
         }
@@ -572,8 +582,8 @@ DoubleIR_temporal_and_TC_typeid perf_numeric_promotion(
     const TargetInfo* restrict target_info,
     const khash_t(sv_u64_map)* restrict identifier_map
 ) {
-    const TC_typeid safe_a_type = *a_type;
-    const TC_typeid safe_b_type = *b_type;
+    const TC_typeid safe_a_type = TC_typeid_deep_copy(a_type);
+    const TC_typeid safe_b_type = TC_typeid_deep_copy(b_type);
 
 
     const IR_temporal_and_TC_type derefered_a = perf_auto_deref(&safe_a_type, a, highest_temporal, temporals_map, promoted, nct, target_info);
@@ -692,10 +702,16 @@ DoubleIR_temporal_and_TC_typeid perf_numeric_promotion(
         }
         new_a.val = new_temporal;
 
-        // IMPORTANT: Register the new temporal so the pipeline doesn't break later!
+
+        const TC_Entry prev_entry = temporals_map->array[derefered_a.temporal.val];
+
         if (temporals_map->cap < new_temporal + 1) TC_Entry_LIST_inflate(temporals_map, new_temporal + 5);
-        temporals_map->array[new_temporal] = temporals_map->array[derefered_a.temporal.val];
-        temporals_map->array[new_temporal].type = target_op_type;
+
+        // temporals_map->array[new_temporal] = temporals_map->array[derefered_a.temporal.val];
+        // temporals_map->array[new_temporal].type = target_op_type;
+
+        temporals_map->array[new_temporal] = prev_entry;
+        temporals_map->array[new_temporal].type = TC_typeid_deep_copy(&target_op_type);
     }
 
     // CAST B
@@ -711,10 +727,15 @@ DoubleIR_temporal_and_TC_typeid perf_numeric_promotion(
         }
         new_b.val = new_temporal;
 
-        // IMPORTANT: Register the new temporal
+        const TC_Entry prev_entry = temporals_map->array[derefered_b.temporal.val];
+
         if (temporals_map->cap < new_temporal + 1) TC_Entry_LIST_inflate(temporals_map, new_temporal + 1);
-        temporals_map->array[new_temporal] = temporals_map->array[derefered_b.temporal.val];
-        temporals_map->array[new_temporal].type = target_op_type;
+
+
+        // temporals_map->array[new_temporal] = temporals_map->array[derefered_b.temporal.val];
+        // temporals_map->array[new_temporal].type = target_op_type;
+        temporals_map->array[new_temporal] = prev_entry;
+        temporals_map->array[new_temporal].type = TC_typeid_deep_copy(&target_op_type);
     }
 
     *is_out_error = false;
@@ -722,7 +743,7 @@ DoubleIR_temporal_and_TC_typeid perf_numeric_promotion(
     return (DoubleIR_temporal_and_TC_typeid){
         .a = new_a,
         .b = new_b,
-        .t = target_op_type
+        .t = TC_typeid_deep_copy(&target_op_type)
     };
 }
 
@@ -778,7 +799,7 @@ IR_temporal_and_TC_type perf_auto_ref(
 
     const TC_typeid nt = (TC_typeid){
         .ty = TC_TY_Ref,
-        .info.contained = (TC_typeid *) intake_type,
+        .info.contained = TC_typeid_new_copy(intake_type), // (TC_typeid *) intake_type
         // .full_typeuse_span = (TokenSpan){.sv = intake_type->full_typeuse_span.sv}
     };
 
@@ -786,7 +807,7 @@ IR_temporal_and_TC_type perf_auto_ref(
         TC_Entry_LIST_inflate(temporals_map, new_temporal + 5);
     }
     temporals_map->array[new_temporal] = (TC_Entry){
-        .type = nt,
+        .type = TC_typeid_deep_copy(&nt),
         .known_temporal = true,
         .is_value_known = false,
         .is_addressable = false,
@@ -810,24 +831,29 @@ IR_temporal perf_autos(
     const IR_temporal_LIST* promoted,
     const TargetInfo* restrict target_info
 ) {
+
+    const TC_typeid intake_type_s = TC_typeid_deep_copy(intake_type); // *intake_type;
+    const TC_typeid output_type_s = TC_typeid_deep_copy(output_type); // *output_type;
+
     if (is_type_eq(intake_type, output_type)) {
         return use_value(*intake, highest_temporal, temporals_map, promoted, nct, target_info);
     }
 
 //     uint64_t current_temp = intake->val;
 
+
 //     uint64_t current_temp = use_value(*intake, highest_temporal, temporals_map).val;
     const bool wants_auto_ref =
-        output_type->ty == TC_TY_Ref &&
-        intake_type->ty != TC_TY_Ref &&
-        is_type_eq(output_type->info.contained, intake_type);
+        output_type_s.ty == TC_TY_Ref &&
+        intake_type_s.ty != TC_TY_Ref &&
+        is_type_eq(output_type_s.info.contained, &intake_type_s);
 
     uint64_t current_temp = wants_auto_ref
         ? intake->val
         : use_value(*intake, highest_temporal, temporals_map, promoted, nct, target_info).val;
 
 
-    TC_typeid current_type = *intake_type;
+    TC_typeid current_type = intake_type_s;
     while (current_type.ty == TC_TY_Ref) {
         const uint64_t new_temporal = (*highest_temporal)++;
         printf("   %%%lu = READ_PTR %%%lu\n", new_temporal, current_temp);
@@ -844,15 +870,15 @@ IR_temporal perf_autos(
         };
     }
 
-    if (is_type_eq(&current_type, output_type)) {
+    if (is_type_eq(&current_type, &output_type_s)) {
         return (IR_temporal){.val = current_temp};
     }
 
-    const TC_typeid* target_base = (output_type->ty == TC_TY_Ref) ? (output_type->info.contained) : output_type;
+    const TC_typeid target_base = (output_type_s.ty == TC_TY_Ref) ? (*output_type_s.info.contained) : output_type_s;
 
     // Check standard widening OR constant narrowing
-    bool can_widen = can_be_implicit_casted(&current_type, target_base);
-    bool can_narrow = !can_widen && can_const_narrow(current_temp, target_base, temporals_map, temporals_map_values);
+    bool can_widen = can_be_implicit_casted(&current_type, &target_base);
+    bool can_narrow = !can_widen && can_const_narrow(current_temp, &target_base, temporals_map, temporals_map_values);
 
     // if (!is_type_eq(&current_type, target_base) && can_be_implicit_casted(&current_type, target_base)) {
     //     const uint64_t new_temp = (*highest_temporal)++;
@@ -871,9 +897,9 @@ IR_temporal perf_autos(
     //         .is_addressable = false,
     //     };
     // }
-    if (!is_type_eq(&current_type, target_base) && (can_widen || can_narrow)) {
+    if (!is_type_eq(&current_type, &target_base) && (can_widen || can_narrow)) {
         const uint64_t new_temp = (*highest_temporal)++;
-        const SV target_base_sv = format_TC_typeid(target_base, identifier_map, nct);
+        const SV target_base_sv = format_TC_typeid(&target_base, identifier_map, nct);
 
         // Print different debug info if it was a constant narrow
         if (can_narrow) {
@@ -896,7 +922,7 @@ IR_temporal perf_autos(
         TC_Entry old_entry = temporals_map->array[current_temp];
         temporals_map->array[new_temp] = (TC_Entry){
             .known_temporal = true,
-            .type = *target_base,
+            .type = TC_typeid_deep_copy(&target_base),
             .is_value_known = old_entry.is_value_known,
             // && temporals_map_values->array[current_temp].kind == TC_VK_Int,
             .is_addressable = false,
@@ -914,16 +940,16 @@ IR_temporal perf_autos(
         }
 
 
-        current_type = *target_base;
+        current_type = target_base;
         current_temp = new_temp;
     }
 
-    if (is_type_eq(&current_type, output_type)) {
+    if (is_type_eq(&current_type, &output_type_s)) {
         return (IR_temporal){.val = current_temp};
     }
 
     // auto-ref
-    if (output_type->ty == TC_TY_Ref && is_type_eq(output_type->info.contained, &current_type)) {
+    if (output_type_s.ty == TC_TY_Ref && is_type_eq(output_type_s.info.contained, &current_type)) {
         if (!temporals_map->array[current_temp].is_addressable) {
             const SV msg = SV_from_str_len("cannot take reference of temporary value", 40);
             type_error(&source_info->source, &source_info->source_filename, value_token, &msg);
@@ -933,7 +959,7 @@ IR_temporal perf_autos(
         }
         const uint64_t new_temporal = (*highest_temporal)++;
         printf("   %%%lu = REF_OF %%%lu\n", new_temporal, current_temp);
-        current_type = *output_type;
+        current_type = output_type_s;
         current_temp = new_temporal;
 
         if (temporals_map->cap < current_temp + 1) {
@@ -941,18 +967,18 @@ IR_temporal perf_autos(
         }
         temporals_map->array[current_temp] = (TC_Entry){
             .known_temporal = true,
-            .type = current_type,
+            .type = TC_typeid_deep_copy(&current_type),
             .is_value_known = false,
             .is_addressable = false,
         };
     }
 
-    if (is_type_eq(output_type, &current_type)) {
+    if (is_type_eq(&output_type_s, &current_type)) {
         return (IR_temporal){.val = current_temp};
     } else {
         // Type mismatch! Could not coerce...
-        const SV in_type = format_TC_typeid(intake_type, identifier_map, nct);
-        const SV out_type = format_TC_typeid(output_type, identifier_map, nct);
+        const SV in_type = format_TC_typeid(&intake_type_s, identifier_map, nct);
+        const SV out_type = format_TC_typeid(&output_type_s, identifier_map, nct);
         const size_t MAX_SIZE = 1024;
         char* r_msg = malloc(sizeof(char) * MAX_SIZE);
         int len = snprintf(r_msg, MAX_SIZE,

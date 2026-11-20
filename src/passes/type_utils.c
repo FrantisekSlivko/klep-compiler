@@ -21,3 +21,38 @@ bool is_type_eq(const TC_typeid* a, const TC_typeid* b) {
     }
     INTERNAL_ERROR("control flow error");
 }
+
+
+
+/// performs deep and full copy
+TC_typeid TC_typeid_deep_copy(const TC_typeid* src) {
+    TC_typeid out = *src;
+    switch (src->ty) {
+        case TC_TY_Void:
+        case TC_TY_Primitive:
+        case TC_TY_Struct:
+        case TC_TY_Enum:
+        case TC_TY_External_Type:
+            return out;
+        case TC_TY_Ref:
+        case TC_TY_List:
+        case TC_TY_Box:
+        case TC_TY_Slice: {
+            out.info.contained = TC_typeid_new_copy(src->info.contained);
+            return out;
+        }
+        case TC_TY_Array: {
+            out.info.t_array.contained = TC_typeid_new_copy(src->info.t_array.contained);
+            return out;
+        }
+    }
+    UNREACHABLE()
+}
+
+/// allocates TC_typeid and makes deep copy
+TC_typeid* TC_typeid_new_copy(const TC_typeid* src) {
+    TC_typeid* t = malloc(sizeof(TC_typeid));
+    if (!t) abort();
+    *t = TC_typeid_deep_copy(src);
+    return t;
+}

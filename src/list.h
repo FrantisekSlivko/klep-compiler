@@ -65,8 +65,8 @@ __attribute__((unused)) static inline void PREFIX ## _shrink(PREFIX* instance) {
 \
 __attribute__((unused)) static inline void PREFIX ## _inflate(PREFIX* instance, size_t to_size) { \
     NAME* new_array = realloc(instance->array, sizeof(NAME)*to_size); \
-    instance->len = to_size;\
-    if (!new_array) return; \
+    if (!new_array) abort(); \
+    instance->len = to_size; \
     instance->array = new_array; \
     instance->cap = instance->len; \
 } \

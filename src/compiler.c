@@ -7,6 +7,7 @@
 #include "typecompletion.h"
 #include "passes/mir_process.h"
 #include "passes/parser/parser.h"
+#include "passes/qbe/mir_to_qbe.h"
 
 Parser initial_parsing(const SourceInfo source_info, GlobalCompilerState* restrict global_compiler_state) {
     SVList tokens = p_tokenize(source_info.source);
@@ -156,7 +157,22 @@ void main_compile(const TargetInfo target_info, const SourceInfo source_info) {
 
 
     TC_typeid_LIST type_needing_destructor = TC_typeid_LIST_new();
-    TC_typecheck_and_lower(identifier_map, &main_p.functions, &main_p.external_functions, &nct, &target_info, &source_info, &type_needing_destructor);
+    const MIR_func_LIST mir_funcs = TC_typecheck_and_lower(identifier_map, &main_p.functions, &main_p.external_functions, &nct, &target_info, &source_info, &type_needing_destructor);
+
+    FILE* qbe_out = fopen("out.ssa", "w+");
+
+    if (qbe_out == NULL) {
+        perror("fopen");
+    }
+
+    TC_typeid_LIST qbe_type_table = TC_typeid_LIST_new();
+    // mir_types_to_qbe(&nct, &qbe_type_table, qbe_out);
+
+    for (size_t n = 0; n < mir_funcs.len; n++) {
+        mir_fn_to_qbe(&mir_funcs.array[n], &nct, &qbe_type_table, identifier_map, qbe_out, &target_info);
+    }
+
+    printf("DONE\n");
 
     // ---------------------------------------------------------------------------------
 

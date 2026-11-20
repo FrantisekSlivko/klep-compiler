@@ -286,7 +286,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                             .type = MIR_TY__DROP,
                             .info.drop = {
                                 .dest = instr.info.assign.old.val,
-                                .type = temporals_map->array[instr.info.assign.old.val].type,
+                                .type = TC_typeid_deep_copy(&temporals_map->array[instr.info.assign.old.val].type),
                                 .drop_inside = true
                             }
                         });
@@ -318,14 +318,15 @@ MIR_func lowering_and_emission_pass_over_fn(
                             .type = MIR_TY__MOVE,
                             .info.move = {
                                 .dest = instr.info.assign.dest.val,
-                                .src = instr.info.assign.new.val
+                                .src = instr.info.assign.new.val,
+                                .type = TC_typeid_deep_copy(&temporals_map->array[instr.info.assign.old.val].type)
                             }
                         });
                         mir_emit(&mir_instrs, (MIR_instr) {
                             .type = MIR_TY__DROP,
                             .info.drop = {
                                 .dest = instr.info.assign.old.val,
-                                .type = temporals_map->array[instr.info.assign.old.val].type,
+                                .type = TC_typeid_deep_copy(&temporals_map->array[instr.info.assign.old.val].type),
                                 .drop_inside = true
                             }
                         });
@@ -336,7 +337,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                             .type = MIR_TY__DROP,
                             .info.drop = {
                                 .dest = instr.info.assign.old.val,
-                                .type = temporals_map->array[instr.info.assign.old.val].type,
+                                .type = TC_typeid_deep_copy(&temporals_map->array[instr.info.assign.old.val].type),
                                 .drop_inside = true
                             }
                         });
@@ -453,7 +454,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                         .type = MIR_TY__PHI,
                         .info.phi = {
                             .dest = instr.info.phi.dest.val,
-                            .type = temporals_map->array[instr.info.phi.dest.val].type,
+                            .type = TC_typeid_deep_copy(&temporals_map->array[instr.info.phi.dest.val].type),
                             .args = args
                         }
                     });
@@ -473,7 +474,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                         .type = MIR_TY__DROP,
                         .info.drop = {
                             .dest = instr.info.drop.dest.val,
-                            .type = t,
+                            .type = TC_typeid_deep_copy(&t),
                             .drop_inside = t.ty == TC_TY_Primitive || t.ty == TC_TY_Ref || t.ty == TC_TY_Slice
                         }
                     });
@@ -515,7 +516,8 @@ MIR_func lowering_and_emission_pass_over_fn(
                         .type = MIR_TY__MOVE,
                         .info.move = {
                             .dest = instr.info.move.dest.val,
-                            .src = out.val
+                            .src = out.val,
+                            .type = TC_typeid_deep_copy(&dest_t)
                         }
                     });
 
@@ -533,7 +535,8 @@ MIR_func lowering_and_emission_pass_over_fn(
                             .type = MIR_TY__MOVE,
                             .info.move = {
                                 .dest = instr.info.ref_of.dest.val,
-                                .src = instr.info.ref_of.src.val
+                                .src = instr.info.ref_of.src.val,
+                                .type = TC_typeid_deep_copy(&dest_t)
                             }
                         });
                         // printf("   %%%lu = MOVE %%%lu\n", instr.info.ref_of.dest.val, instr.info.ref_of.src.val);
@@ -589,15 +592,16 @@ MIR_func lowering_and_emission_pass_over_fn(
                         }
                     }
 
-
-                    mir_emit(&mir_instrs, (MIR_instr) {
-                        .type = MIR_TY__ALLOC,
-                        .info.alloc = {
-                            .dest = instr.info.var_decl.dest.val,
-                            .type = temporals_map->array[instr.info.var_decl.dest.val].type,
-                            .is_stack = !value
-                        }
-                    });
+                    if (!value) {
+                        mir_emit(&mir_instrs, (MIR_instr) {
+                            .type = MIR_TY__ALLOC,
+                            .info.alloc = {
+                                .dest = instr.info.var_decl.dest.val,
+                                .type = TC_typeid_deep_copy(&temporals_map->array[instr.info.var_decl.dest.val].type),
+                                .is_stack = true
+                            }
+                        });
+                    }
 
                     // printf("   VAR_DECL %%%lu {on %s} <"SV_format">\n", instr.info.var_decl.dest.val, value_vs_stack, SV_v_args(t_sv));
                     break;
@@ -612,13 +616,15 @@ MIR_func lowering_and_emission_pass_over_fn(
                     if (ptr_ty.ty != TC_TY_Ref) {
                         INTERNAL_ERROR();
                     }
-                    TC_typeid expected_ty = *ptr_ty.info.contained; // unwrap_ref_once(ptr_ty);
+                    // TC_typeid expected_ty = *ptr_ty.info.contained; // unwrap_ref_once(ptr_ty);
 
+                    const TC_typeid value_ty = TC_typeid_deep_copy(&temporals_map->array[instr.info.store_ptr.value.val].type);
+                    const TC_typeid expected_ty = TC_typeid_deep_copy(ptr_ty.info.contained);
 
                     // 3. Coerce the RHS value (e.g. Int32 '72') to match (Char)
                     IR_temporal coerced_val = perf_autos(
                         &instr.info.store_ptr.value,
-                        &temporals_map->array[instr.info.store_ptr.value.val].type,
+                        &value_ty,
                         &expected_ty,
                         &highest_temporal,
                         identifier_map,
@@ -645,9 +651,9 @@ MIR_func lowering_and_emission_pass_over_fn(
                 }
                 case IR_INST_TY__EXPLICIT_CAST: {
                     // can_be_explicit_casted
-                    const TC_typeid src = temporals_map->array[instr.info.explicit_cast.src.val].type;
-                    const TC_typeid cast_t = resolve_tc_type(instr.info.explicit_cast.type, nct, target_info,
-                                                             source_info, identifier_map);
+                    const TC_typeid src = TC_typeid_deep_copy(&temporals_map->array[instr.info.explicit_cast.src.val].type);
+                    const TC_typeid r_cast_t = resolve_tc_type(instr.info.explicit_cast.type, nct, target_info, source_info, identifier_map);
+                    const TC_typeid cast_t = TC_typeid_deep_copy(&r_cast_t);
 
                     const SV cast_t_sv = format_TC_typeid(&cast_t, identifier_map, nct);
 
@@ -666,7 +672,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                         type_error(&source_info->source, &source_info->source_filename, &expr, &msg);
                         exit(1);
                     }
-                    const TC_typeid dest_t = temporals_map->array[instr.info.explicit_cast.dest.val].type;
+                    const TC_typeid dest_t = TC_typeid_deep_copy(&temporals_map->array[instr.info.explicit_cast.dest.val].type);
                     const SV dest_t_sv = format_TC_typeid(&dest_t, identifier_map, nct);
 
                     uint64_t out_temporal = instr.info.explicit_cast.dest.val;
@@ -674,6 +680,12 @@ MIR_func lowering_and_emission_pass_over_fn(
                         out_temporal = highest_temporal++;
                         if (out_temporal + 1 > temporals_map->cap) {
                             TC_Entry_LIST_inflate(temporals_map, out_temporal + 5);
+                            temporals_map->array[out_temporal] = (TC_Entry) {
+                                .known_temporal = true,
+                                .type = TC_typeid_deep_copy(&cast_t),
+                                .is_value_known = false,
+                                .is_addressable = false
+                            };
                         }
                         if (!can_be_implicit_casted(&cast_t, &dest_t)) {
                             const SV whole = fn.error_info_list.array[instr.error_info_index].info.explicit_cast.whole.
@@ -709,8 +721,8 @@ MIR_func lowering_and_emission_pass_over_fn(
                         .info.cast = {
                             .dest = out_temporal,
                             .src = instr.info.explicit_cast.src.val,
-                            .from_type = temporals_map->array[instr.info.explicit_cast.src.val].type,
-                            .to_type = temporals_map->array[instr.info.explicit_cast.src.val].type,
+                            .from_type = TC_typeid_deep_copy(&src), // temporals_map->array[instr.info.explicit_cast.src.val].type,
+                            .to_type = TC_typeid_deep_copy(&cast_t), // temporals_map->array[instr.info.explicit_cast.src.val].type,
                             .cast_kind = MIR_CAST_EXPLICIT
                         }
                     });
@@ -727,8 +739,8 @@ MIR_func lowering_and_emission_pass_over_fn(
                             .info.cast = {
                                 .dest = instr.info.explicit_cast.dest.val,
                                 .src = out_temporal,
-                                .from_type = temporals_map->array[out_temporal].type,
-                                .to_type = temporals_map->array[instr.info.explicit_cast.dest.val].type,
+                                .from_type = TC_typeid_deep_copy(&cast_t), // temporals_map->array[out_temporal].type,
+                                .to_type = TC_typeid_deep_copy(&dest_t), // temporals_map->array[instr.info.explicit_cast.dest.val].type,
                                 .cast_kind = MIR_CAST_IMPLICIT
                             }
                         });
@@ -773,7 +785,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                         .info.const_int = {
                             .dest = instr.info.const_int.dest.val,
                             .val = instr.info.const_int.val,
-                            .type = temporals_map->array[instr.info.const_int.dest.val].type
+                            .type = TC_typeid_deep_copy(&temporals_map->array[instr.info.const_int.dest.val].type)
                         }
                     });
 
@@ -808,7 +820,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                         .info.const_float = {
                             .dest = instr.info.const_float.dest.val,
                             .val = instr.info.const_float.val,
-                            .type = temporals_map->array[instr.info.const_float.dest.val].type
+                            .type = TC_typeid_deep_copy(&temporals_map->array[instr.info.const_float.dest.val].type)
                         }
                     });
 
@@ -863,7 +875,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                         .info.const_string = {
                             .dest = instr.info.const_string.dest.val,
                             .str_val = val,
-                            .type = temporals_map->array[instr.info.const_string.dest.val].type
+                            .type = TC_typeid_deep_copy(&temporals_map->array[instr.info.const_string.dest.val].type)
                         }
                     });
 
@@ -888,6 +900,10 @@ MIR_func lowering_and_emission_pass_over_fn(
                 case IR_INST_TY__OP_POW: {
                     bool is_error_out;
                     bool is_out_error_incompatible_number_relation;
+
+                    const TC_typeid src1_t = TC_typeid_deep_copy(&temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type);
+                    const TC_typeid src2_t = TC_typeid_deep_copy(&temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].type);
+
                     const DoubleIR_temporal_and_TC_typeid res = perf_numeric_promotion(
                         &instr.info.math_cmp_boolean_op.src1,
                         &temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type,
@@ -918,7 +934,8 @@ MIR_func lowering_and_emission_pass_over_fn(
                             char* r_msg = malloc(sizeof(char) * MAX_SIZE);
                             // const SV a_type_sv = temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type.full_typeuse_span.sv;
                             const SV a_type_sv = format_TC_typeid(
-                                &temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type, identifier_map,
+                                &src1_t, // &temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type,
+                                identifier_map,
                                 nct);
                             int len = snprintf(r_msg, MAX_SIZE,
                                                "type "C_BOLD""SV_format""C_RESET
@@ -932,7 +949,9 @@ MIR_func lowering_and_emission_pass_over_fn(
                             char* r_msg = malloc(sizeof(char) * MAX_SIZE);
                             // const SV b_type_sv = temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].type.full_typeuse_span.sv;
                             const SV b_type_sv = format_TC_typeid(
-                                &temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].type, identifier_map,
+                                &src2_t,
+                                // &temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].type,
+                                identifier_map,
                                 nct);
                             int len = snprintf(r_msg, MAX_SIZE,
                                                "type "C_BOLD""SV_format""C_RESET
@@ -949,9 +968,13 @@ MIR_func lowering_and_emission_pass_over_fn(
                         const SV op = fn.error_info_list.array[instr.error_info_index].info.math_operation.op.sv;
 
                         const SV a_type = format_TC_typeid(
-                            &temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type, identifier_map, nct);
+                            &src1_t,
+                            // &temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type,
+                            identifier_map, nct);
                         const SV b_type = format_TC_typeid(
-                            &temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].type, identifier_map, nct);
+                            &src2_t,
+                            // &temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].type,
+                            identifier_map, nct);
 
                         const size_t MAX_SIZE = 1024;
                         char* r_msg = malloc(sizeof(char) * MAX_SIZE);
@@ -1040,7 +1063,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                             .dest = out_temporal,
                             .a = res.a.val,
                             .b = res.b.val,
-                            .type = res.t,
+                            .type = TC_typeid_deep_copy(&res.t),
                             .op = mik
                         }
                     });
@@ -1077,6 +1100,13 @@ MIR_func lowering_and_emission_pass_over_fn(
                     // printf(" <"SV_format"> %%%lu, %%%lu\n", SV_v_args(res_t_sv), res.a.val, res.b.val);
 
                     if (out_temporal != instr.info.math_cmp_boolean_op.dest.val) {
+
+                        if (out_temporal + 1 > temporals_map->cap) {
+                            TC_Entry_LIST_inflate(temporals_map, out_temporal+5);
+                        }
+
+                        temporals_map->array[out_temporal].type = TC_typeid_deep_copy(&res.t);
+
                         // printf("   %%%lu = CAST<", instr.info.math_cmp_boolean_op.dest.val);
                         // print_TC_typeid(&temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type, identifier_map, nct);
                         // printf(">(%%%lu) [IMPLICIT]\n", out_temporal);
@@ -1087,8 +1117,8 @@ MIR_func lowering_and_emission_pass_over_fn(
                             .info.cast = {
                                 .dest = instr.info.math_cmp_boolean_op.dest.val,
                                 .src = out_temporal,
-                                .from_type = temporals_map->array[out_temporal].type,
-                                .to_type = dest_t,
+                                .from_type = TC_typeid_deep_copy(&temporals_map->array[out_temporal].type),
+                                .to_type = TC_typeid_deep_copy(&dest_t),
                                 .cast_kind = MIR_CAST_IMPLICIT
                             }
                         });
@@ -1193,6 +1223,9 @@ MIR_func lowering_and_emission_pass_over_fn(
                     bool is_error_out;
                     bool is_out_error_incompatible_number_relation;
 
+                    const TC_typeid src1_t = TC_typeid_deep_copy(&temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type);
+                    const TC_typeid src2_t = TC_typeid_deep_copy(&temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].type);
+
                     const DoubleIR_temporal_and_TC_typeid res = perf_numeric_promotion(
                         &instr.info.math_cmp_boolean_op.src1,
                         &temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type,
@@ -1231,7 +1264,9 @@ MIR_func lowering_and_emission_pass_over_fn(
                             char* r_msg = malloc(sizeof(char) * MAX_SIZE);
                             // const SV a_type_sv = temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type.full_typeuse_span.sv;
                             const SV a_type_sv = format_TC_typeid(
-                                &temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type, identifier_map,
+                                &src1_t,
+                                // &temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type,
+                                identifier_map,
                                 nct);
                             int len = snprintf(r_msg, MAX_SIZE,
                                                "type "C_BOLD""SV_format""C_RESET
@@ -1245,7 +1280,9 @@ MIR_func lowering_and_emission_pass_over_fn(
                             char* r_msg = malloc(sizeof(char) * MAX_SIZE);
                             // const SV b_type_sv = temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].type.full_typeuse_span.sv;
                             const SV b_type_sv = format_TC_typeid(
-                                &temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].type, identifier_map,
+                                &src2_t,
+                                // &temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].type,
+                                identifier_map,
                                 nct);
                             int len = snprintf(r_msg, MAX_SIZE,
                                                "type "C_BOLD""SV_format""C_RESET
@@ -1262,9 +1299,13 @@ MIR_func lowering_and_emission_pass_over_fn(
                         const SV op = fn.error_info_list.array[instr.error_info_index].info.math_operation.op.sv;
 
                         const SV a_type = format_TC_typeid(
-                            &temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type, identifier_map, nct);
+                            &src1_t,
+                            // &temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].type,
+                            identifier_map, nct);
                         const SV b_type = format_TC_typeid(
-                            &temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].type, identifier_map, nct);
+                            &src2_t,
+                            // &temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].type,
+                            identifier_map, nct);
 
                         const size_t MAX_SIZE = 1024;
                         char* r_msg = malloc(sizeof(char) * MAX_SIZE);
@@ -1284,20 +1325,21 @@ MIR_func lowering_and_emission_pass_over_fn(
                     }
 
                     const SV res_t_sv = SV_from_str_len("Bool", 4); //format_TC_typeid(&res.t, identifier_map, nct);
+                    const TC_typeid dest_t = TC_typeid_deep_copy(&temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type);
                     const SV dest_t_sv = format_TC_typeid(
-                        &temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type, identifier_map, nct);
+                        &dest_t, identifier_map, nct);
 
                     uint64_t out_temporal = instr.info.math_cmp_boolean_op.dest.val;
                     if (
-                        temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type.ty != TC_TY_Primitive ||
-                        temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type.info.primitive !=
+                        dest_t.ty != TC_TY_Primitive ||
+                        dest_t.info.primitive !=
                         TC_Primitive__Bool
                     ) {
                         out_temporal = highest_temporal++;
 
 
                         if (!can_be_implicit_casted(
-                            &res_t, &temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type)) {
+                            &res_t, &dest_t)) {
                             const SV whole = fn.error_info_list.array[instr.error_info_index].info.math_operation.whole.
                                     sv;
 
@@ -1315,12 +1357,13 @@ MIR_func lowering_and_emission_pass_over_fn(
                             printf("   [D] implicit type conversion from "SV_format" to "SV_format" is possible \n",
                                    SV_v_args(res_t_sv), SV_v_args(dest_t_sv));
 
+
                             if (temporals_map->cap < out_temporal + 1) {
                                 TC_Entry_LIST_inflate(temporals_map, out_temporal + 5);
                             }
                             temporals_map->array[out_temporal] = (TC_Entry){
                                 .known_temporal = true,
-                                .type = temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type,
+                                .type = dest_t, //temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type,
                                 .is_value_known = false,
                                 .is_addressable = false,
                             };
@@ -1396,7 +1439,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                             .dest = out_temporal,
                             .a = res.a.val,
                             .b = res.b.val,
-                            .type = res.t,
+                            .type = TC_typeid_deep_copy(&res.t),
                             .cmp_kind = cmp_kind
                         }
                     });
@@ -1408,8 +1451,8 @@ MIR_func lowering_and_emission_pass_over_fn(
                             .info.cast = {
                                 .dest = instr.info.math_cmp_boolean_op.dest.val,
                                 .src = out_temporal,
-                                .from_type = temporals_map->array[out_temporal].type,
-                                .to_type = temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type,
+                                .from_type = TC_typeid_deep_copy(&temporals_map->array[out_temporal].type),
+                                .to_type = TC_typeid_deep_copy(&dest_t), //temporals_map->array[instr.info.math_cmp_boolean_op.dest.val].type,
                                 .cast_kind = MIR_CAST_IMPLICIT
                             }
                         });
@@ -1487,7 +1530,7 @@ MIR_func lowering_and_emission_pass_over_fn(
 
                     const TC_typeid ref_ty = (TC_typeid){
                         .ty = TC_TY_Ref,
-                        .info.contained = (TC_typeid *) element_ty,
+                        .info.contained = TC_typeid_new_copy(element_ty), // (TC_typeid *) element_ty,
                         // .full_typeuse_span = (TokenSpan){.sv = ref_span}
                     };
 
@@ -1763,8 +1806,8 @@ MIR_func lowering_and_emission_pass_over_fn(
                         .type = MIR_TY__MAKE_ARRAY,
                         .info.make_array = {
                             .dest = instr.info.make_array.dest.val,
-                            .array_type = base_type,
-                            .item_type = inner_type,
+                            .array_type = TC_typeid_deep_copy(&base_type),
+                            .item_type = TC_typeid_deep_copy(&inner_type),
                             .items = mir_items,
                             .is_heap = base_type.ty != TC_TY_Array
                         }
@@ -1851,7 +1894,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                             .info.const_int = {
                                 .dest = c_zero,
                                 .val = 0,
-                                .type = new_src.type
+                                .type = TC_typeid_deep_copy(&new_src.type)
                             }
                         });
                         mir_emit(&mir_instrs, (MIR_instr) {
@@ -1860,7 +1903,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                                 .dest = instr.info.to_bool.dest.val,
                                 .a = new_src.temporal.val,
                                 .b = c_zero,
-                                .type = new_src.type,
+                                .type = TC_typeid_deep_copy(&new_src.type),
                                 .cmp_kind = MIR_CMP_NOT_EQ
                             }
                         });
@@ -1911,7 +1954,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                         .type = MIR_TY__RETURN,
                         .info.return_val = {
                             .val = out.val,
-                            .type = t
+                            .type = TC_typeid_deep_copy(&t)
                         }
                     });
                     break;
@@ -2087,7 +2130,6 @@ MIR_func lowering_and_emission_pass_over_fn(
                 }
                 case IR_INST_TY__FN_CALL_RETVOID:
                 case IR_INST_TY__FN_CALL_RETVAL: {
-                    UNIMPLEMENTED("mir emit")
                     const bool is_retval = (instr.ty == IR_INST_TY__FN_CALL_RETVAL);
                     const IR_temporal_LIST* raw_args = is_retval
                                                            ? instr.info.fn_call_retval.args
@@ -2166,7 +2208,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                             target_info
                         );
                         IR_temporal_LIST_push(&coerced_args, coerced);
-                        TC_typeid_LIST_push(&coerced_args_types, expected_t);
+                        TC_typeid_LIST_push(&coerced_args_types, TC_typeid_deep_copy(&expected_t));
                     }
 
                     bool emit_drop_for_ret = false;
@@ -2209,39 +2251,79 @@ MIR_func lowering_and_emission_pass_over_fn(
 
                         temporals_map->array[instr.info.fn_call_retval.dest.val] = (TC_Entry){
                             .known_temporal = true,
-                            .type = fn_ret_t,
+                            .type = TC_typeid_deep_copy(&fn_ret_t),
                             .is_value_known = false,
                             .is_addressable = false
                         };
 
                         // const TC_typeid expected_ret_t_2 = temporals_map->array[instr.info.fn_call_retval.dest.val].type;
-                        const SV expected_ret_t_sv = format_TC_typeid(&fn_ret_t, identifier_map, nct);
-                        printf("   %%%lu <"SV_format"> = ", instr.info.fn_call_retval.dest.val,
-                               SV_v_args(expected_ret_t_sv));
 
+
+                        // const SV expected_ret_t_sv = format_TC_typeid(&fn_ret_t, identifier_map, nct);
+                        // printf("   %%%lu <"SV_format"> = ", instr.info.fn_call_retval.dest.val, SV_v_args(expected_ret_t_sv));
+
+                        MIR_temporal_id_LIST args = MIR_temporal_id_LIST_new_with_capacity(coerced_args.len);
+                        for (size_t n = 0; n < coerced_args.len; n++) {
+                            MIR_temporal_id_LIST_push(&args, coerced_args.array[n].val);
+                        }
+                        mir_emit(&mir_instrs, (MIR_instr){
+                            .type = MIR_TY__CALL,
+                            .info.call = {
+                                .dest = instr.info.fn_call_retval.dest.val,
+                                .has_dest = true,
+                                .fn_name = target_fn->fn_name,
+                                .raw_name = target_fn->raw_name,
+                                .args = args,
+                                .arg_types = coerced_args_types,
+                                .ret_type = TC_typeid_deep_copy(&fn_ret_t)
+                            }
+                        });
                     } else {
-                        printf("   ");
+                        MIR_temporal_id_LIST args = MIR_temporal_id_LIST_new_with_capacity(coerced_args.len);
+                        for (size_t n = 0; n < coerced_args.len; n++) {
+                            MIR_temporal_id_LIST_push(&args, coerced_args.array[n].val);
+                        }
+                        mir_emit(&mir_instrs, (MIR_instr){
+                            .type = MIR_TY__CALL,
+                            .info.call = {
+                                .dest = 0,
+                                .has_dest = false,
+                                .fn_name = target_fn->fn_name,
+                                .raw_name = target_fn->raw_name,
+                                .args = args,
+                                .arg_types = coerced_args_types,
+                                .ret_type = (TC_typeid){.ty = TC_TY_Void}
+                            }
+                        });
+                        // printf("   ");
                     }
 
                     // 4. Print / Emit MIR instruction
                     // ... print function name, destination, and coerced_args ...
 
-                    printf("FUNC_CALL '"SV_format"' {raw='"SV_format"'} [", SV_v_args(target_fn->fn_name.span.sv),
-                           SV_v_args(raw_fn_name));
-                    for (size_t n = 0; n < coerced_args.len; n++) {
-                        const SV arg_t_sv = format_TC_typeid(&coerced_args_types.array[n], identifier_map, nct);
-                        printf("%%%lu <"SV_format">", coerced_args.array[n].val, SV_v_args(arg_t_sv));
-                        if (n + 1 != coerced_args.len) {
-                            printf(", ");
-                        }
-                    }
-                    printf("]\n");
+                    // printf("FUNC_CALL '"SV_format"' {raw='"SV_format"'} [", SV_v_args(target_fn->fn_name.span.sv),
+                    //        SV_v_args(raw_fn_name));
+                    // for (size_t n = 0; n < coerced_args.len; n++) {
+                    //     const SV arg_t_sv = format_TC_typeid(&coerced_args_types.array[n], identifier_map, nct);
+                    //     printf("%%%lu <"SV_format">", coerced_args.array[n].val, SV_v_args(arg_t_sv));
+                    //     if (n + 1 != coerced_args.len) {
+                    //         printf(", ");
+                    //     }
+                    // }
+                    // printf("]\n");
 
                     if (emit_drop_for_ret) {
                         const TC_typeid ret_t = temporals_map->array[instr.info.fn_call_retval.dest.val].type;
-                        const SV ret_t_sv = format_TC_typeid(&ret_t, identifier_map, nct);
-                        printf("   DROP <"SV_format"> %%%lu [STACK]\n", SV_v_args(ret_t_sv),
-                               instr.info.fn_call_retval.dest.val);
+                        // const SV ret_t_sv = format_TC_typeid(&ret_t, identifier_map, nct);
+                        // printf("   DROP <"SV_format"> %%%lu [STACK]\n", SV_v_args(ret_t_sv), instr.info.fn_call_retval.dest.val);
+                        mir_emit(&mir_instrs, (MIR_instr){
+                            .type = MIR_TY__DROP,
+                            .info.drop = {
+                                .dest = instr.info.fn_call_retval.dest.val,
+                                .type = TC_typeid_deep_copy(&ret_t),
+                                .drop_inside = false
+                            }
+                        });
                     }
                     break;
                 }
@@ -2569,10 +2651,26 @@ MIR_func lowering_and_emission_pass_over_fn(
         MIR_block_LIST_push(&mir_blocks, mir_block);
     }
 
+    TC_typeid_LIST fn_args = TC_typeid_LIST_new_with_capacity(fn.args.len);
+    for (size_t n = 0; n < fn.args.len; n++) {
+        TC_typeid_LIST_push(&fn_args, resolve_tc_type(
+            &fn.args.array[n].type,
+            nct,
+            target_info,
+            source_info,
+            identifier_map
+        ));
+    }
+
     return (MIR_func){
         .fn_name = fn.fn_name,
+        .fn_raw_name = fn.raw_name,
+        .args = fn_args,
         .blocks = mir_blocks,
         .highest_temporal_number = highest_temporal,
-        .temporals = mir_temporals
+        .temporals = mir_temporals,
+        .has_ret = fn.fn_ret_t.tt_ty != IR_TY_Void,
+        .ret_type = resolve_tc_type(&fn.fn_ret_t, nct, target_info, source_info, identifier_map)
     };
 }
+
