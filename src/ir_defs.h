@@ -198,7 +198,10 @@ init_prefixed_list_type(CFFI_arg)
 
 typedef struct {
     CFFI_c_typeuse c_ret_type;
+
     SpannedIdentifier c_fn_name;
+    SpannedIdentifier kelp_fn_name;
+
     CFFI_c_fn_arg_LIST c_args;
 
     CFFI_arg ret;

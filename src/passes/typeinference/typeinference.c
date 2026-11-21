@@ -176,7 +176,7 @@ void type_inference_pass_over_fn(
     const IR_func fn,
     khash_t(sv_u64_map)* restrict identifier_map,
     const IR_func_LIST* restrict functions,
-    const CFFI_IR_extern_fn_LIST* restrict external_functions,
+    // const CFFI_IR_extern_fn_LIST* restrict external_functions,
     TC_TypeTable* restrict nct,
     const TargetInfo* restrict target_info,
     const SourceInfo* restrict source_info,
@@ -233,6 +233,10 @@ void type_inference_pass_over_fn(
             const IR_instr instr = block.instructions.array[instr_nth];
             if (instr.ty == IR_INST_TY__REF_OF) {
                 ref_of_dests[instr.info.ref_of.dest.val] = true;
+            } else if (instr.ty == IR_INST_TY__GET_STRUCT_FIELD_PTR) {
+                ref_of_dests[instr.info.get_struct_field_ptr.dest.val] = true;
+            } else if (instr.ty == IR_INST_TY__INDEX_PTR) {
+                ref_of_dests[instr.info.index_ptr.dest.val] = true;
             }
         }
     }
@@ -459,7 +463,11 @@ void type_inference_pass_over_fn(
                         break;
                     }
 
-                    if (!temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].known_temporal) {
+                    if (
+                        !temporals_map->array[instr.info.math_cmp_boolean_op.src1.val].known_temporal
+                        &&
+                        !ref_of_dests[instr.info.math_cmp_boolean_op.src1.val]
+                    ) {
                         temporals_map->array[instr.info.math_cmp_boolean_op.src1.val] = (TC_Entry){
                             .known_temporal = true,
                             .type = dest.type,
@@ -468,7 +476,11 @@ void type_inference_pass_over_fn(
                         };
                     }
 
-                    if (!temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].known_temporal) {
+                    if (
+                        !temporals_map->array[instr.info.math_cmp_boolean_op.src2.val].known_temporal
+                        &&
+                        !ref_of_dests[instr.info.math_cmp_boolean_op.src2.val]
+                    ) {
                         temporals_map->array[instr.info.math_cmp_boolean_op.src2.val] = (TC_Entry){
                             .known_temporal = true,
                             .type = dest.type,
@@ -735,6 +747,8 @@ void type_inference_pass_over_fn(
                                         .is_value_known = false,
                                         .is_addressable = false
                                     };
+                                    block_id = (ptrdiff_t) fn.blocks.len;
+                                    perf_jump = true;
                                     break;
                                 }
                             }
@@ -1263,6 +1277,8 @@ void type_inference_pass_over_fn(
                                     .is_value_known = false,
                                     .is_addressable = false
                                 };
+                                block_id = (ptrdiff_t) fn.blocks.len;
+                                perf_jump = true;
                             }
                         }
                     }

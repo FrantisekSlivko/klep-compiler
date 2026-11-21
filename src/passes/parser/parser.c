@@ -2953,7 +2953,10 @@ void P_get_top_extern_fn(Parser* p) {
 
     const CFFI_IR_extern_fn extern_fn = (CFFI_IR_extern_fn){
         c_ret_type,
+
         {c_fn_name, (TokenSpan){*raw_c_fn_name}},
+        {fn_name, (TokenSpan){*raw_fn_name}},
+
         c_args,
 
         ret,

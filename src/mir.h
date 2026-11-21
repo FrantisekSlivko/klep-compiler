@@ -112,16 +112,20 @@ typedef struct {
         struct {
             MIR_temporal_id dest;
             MIR_temporal_id slot;
+            TC_typeid type;
         } load;
         struct {
             MIR_temporal_id ptr;
             MIR_temporal_id val;
+            bool is_val_stack;
+            TC_typeid val_type;
         } store;
         struct {
             MIR_temporal_id dest;
             MIR_temporal_id ptr;
             uint64_t offset;
             uint64_t read_size;
+            TC_typeid value_type;
         } read_ptr;
         struct {
             MIR_temporal_id dest;

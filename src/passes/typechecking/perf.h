@@ -1,6 +1,7 @@
 #ifndef KLEPCOMPILER_PERF_H
 #define KLEPCOMPILER_PERF_H
 
+#include "mir.h"
 #include "passes/inference_check_types.h"
 
 #include "utils.h"
@@ -12,7 +13,8 @@ IR_temporal use_value(
     TC_Entry_LIST* restrict temporals_map,
     const IR_temporal_LIST* promoted,
     const TC_TypeTable* restrict nct,
-    const TargetInfo* restrict target_info
+    const TargetInfo* restrict target_info,
+    MIR_instr_LIST* restrict mir_instrs
 );
 
 
@@ -23,7 +25,8 @@ IR_temporal_and_TC_type perf_auto_deref(
     TC_Entry_LIST* temporals_map,
     const IR_temporal_LIST* promoted,
     const TC_TypeTable* restrict nct,
-    const TargetInfo* restrict target_info
+    const TargetInfo* restrict target_info,
+    MIR_instr_LIST* restrict mir_instrs
 );
 
 TC_typeid get_common_numeric_type(const TC_typeid t1, const TC_typeid t2);
@@ -46,7 +49,8 @@ DoubleIR_temporal_and_TC_typeid perf_numeric_promotion(
     const IR_temporal_LIST* promoted,
     const TC_TypeTable* restrict nct,
     const TargetInfo* restrict target_info,
-    const khash_t(sv_u64_map)* restrict identifier_map
+    const khash_t(sv_u64_map)* restrict identifier_map,
+    MIR_instr_LIST* restrict mir_instrs
 );
 
 
@@ -57,7 +61,8 @@ IR_temporal perf_bool(
     TC_Entry_LIST* temporals_map,
     const IR_temporal_LIST* promoted,
     const TC_TypeTable* restrict nct,
-    const TargetInfo* restrict target_info
+    const TargetInfo* restrict target_info,
+    MIR_instr_LIST* restrict mir_instrs
 );
 
 
@@ -65,7 +70,8 @@ IR_temporal_and_TC_type perf_auto_ref(
     const IR_temporal* intake,
     const TC_typeid* intake_type,
     size_t* highest_temporal,
-    TC_Entry_LIST* temporals_map
+    TC_Entry_LIST* temporals_map,
+    MIR_instr_LIST* restrict mir_instrs
 );
 
 
@@ -81,7 +87,8 @@ IR_temporal perf_autos(
     const SV* value_token,
     TC_Value_LIST* temporals_map_values,
     const IR_temporal_LIST* promoted,
-    const TargetInfo* restrict target_info
+    const TargetInfo* restrict target_info,
+    MIR_instr_LIST* restrict mir_instrs
 );
 
 bool can_be_explicit_casted(const TC_typeid* from, const TC_typeid* to);

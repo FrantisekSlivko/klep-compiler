@@ -1,6 +1,7 @@
 #include "perf.h"
 
 #include "error.h"
+#include "mir.h"
 #include "utils/color.h"
 #include "passes/type_utils.h"
 
@@ -33,7 +34,8 @@ IR_temporal use_value(
     TC_Entry_LIST* restrict temporals_map,
     const IR_temporal_LIST* promoted,
     const TC_TypeTable* restrict nct,
-    const TargetInfo* restrict target_info
+    const TargetInfo* restrict target_info,
+    MIR_instr_LIST* restrict mir_instrs
 ) {
 
     if (!is_promoted(promoted, t)) return t;
@@ -43,7 +45,15 @@ IR_temporal use_value(
 
 
     const uint64_t new_temporal = (*highest_temporal)++;
-    printf("   %%%lu = LOAD %%%lu (from slot)\n", new_temporal, t.val);
+    // printf("   %%%lu = LOAD %%%lu (from slot)\n", new_temporal, t.val);
+    mir_emit(mir_instrs, (MIR_instr){
+        .type = MIR_TY__LOAD,
+        .info.load = {
+            .dest = new_temporal,
+            .slot = t.val,
+            .type = TC_typeid_deep_copy(&temporals_map->array[t.val].type)
+        }
+    });
 
     TC_Entry entry_copy = temporals_map->array[t.val];
     entry_copy.type = TC_typeid_deep_copy(&entry_copy.type);
@@ -72,20 +82,33 @@ IR_temporal_and_TC_type perf_auto_deref(
     TC_Entry_LIST* temporals_map,
     const IR_temporal_LIST* promoted,
     const TC_TypeTable* restrict nct,
-    const TargetInfo* restrict target_info
+    const TargetInfo* restrict target_info,
+    MIR_instr_LIST* restrict mir_instrs
 ) {
     // TC_typeid t = *type;
     TC_typeid t = TC_typeid_deep_copy(type);
     if (type->ty != TC_TY_Ref) {
-        const IR_temporal v = use_value(*intake, highest_temporal, temporals_map, promoted, nct, target_info);
+        const IR_temporal v = use_value(*intake, highest_temporal, temporals_map, promoted, nct, target_info, mir_instrs);
         return (IR_temporal_and_TC_type){.temporal = v, .type = t}; //  = *intake
     }
 
 //     uint64_t te = intake->val;
-    uint64_t te = use_value(*intake, highest_temporal, temporals_map, promoted, nct, target_info).val;
+    uint64_t te = use_value(*intake, highest_temporal, temporals_map, promoted, nct, target_info, mir_instrs).val;
     while (t.ty == TC_TY_Ref) {
         const uint64_t new_temporal = (*highest_temporal)++;
-        printf("   %%%lu = READ_PTR %%%lu\n", new_temporal, te);
+
+        // printf("   %%%lu = READ_PTR %%%lu\n", new_temporal, te);
+        const SizeAlign sa = calc_size_of(t.info.contained, nct, target_info);
+        mir_emit(mir_instrs, (MIR_instr) {
+            .type = MIR_TY__READ_PTR,
+            .info.read_ptr = {
+                .dest = new_temporal,
+                .ptr = te,
+                .offset = 0,
+                .read_size = sa.size
+            }
+        });
+
         te = new_temporal;
         t = TC_typeid_deep_copy(t.info.contained);
         if (new_temporal + 1 > temporals_map->cap) {
@@ -580,14 +603,15 @@ DoubleIR_temporal_and_TC_typeid perf_numeric_promotion(
     const IR_temporal_LIST* promoted,
     const TC_TypeTable* restrict nct,
     const TargetInfo* restrict target_info,
-    const khash_t(sv_u64_map)* restrict identifier_map
+    const khash_t(sv_u64_map)* restrict identifier_map,
+    MIR_instr_LIST* restrict mir_instrs
 ) {
     const TC_typeid safe_a_type = TC_typeid_deep_copy(a_type);
     const TC_typeid safe_b_type = TC_typeid_deep_copy(b_type);
 
 
-    const IR_temporal_and_TC_type derefered_a = perf_auto_deref(&safe_a_type, a, highest_temporal, temporals_map, promoted, nct, target_info);
-    const IR_temporal_and_TC_type derefered_b = perf_auto_deref(&safe_b_type, b, highest_temporal, temporals_map, promoted, nct, target_info);
+    const IR_temporal_and_TC_type derefered_a = perf_auto_deref(&safe_a_type, a, highest_temporal, temporals_map, promoted, nct, target_info, mir_instrs);
+    const IR_temporal_and_TC_type derefered_b = perf_auto_deref(&safe_b_type, b, highest_temporal, temporals_map, promoted, nct, target_info, mir_instrs);
 
     {
         // check if derefered_a and derefered_b are number types
@@ -692,14 +716,25 @@ DoubleIR_temporal_and_TC_typeid perf_numeric_promotion(
     if (derefered_a.type.info.primitive != target_op_type.info.primitive) {
         const uint64_t new_temporal = (*highest_temporal)++;
 
-        if (a_known) {
+        // if (a_known) {
+        //     printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT CONST-NARROW]\n", new_temporal,
+        //            SV_v_args(t_op_sv), new_a.val); // target_op_type.full_typeuse_span.sv
+        // } else {
+        //     printf("   %%%lu = CAST<"SV_format">(%%%lu)\n", new_temporal,
+        //     SV_v_args(t_op_sv), new_a.val); // target_op_type.full_typeuse_span.sv
+        // }
 
-            printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT CONST-NARROW]\n", new_temporal,
-                   SV_v_args(t_op_sv), new_a.val); // target_op_type.full_typeuse_span.sv
-        } else {
-            printf("   %%%lu = CAST<"SV_format">(%%%lu)\n", new_temporal,
-                   SV_v_args(t_op_sv), new_a.val); // target_op_type.full_typeuse_span.sv
-        }
+        mir_emit(mir_instrs, (MIR_instr) {
+            .type = MIR_TY__CAST,
+            .info.cast = {
+                .dest = new_temporal,
+                .src = new_a.val,
+                .from_type = TC_typeid_deep_copy(&temporals_map->array[new_a.val].type),
+                .to_type = TC_typeid_deep_copy(&target_op_type),
+                .cast_kind = MIR_CAST_IMPLICIT
+            }
+        });
+
         new_a.val = new_temporal;
 
 
@@ -718,13 +753,23 @@ DoubleIR_temporal_and_TC_typeid perf_numeric_promotion(
     if (derefered_b.type.info.primitive != target_op_type.info.primitive) {
         const uint64_t new_temporal = (*highest_temporal)++;
 
-        if (b_known) {
-            printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT CONST-NARROW]\n", new_temporal,
-                   SV_v_args(t_op_sv), new_b.val);
-        } else {
-            printf("   %%%lu = CAST<"SV_format">(%%%lu)\n", new_temporal,
-                   SV_v_args(t_op_sv), new_b.val);
-        }
+        // if (b_known) {
+        //     printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT CONST-NARROW]\n", new_temporal,
+        //            SV_v_args(t_op_sv), new_b.val);
+        // } else {
+        //     printf("   %%%lu = CAST<"SV_format">(%%%lu)\n", new_temporal,
+        //            SV_v_args(t_op_sv), new_b.val);
+        // }
+        mir_emit(mir_instrs, (MIR_instr) {
+            .type = MIR_TY__CAST,
+            .info.cast = {
+                .dest = new_temporal,
+                .src = new_b.val,
+                .from_type = TC_typeid_deep_copy(&temporals_map->array[new_b.val].type),
+                .to_type = TC_typeid_deep_copy(&target_op_type),
+                .cast_kind = MIR_CAST_IMPLICIT
+            }
+        });
         new_b.val = new_temporal;
 
         const TC_Entry prev_entry = temporals_map->array[derefered_b.temporal.val];
@@ -755,17 +800,38 @@ IR_temporal perf_bool(
     TC_Entry_LIST* temporals_map,
     const IR_temporal_LIST* promoted,
     const TC_TypeTable* restrict nct,
-    const TargetInfo* restrict target_info
+    const TargetInfo* restrict target_info,
+    MIR_instr_LIST* restrict mir_instrs
 ) {
-    const IR_temporal_and_TC_type derefd = perf_auto_deref(intake_type, intake, highest_temporal, temporals_map, promoted, nct, target_info);
+    const IR_temporal_and_TC_type derefd = perf_auto_deref(intake_type, intake, highest_temporal, temporals_map, promoted, nct, target_info, mir_instrs);
     if (derefd.type.ty == TC_TY_Primitive && derefd.type.info.primitive == TC_Primitive__Bool) {
         return derefd.temporal;
     }
     if (derefd.type.ty == TC_TY_Primitive) {
         // emit check not zero
         // OP_CMP_NOT_EQ
+        const uint64_t zero_val = (*highest_temporal)++;
+        mir_emit(mir_instrs, (MIR_instr){
+            .type = MIR_TY__CONST_INT,
+            .info.const_int = {
+                .dest = zero_val,
+                .val = 0,
+                .type = TC_typeid_deep_copy(&derefd.type)
+            }
+        });
+
         const uint64_t new_temporal = (*highest_temporal)++;
-        printf("   %%%lu = OP_CMP_NOT_EQ %%%lu, 0\n", new_temporal, derefd.temporal.val);
+        // printf("   %%%lu = OP_CMP_NOT_EQ %%%lu, 0\n", new_temporal, derefd.temporal.val);
+        mir_emit(mir_instrs, (MIR_instr) {
+            .type = MIR_TY__OP_CMP,
+            .info.cmp = {
+                .dest = new_temporal,
+                .a = derefd.temporal.val,
+                .b = zero_val,
+                .type = TC_typeid_deep_copy(&derefd.type),
+                .cmp_kind = MIR_CMP_NOT_EQ
+            }
+        });
 
         if (new_temporal + 1 > temporals_map->cap) {
             TC_Entry_LIST_inflate(temporals_map, new_temporal + 5);
@@ -792,10 +858,19 @@ IR_temporal_and_TC_type perf_auto_ref(
     const IR_temporal* intake,
     const TC_typeid* intake_type,
     size_t* highest_temporal,
-    TC_Entry_LIST* temporals_map
+    TC_Entry_LIST* temporals_map,
+    MIR_instr_LIST* restrict mir_instrs
 ) {
     const uint64_t new_temporal = (*highest_temporal)++;
-    printf("   %%%lu = REF_OF %%%lu\n", new_temporal, intake->val);
+    // printf("   %%%lu = REF_OF %%%lu\n", new_temporal, intake->val);
+    mir_emit(mir_instrs, (MIR_instr) {
+        .type = MIR_TY__REF_OF,
+        .info.ref_of = {
+            .dest = new_temporal,
+            .src = intake->val
+        }
+    });
+
 
     const TC_typeid nt = (TC_typeid){
         .ty = TC_TY_Ref,
@@ -829,14 +904,15 @@ IR_temporal perf_autos(
     const SV* value_token,
     TC_Value_LIST* temporals_map_values,
     const IR_temporal_LIST* promoted,
-    const TargetInfo* restrict target_info
+    const TargetInfo* restrict target_info,
+    MIR_instr_LIST* restrict mir_instrs
 ) {
 
     const TC_typeid intake_type_s = TC_typeid_deep_copy(intake_type); // *intake_type;
     const TC_typeid output_type_s = TC_typeid_deep_copy(output_type); // *output_type;
 
     if (is_type_eq(intake_type, output_type)) {
-        return use_value(*intake, highest_temporal, temporals_map, promoted, nct, target_info);
+        return use_value(*intake, highest_temporal, temporals_map, promoted, nct, target_info, mir_instrs);
     }
 
 //     uint64_t current_temp = intake->val;
@@ -850,13 +926,25 @@ IR_temporal perf_autos(
 
     uint64_t current_temp = wants_auto_ref
         ? intake->val
-        : use_value(*intake, highest_temporal, temporals_map, promoted, nct, target_info).val;
+        : use_value(*intake, highest_temporal, temporals_map, promoted, nct, target_info, mir_instrs).val;
 
 
     TC_typeid current_type = intake_type_s;
-    while (current_type.ty == TC_TY_Ref) {
+    while (current_type.ty == TC_TY_Ref && !is_type_eq(&current_type, &output_type_s)) {
         const uint64_t new_temporal = (*highest_temporal)++;
-        printf("   %%%lu = READ_PTR %%%lu\n", new_temporal, current_temp);
+
+        const SizeAlign sa = calc_size_of(current_type.info.contained, nct, target_info);
+        // printf("   %%%lu = READ_PTR %%%lu\n", new_temporal, current_temp);
+        mir_emit(mir_instrs, (MIR_instr) {
+            .type = MIR_TY__READ_PTR,
+            .info.read_ptr = {
+                .dest = new_temporal,
+                .ptr = current_temp,
+                .offset = 0,
+                .read_size = sa.size
+            }
+        });
+
         current_temp = new_temporal;
         current_type = *current_type.info.contained;
         if (temporals_map->cap < current_temp + 1) {
@@ -899,16 +987,26 @@ IR_temporal perf_autos(
     // }
     if (!is_type_eq(&current_type, &target_base) && (can_widen || can_narrow)) {
         const uint64_t new_temp = (*highest_temporal)++;
-        const SV target_base_sv = format_TC_typeid(&target_base, identifier_map, nct);
+        // const SV target_base_sv = format_TC_typeid(&target_base, identifier_map, nct);
 
         // Print different debug info if it was a constant narrow
-        if (can_narrow) {
-            printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT CONST-NARROW]\n", new_temp, SV_v_args(target_base_sv),
-                   current_temp);
-        } else {
-            printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT]\n", new_temp, SV_v_args(target_base_sv),
-                   current_temp);
-        }
+        // if (can_narrow) {
+        //     printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT CONST-NARROW]\n", new_temp, SV_v_args(target_base_sv),
+        //            current_temp);
+        // } else {
+        //     printf("   %%%lu = CAST<"SV_format">(%%%lu) [IMPLICIT]\n", new_temp, SV_v_args(target_base_sv),
+        //            current_temp);
+        // }
+        mir_emit(mir_instrs, (MIR_instr) {
+            .type = MIR_TY__CAST,
+            .info.cast = {
+                .dest = new_temp,
+                .src = current_temp,
+                .from_type = TC_typeid_deep_copy(&current_type),
+                .to_type = TC_typeid_deep_copy(&target_base),
+                .cast_kind = MIR_CAST_IMPLICIT
+            }
+        });
 
         if (temporals_map->cap < new_temp + 1) {
             TC_Entry_LIST_inflate(temporals_map, new_temp + 1);
@@ -958,7 +1056,15 @@ IR_temporal perf_autos(
             exit(1);
         }
         const uint64_t new_temporal = (*highest_temporal)++;
-        printf("   %%%lu = REF_OF %%%lu\n", new_temporal, current_temp);
+        // printf("   %%%lu = REF_OF %%%lu\n", new_temporal, current_temp);
+        mir_emit(mir_instrs, (MIR_instr) {
+            .type = MIR_TY__REF_OF,
+            .info.ref_of = {
+                .dest = new_temporal,
+                .src = current_temp
+            }
+        });
+
         current_type = output_type_s;
         current_temp = new_temporal;
 

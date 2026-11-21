@@ -5,6 +5,8 @@
 #include "sv_u64_map.h"
 #include "tokenizer.h"
 #include "typecompletion.h"
+#include "cffi/wrapper_creator.h"
+#include "overloading/resolve.h"
 #include "passes/mir_process.h"
 #include "passes/parser/parser.h"
 #include "passes/qbe/mir_to_qbe.h"
@@ -152,25 +154,78 @@ void main_compile(const TargetInfo target_info, const SourceInfo source_info) {
     #endif
 
 
+    const size_t functions_org_len = main_p.functions.len;
 
+    // add external fn's stubs
+    for (size_t n = 0; n < main_p.external_functions.len; n++) {
+        const CFFI_IR_extern_fn ef = main_p.external_functions.array[n];
+        const SV mangled_name = mangle_function_name(&ef.kelp_fn_name, 0);
+        // const Identifier mangled_name_identifier = P_to_identifier(&main_p, &mangled_name);
+
+        IR_typename_pair_LIST args = IR_typename_pair_LIST_new_with_capacity(ef.args.len);
+        for (size_t a = 0; a < ef.args.len; a++) {
+            IR_typename_pair_LIST_push(&args, (IR_typename_pair) {
+                .type = ef.args.array[a].type,
+                .name = ef.args.array[a].name
+            });
+        }
+        IR_func_LIST_push(&main_p.functions, (IR_func) {
+            .fn_ret_t = ef.ret.type,
+            .fn_name = ef.kelp_fn_name,
+            .raw_name = mangled_name,
+            .args = args,
+            .blocks = {0},
+            .highest_temporal_number = 0,
+            .error_info_list = {0}
+        });
+        // printf("added external fn to main_p.function : name='"SV_format"'\n", SV_v_args(ef.kelp_fn_name.span.sv));
+    }
 
 
 
     TC_typeid_LIST type_needing_destructor = TC_typeid_LIST_new();
-    const MIR_func_LIST mir_funcs = TC_typecheck_and_lower(identifier_map, &main_p.functions, &main_p.external_functions, &nct, &target_info, &source_info, &type_needing_destructor);
+    const MIR_func_LIST mir_funcs = TC_typecheck_and_lower(identifier_map, &main_p.functions, &nct, &target_info, &source_info, &type_needing_destructor);
+
+    // external functions map to after functions, and before materialized functions
+    for (size_t f = 0; f < main_p.external_functions.len; f++) {
+        const size_t i = f + functions_org_len;
+        const CFFI_IR_extern_fn fn = main_p.external_functions.array[f];
+
+        const MIR_func mir_func = create_wrap_cffi_fn(fn, &nct, &target_info, &source_info, identifier_map);
+        mir_funcs.array[i] = mir_func;
+    }
 
     FILE* qbe_out = fopen("out.ssa", "w+");
+    // FILE* qbe_type_out = fopen("out_type.ssa", "w+");
 
     if (qbe_out == NULL) {
         perror("fopen");
     }
+    // if (qbe_type_out == NULL) {
+        // perror("fopen");
+    // }
 
     TC_typeid_LIST qbe_type_table = TC_typeid_LIST_new();
-    // mir_types_to_qbe(&nct, &qbe_type_table, qbe_out);
+    SVList global_string_const_table = SVList_new();
+
+    mir_types_preregister(&nct, &qbe_type_table, identifier_map, qbe_out, &target_info);
 
     for (size_t n = 0; n < mir_funcs.len; n++) {
-        mir_fn_to_qbe(&mir_funcs.array[n], &nct, &qbe_type_table, identifier_map, qbe_out, &target_info);
+        mir_fn_to_qbe(&mir_funcs.array[n], &nct, &qbe_type_table, identifier_map, qbe_out, &target_info, &global_string_const_table);
     }
+
+    // mir_emit_type_table(&qbe_type_table, &nct, qbe_type_out, &target_info, identifier_map);
+    fprintf(qbe_out, "\n\n");
+    for (size_t n = 0; n < global_string_const_table.len; n++) {
+        fprintf(qbe_out, "data $str%lu = { b ", n);
+        for (size_t c = 0; c < global_string_const_table.array[n].len; c++) {
+            fprintf(qbe_out, "%u ", global_string_const_table.array[n].start[c]);
+        }
+        fprintf(qbe_out, ", b 0 }\n");
+    }
+
+    // fclose(qbe_type_out);
+    fclose(qbe_out);
 
     printf("DONE\n");
 

@@ -10,12 +10,15 @@ MIR_func TC_process_fn(
     const IR_func fn,
     khash_t(sv_u64_map)* restrict identifier_map,
     const IR_func_LIST* restrict functions,
-    const CFFI_IR_extern_fn_LIST* restrict external_functions,
+    // const CFFI_IR_extern_fn_LIST* restrict external_functions,
     TC_TypeTable* restrict nct,
     const TargetInfo* restrict target_info,
     const SourceInfo* restrict source_info,
     TC_typeid_LIST* restrict type_needing_destructor
 ) {
+    if (fn.highest_temporal_number == 0) {
+        return (MIR_func) {0};
+    }
     {
         const SV fn_name = fn.fn_name.span.sv;
         printf("TYPECHECKING FN '"SV_format"' {raw='"SV_format"'}\n", SV_v_args(fn_name), SV_v_args(fn.raw_name));
@@ -23,7 +26,7 @@ MIR_func TC_process_fn(
 
     TC_Entry_LIST temporals;
 
-    type_inference_pass_over_fn(fn, identifier_map, functions, external_functions, nct, target_info, source_info,
+    type_inference_pass_over_fn(fn, identifier_map, functions, nct, target_info, source_info,
                                 &temporals);
 
     for (size_t t = 1; t < temporals.len; t++) {
@@ -55,7 +58,7 @@ MIR_func TC_process_fn(
         fn,
         identifier_map,
         functions,
-        external_functions,
+        // external_functions,
         nct, target_info, source_info,
         &temporals,
         promote_to_stack_temps,
@@ -75,19 +78,18 @@ MIR_func TC_process_fn(
 MIR_func_LIST TC_typecheck_and_lower(
     khash_t(sv_u64_map)* restrict identifier_map,
     const IR_func_LIST* restrict functions,
-    const CFFI_IR_extern_fn_LIST* restrict external_functions,
+    // const CFFI_IR_extern_fn_LIST* restrict external_functions,
     TC_TypeTable* restrict nct,
     const TargetInfo* restrict target_info,
     const SourceInfo* restrict source_info,
     TC_typeid_LIST* restrict type_needing_destructor
 ) {
-    // printf("(fist type is from type_id, second from type's span)\n");
     MIR_func_LIST mir_functions = MIR_func_LIST_new();
     for (size_t n = 0; n < functions->len; n++) {
         const IR_func fn = functions->array[n];
         const MIR_func mf = TC_process_fn(fn, identifier_map,
                       functions,
-                      external_functions,
+                      // external_functions,
                       nct,
                       target_info,
                       source_info,
@@ -99,7 +101,7 @@ MIR_func_LIST TC_typecheck_and_lower(
         const IR_func fn = nct->materialized_generic_functions.array[n].fn;
         const MIR_func mf = TC_process_fn(fn, identifier_map,
                       functions,
-                      external_functions,
+                      // external_functions,
                       nct,
                       target_info,
                       source_info,

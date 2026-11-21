@@ -4,19 +4,39 @@ struct A {
     Int v2;
 }
 
-generic enum Option<T> {
-    None,
-    Some(T)
-}
-
 
 Int add(Int a, Int b) {
     return a + b;
 }
 
+Int add(Ref<A> a) {
+    return a.v1 + a.v2;
+}
+
+// Int add(A a, Int v) {
+//     return a.v1 + a.v2 + v;
+// }
+
 Int main() {
     Int v1 = 5;
     Int v2 = v1 + 3;
     Int res = add(v1, v2);
-    return res;
+
+    A s1 = new A { v1=1, v2=2 };
+    Ref<A> s2 = s1;
+    Int res1 = add(s1);
+    // Int res2 = add(s2, 0);
+
+    Slice<Char> str = "Hello World!\n";
+    // print_string(str);
+
+    Int i = 0;
+    while i < 10 {
+        i += 1;
+    }
+    return i;
 }
+
+// extern void puts(char* str)
+//   into
+//   Void print_string(Ref<Slice<Char>> str );
