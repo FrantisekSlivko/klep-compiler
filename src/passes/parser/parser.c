@@ -2807,18 +2807,128 @@ CFFI_c_typeuse P_get_c_typeuse(Parser* p, const bool allow_void) {
         goto end;
     }
 
-    const Identifier id_name = P_to_identifier(p, &defaulted_type_name);
-    in = (CFFI_c_typeuse){
-        .kind = CFFI_TY_NAMED,
-        .named = {id_name, (TokenSpan){defaulted_type_name}}
-    };
-    goto end;
+    if (Token_cmp(&defaulted_type_name, "char")) {
+        in = (CFFI_c_typeuse){
+            .kind = CFFI_TY_PRIMITIVE,
+            .primitive = TC_Primitive__Char,
+        };
+
+        goto end;
+    }
+
+    if (Token_cmp(&defaulted_type_name, "bool")) {
+        in = (CFFI_c_typeuse){
+            .kind = CFFI_TY_PRIMITIVE,
+            .primitive = TC_Primitive__Bool,
+        };
+
+        goto end;
+    }
+
+    if (Token_cmp(&defaulted_type_name, "int") || Token_cmp(&defaulted_type_name, "int32_t")) {
+        in = (CFFI_c_typeuse){
+            .kind = CFFI_TY_PRIMITIVE,
+            .primitive = TC_Primitive__Int32,
+        };
+
+        goto end;
+    }
+
+    if (Token_cmp(&defaulted_type_name, "int8_t")) {
+        in = (CFFI_c_typeuse){
+            .kind = CFFI_TY_PRIMITIVE,
+            .primitive = TC_Primitive__Int8,
+        };
+
+        goto end;
+    }
+
+    if (Token_cmp(&defaulted_type_name, "int16_t")) {
+        in = (CFFI_c_typeuse){
+            .kind = CFFI_TY_PRIMITIVE,
+            .primitive = TC_Primitive__Int16,
+        };
+
+        goto end;
+    }
+
+    if (Token_cmp(&defaulted_type_name, "int64_t")) {
+        in = (CFFI_c_typeuse){
+            .kind = CFFI_TY_PRIMITIVE,
+            .primitive = TC_Primitive__Int64,
+        };
+
+        goto end;
+    }
+
+    if (Token_cmp(&defaulted_type_name, "uint8_t")) {
+        in = (CFFI_c_typeuse){
+            .kind = CFFI_TY_PRIMITIVE,
+            .primitive = TC_Primitive__Uint8,
+        };
+
+        goto end;
+    }
+
+    if (Token_cmp(&defaulted_type_name, "uint16_t")) {
+        in = (CFFI_c_typeuse){
+            .kind = CFFI_TY_PRIMITIVE,
+            .primitive = TC_Primitive__Uint16,
+        };
+
+        goto end;
+    }
+
+    if (Token_cmp(&defaulted_type_name, "uint32_t")) {
+        in = (CFFI_c_typeuse){
+            .kind = CFFI_TY_PRIMITIVE,
+            .primitive = TC_Primitive__Uint32,
+        };
+
+        goto end;
+    }
+
+    if (Token_cmp(&defaulted_type_name, "uint64_t")) {
+        in = (CFFI_c_typeuse){
+            .kind = CFFI_TY_PRIMITIVE,
+            .primitive = TC_Primitive__Uint64,
+        };
+
+        goto end;
+    }
+
+    if (Token_cmp(&defaulted_type_name, "float32_t")) {
+        in = (CFFI_c_typeuse){
+            .kind = CFFI_TY_PRIMITIVE,
+            .primitive = TC_Primitive__Float32,
+        };
+
+        goto end;
+    }
+
+    if (Token_cmp(&defaulted_type_name, "float64_t")) {
+        in = (CFFI_c_typeuse){
+            .kind = CFFI_TY_PRIMITIVE,
+            .primitive = TC_Primitive__Float64,
+        };
+
+        goto end;
+    }
+
+    // const Identifier id_name = P_to_identifier(p, &defaulted_type_name);
+    // in = (CFFI_c_typeuse){
+        // .kind = CFFI_TY_NAMED,
+        // .named = {id_name, (TokenSpan){defaulted_type_name}}
+    // };
+    // goto end;
+    P_syntax_error(p, &defaulted_type_name, SV_from_str("unknown type"));
+    exit(1);
 
     UNREACHABLE();
 
 end: {
         // wrapping
-        CFFI_c_typeuse out;
+        CFFI_c_typeuse out = in;
         while (P_extend_c_typeuse(p, in, &out)) {
             in = out;
         }

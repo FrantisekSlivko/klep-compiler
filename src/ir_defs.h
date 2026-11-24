@@ -161,6 +161,7 @@ init_prefixed_list_type(IR_import)
 
 
 typedef enum CFFI_ty_kind {
+    CFFI_TY_INVALID = 0,
     CFFI_TY_PRIMITIVE,
     CFFI_TY_PTR, // uses inner (for Int32* and Int32[])
     CFFI_TY_VOID,

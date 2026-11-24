@@ -1,9 +1,12 @@
 #include "mir_to_qbe.h"
 
 #include "mir.h"
+#include "utils.h"
 #include "passes/type_utils.h"
 #include "passes/typechecking/utils.h"
 
+
+// todo: question, when Slice<> List<> are passed by value, what happens?
 
 bool is_reg_t(const TC_typeid* restrict t, uint64_t* restrict id_out, const TC_typeid_LIST* restrict qbe_mat_needing_types) {
     for (size_t n = 0; n < qbe_mat_needing_types->len; n++) {
@@ -40,21 +43,21 @@ void write_type(const TC_typeid* restrict t, TC_typeid_LIST* restrict qbe_mat_ne
     if (t->ty == TC_TY_Void) INTERNAL_ERROR()
     if (t->ty == TC_TY_Primitive) {
         switch (t->info.primitive) {
-            case TC_Primitive__Int8: { fprintf(qbe_out, "b "); return; }
-            case TC_Primitive__Int16: { fprintf(qbe_out, "h "); return; }
+            case TC_Primitive__Int8: { fprintf(qbe_out, "sb "); return; }
+            case TC_Primitive__Int16: { fprintf(qbe_out, "sh "); return; }
             case TC_Primitive__Int32: { fprintf(qbe_out, "w "); return; }
             case TC_Primitive__Int64: { fprintf(qbe_out, "l "); return; }
 
-            case TC_Primitive__Uint8: { fprintf(qbe_out, "b "); return; }
-            case TC_Primitive__Uint16: { fprintf(qbe_out, "h "); return; }
+            case TC_Primitive__Uint8: { fprintf(qbe_out, "ub "); return; }
+            case TC_Primitive__Uint16: { fprintf(qbe_out, "uh "); return; }
             case TC_Primitive__Uint32: { fprintf(qbe_out, "w "); return; }
             case TC_Primitive__Uint64: { fprintf(qbe_out, "l "); return; }
 
             case TC_Primitive__Float32: { fprintf(qbe_out, "s "); return; }
             case TC_Primitive__Float64: { fprintf(qbe_out, "d "); return; }
 
-            case TC_Primitive__Char: { fprintf(qbe_out, "b "); return; }
-            case TC_Primitive__Bool: { fprintf(qbe_out, "b "); return; }
+            case TC_Primitive__Char: { fprintf(qbe_out, "ub "); return; }
+            case TC_Primitive__Bool: { fprintf(qbe_out, "ub "); return; }
         }
         return;
     }
@@ -79,7 +82,7 @@ void write_type(const TC_typeid* restrict t, TC_typeid_LIST* restrict qbe_mat_ne
 
 void mir_type_prereg(const TC_typeid* restrict t, const TC_TypeTable* restrict nct, TC_typeid_LIST* restrict qbe_mat_needing_types, khash_t(sv_u64_map)* restrict identifier_map, FILE* restrict qbe_out, const TargetInfo* restrict target_info) {
     const SizeAlign sa = calc_size_of(t, nct, target_info);
-    fprintf(qbe_out, "type :t%lu = { b %lu }", qbe_mat_needing_types->len, sa.size);
+    fprintf(qbe_out, "type :t%lu = align %lu { b %lu }", qbe_mat_needing_types->len, sa.align, sa.size);
     TC_typeid_LIST_push(qbe_mat_needing_types, *t);
 }
 
@@ -116,6 +119,7 @@ void mir_fn_to_qbe(const MIR_func* restrict fn, const TC_TypeTable* restrict nct
         fprintf(qbe_out, "\n\nfunction ");
         if (fn->has_ret) {
             write_type(&fn->ret_type, qbe_mat_needing_types, qbe_out, target_info);
+
         }
         fprintf(qbe_out, "$"SV_format"(", SV_v_args(fn->fn_raw_name));
     }
@@ -269,7 +273,123 @@ item at i * item_sa.size.
             UNIMPLEMENTED()
         }
         case MIR_TY__CAST: {
-            UNIMPLEMENTED()
+            if (instr->info.cast.from_type.ty == TC_TY_Primitive && instr->info.cast.to_type.ty == TC_TY_Primitive) {
+                const TC_primitive_classification from = tc_primitive_classification(instr->info.cast.from_type.info.primitive);
+                const TC_primitive_classification to = tc_primitive_classification(instr->info.cast.to_type.info.primitive);
+
+                fprintf(qbe_out, "  %%v%lu =", instr->info.cast.dest);
+
+                if (from.is_float_primitive && to.is_float_primitive) {
+                    if (from.primitive_byte_size == 8 && to.primitive_byte_size == 4) {
+                        fprintf(qbe_out, "=s truncd %%v%lu\n", instr->info.cast.src);
+                    } else if (from.primitive_byte_size == 4 && to.primitive_byte_size == 8) {
+                        fprintf(qbe_out, "=d exts %%v%lu\n", instr->info.cast.src);
+                    } else if (from.primitive_byte_size == to.primitive_byte_size) {
+                        fprintf(qbe_out, "=%c copy %%v%lu\n", qbe_val_type(&instr->info.cast.to_type, target_info), instr->info.cast.src);
+                    } else {
+                        INTERNAL_ERROR()
+                    }
+                } else if (instr->info.cast.to_type.info.primitive == TC_Primitive__Bool) {
+                    const char tc = qbe_val_type(&instr->info.cast.from_type, target_info);
+
+                    fprintf(qbe_out, "=w cne%c %%v%lu\n", tc, instr->info.cast.src);
+                } else if (!from.is_float_primitive && to.is_float_primitive) {
+                    const char singed = from.is_signed_int_primitive ? 's' : 'u';
+                    const char tc = qbe_val_type(&instr->info.cast.from_type, target_info);
+                    const char to_c = qbe_val_type(&instr->info.cast.to_type, target_info);
+
+                    fprintf(qbe_out, "=%c %c%ctof %%v%lu\n", to_c, singed, tc, instr->info.cast.src);
+                } else if (from.is_float_primitive && !to.is_float_primitive) {
+                    const char tc = qbe_val_type(&instr->info.cast.from_type, target_info);
+                    const char to_c = qbe_val_type(&instr->info.cast.to_type, target_info);
+                    const char singed = to.is_signed_int_primitive ? 's' : 'u';
+
+                    fprintf(qbe_out, "=%c %cto%ci %%v%lu\n", to_c, tc, singed, instr->info.cast.src);
+                } else { // into to int
+
+                    // narrowing
+                    if (from.primitive_byte_size > to.primitive_byte_size) {
+                        if (to.primitive_byte_size < 4) {
+                            // emit
+                            const char sign = to.is_signed_int_primitive ? 's' : 'u';
+                            const char size = to.primitive_byte_size == 1 ? 'b' : 'h';
+                            fprintf(qbe_out, "w ext%c%c", sign, size);
+                        } else if (to.primitive_byte_size == 4) {
+                            fprintf(qbe_out, "w copy");
+                        }
+                    } else if (from.primitive_byte_size == to.primitive_byte_size) {
+
+                        const char size = to.primitive_byte_size == 8 ? 'l' : 'w';
+                        fprintf(qbe_out, "%c copy", size);
+                    } else { // widening
+
+                        const char size = to.primitive_byte_size == 8 ? 'l' : 'w';
+                        const char sign = to.is_signed_int_primitive ? 's' : 'u';
+                        char vsize;
+                        switch (to.primitive_byte_size) {
+                            case 1: vsize = 'b'; break;
+                            case 2: vsize = 'h'; break;
+                            case 4: vsize = 'w'; break;
+                            case 8: vsize = 'l'; break;
+                            default: INTERNAL_ERROR()
+                        }
+                        fprintf(qbe_out, "%c ext%c%c", size, sign, vsize);
+                    }
+
+
+                    fprintf(qbe_out, " %%v%lu\n", instr->info.cast.src);
+                }
+
+                // if (instr->info.cast.from_type.info.primitive == instr->info.cast.to_type.info.primitive) {
+                //     fprintf(qbe_out, "  %%v%lu =%c copy %%v%lu\n", instr->info.cast.dest, qbe_val_type(&instr->info.cast.to_type, target_info), instr->info.cast.src);
+                // } else if (from.is_float_primitive && to.is_float_primitive) {
+                //     if (from.primitive_byte_size == 8 && to.primitive_byte_size == 4) {
+                //         fprintf(qbe_out, "  %%v%lu =s truncd %%v%lu\n", instr->info.cast.dest, instr->info.cast.src);
+                //     } else if (from.primitive_byte_size == 4 && to.primitive_byte_size == 8) {
+                //         fprintf(qbe_out, "  %%v%lu =d exts %%v%lu\n", instr->info.cast.dest, instr->info.cast.src);
+                //     } else if (from.primitive_byte_size == to.primitive_byte_size) {
+                //         fprintf(qbe_out, "  %%v%lu =%c copy %%v%lu\n", instr->info.cast.dest, qbe_val_type(&instr->info.cast.to_type, target_info), instr->info.cast.src);
+                //     } else {
+                //         INTERNAL_ERROR()
+                //     }
+                // } else if (instr->info.cast.to_type.info.primitive == TC_Primitive__Bool) {
+                //     const char tc = qbe_val_type(&instr->info.cast.from_type, target_info);
+                //
+                //     fprintf(qbe_out, "  %%v%lu =w cne%c %%v%lu\n", instr->info.cast.dest, tc, instr->info.cast.src);
+                // } else if (!from.is_float_primitive && to.is_float_primitive) {
+                //     const char singed = from.is_signed_int_primitive ? 's' : 'u';
+                //     const char tc = qbe_val_type(&instr->info.cast.from_type, target_info);
+                //     const char to_c = qbe_val_type(&instr->info.cast.to_type, target_info);
+                //
+                //     fprintf(qbe_out, "  %%v%lu =%c %c%ctof %%v%lu\n", instr->info.cast.dest, to_c, singed, tc, instr->info.cast.src);
+                // } else if (from.is_float_primitive && !to.is_float_primitive) {
+                //     const char tc = qbe_val_type(&instr->info.cast.from_type, target_info);
+                //     const char to_c = qbe_val_type(&instr->info.cast.to_type, target_info);
+                //     const char singed = to.is_signed_int_primitive ? 's' : 'u';
+                //
+                //     fprintf(qbe_out, "  %%v%lu =%c %cto%ci %%v%lu\n", instr->info.cast.dest, to_c, tc, singed, instr->info.cast.src);
+                // } else { // Int-to-Int
+                //     const char singed = from.is_signed_int_primitive ? 's' : 'u';
+                //     const char to_c = qbe_val_type(&instr->info.cast.to_type, target_info);
+                //
+                //     if (from.primitive_byte_size == 8 && to.primitive_byte_size == 4) {
+                //         fprintf(qbe_out, "  %%v%lu =w copy %%v%lu\n", instr->info.cast.dest, instr->info.cast.src);
+                //     } else {
+                //         const SV rl = reg_size_to_letter(from.primitive_byte_size);
+                //         fprintf(qbe_out, "  %%v%lu =%c ext%c"SV_format" %%v%lu\n",
+                //             instr->info.cast.dest,
+                //             to_c,
+                //             singed,
+                //             SV_v_args(rl),
+                //             instr->info.cast.src
+                //         );
+                //     }
+                //
+                // }
+            } else {
+                INTERNAL_ERROR()
+            }
+            break;
         }
         case MIR_TY__OP_BINOP: {
             if (instr->info.binop.type.ty != TC_TY_Primitive) {
@@ -427,9 +547,13 @@ item at i * item_sa.size.
             }
             fprintf(qbe_out, "call $"SV_format" (", SV_v_args(instr->info.call.raw_name));
             for (size_t n = 0; n < instr->info.call.args.len; n++) {
+                // const char ck = qbe_val_type(&instr->info.call.arg_types.array[n], target_info);
+                // char ck[2];
+                // qbe_fn_call_type(&instr->info.call.arg_types.array[n], target_info, ck);
+
                 write_type(&instr->info.call.arg_types.array[n], qbe_mat_needing_types, qbe_out, target_info);
 
-                fprintf(qbe_out, "%%v%lu", instr->info.call.args.array[n]);
+                fprintf(qbe_out, " %%v%lu", instr->info.call.args.array[n]);
                 if (n + 1 != instr->info.call.args.len) {
                     fprintf(qbe_out, ", ");
                 }
@@ -476,19 +600,19 @@ item at i * item_sa.size.
 
 void mir_emit_type_def(const TC_typeid* t, const TC_TypeTable* nct, const TargetInfo* target_info, const khash_t(sv_u64_map)* identifier_map, FILE* restrict qbe_type_out);
 
-void mir_emit_type_table(const TC_typeid_LIST* restrict qbe_mat_needing_types, const TC_TypeTable* restrict nct, FILE* restrict qbe_type_out, const TargetInfo* restrict target_info, const khash_t(sv_u64_map)* restrict identifier_map) {
-
-    for (size_t n = 0; n < qbe_mat_needing_types->len; n++) {
-        const SizeAlign sa = calc_size_of(&qbe_mat_needing_types->array[n], nct, target_info);
-        fprintf(qbe_type_out, "type :t%lu = align %lu {", n, sa.align);
-
-        mir_emit_type_def(&qbe_mat_needing_types->array[n], nct, target_info, identifier_map, qbe_type_out);
-
-        const SV t_sv = format_TC_typeid(&qbe_mat_needing_types->array[n], identifier_map, nct);
-        fprintf(qbe_type_out, "} # '"SV_format"'\n", SV_v_args(t_sv));
-    }
-
-}
+// void mir_emit_type_table(const TC_typeid_LIST* restrict qbe_mat_needing_types, const TC_TypeTable* restrict nct, FILE* restrict qbe_type_out, const TargetInfo* restrict target_info, const khash_t(sv_u64_map)* restrict identifier_map) {
+//
+//     for (size_t n = 0; n < qbe_mat_needing_types->len; n++) {
+//         const SizeAlign sa = calc_size_of(&qbe_mat_needing_types->array[n], nct, target_info);
+//         fprintf(qbe_type_out, "type :t%lu = align %lu {", n, sa.align);
+//
+//         mir_emit_type_def(&qbe_mat_needing_types->array[n], nct, target_info, identifier_map, qbe_type_out);
+//
+//         const SV t_sv = format_TC_typeid(&qbe_mat_needing_types->array[n], identifier_map, nct);
+//         fprintf(qbe_type_out, "} # '"SV_format"'\n", SV_v_args(t_sv));
+//     }
+//
+// }
 
 void mir_emit_type_def(const TC_typeid* t, const TC_TypeTable* nct, const TargetInfo* target_info, const khash_t(sv_u64_map)* identifier_map, FILE* restrict qbe_type_out) {
     switch (t->ty) {

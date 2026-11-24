@@ -14,6 +14,9 @@ void translate_in_arg(const CFFI_c_fn_arg c_arg,
 ) {
     const CFFI_c_typeuse ct = c_arg.c_type;
     switch (ct.kind) {
+        case CFFI_TY_INVALID: {
+            INTERNAL_ERROR()
+        }
         case CFFI_TY_PRIMITIVE: {
             *out_tt = (TC_typeid) {
                 .ty = TC_TY_Primitive,

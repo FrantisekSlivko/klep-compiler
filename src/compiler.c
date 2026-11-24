@@ -1,7 +1,9 @@
 #include "compiler.h"
 
+#include "args.h"
 #include "ir.h"
 #include "khash.h"
+#include "backend.h"
 #include "sv_u64_map.h"
 #include "tokenizer.h"
 #include "typecompletion.h"
@@ -37,7 +39,7 @@ Parser initial_parsing(const SourceInfo source_info, GlobalCompilerState* restri
 
 
 
-void main_compile(const TargetInfo target_info, const SourceInfo source_info) {
+void main_compile(const TargetInfo target_info, const SourceInfo source_info, const CompilerArgs* restrict compiler_args) {
 
     khash_t(sv_u64_map)* identifier_map = kh_init(sv_u64_map);
     khash_t(sv_u64_map)* path_map = kh_init(sv_u64_map);
@@ -55,8 +57,6 @@ void main_compile(const TargetInfo target_info, const SourceInfo source_info) {
     // }
 
     TC_TypeTable nct = close_type_table(&main_p.type_table, global_compiler_state.identifier_map, main_p.generic_functions, &target_info, &source_info);
-
-
 
 
 
@@ -195,10 +195,17 @@ void main_compile(const TargetInfo target_info, const SourceInfo source_info) {
         mir_funcs.array[i] = mir_func;
     }
 
-    FILE* qbe_out = fopen("out.ssa", "w+");
-    // FILE* qbe_type_out = fopen("out_type.ssa", "w+");
+    FILE* qbe_in = backend_open(compiler_args);
+    // if (compiler_args->emit_ssa_provided) {
+    //     char name[1024];
+    //     snprintf(name, 1024, SV_format, SV_v_args(compiler_args->emit_ssa_path));
+    //     qbe_in = fopen(name, "w+");
+    // } else {
+    //     qbe_in = open_qbe_pipe(compiler_args);
+    // }
 
-    if (qbe_out == NULL) {
+
+    if (qbe_in == NULL) {
         perror("fopen");
     }
     // if (qbe_type_out == NULL) {
@@ -208,24 +215,30 @@ void main_compile(const TargetInfo target_info, const SourceInfo source_info) {
     TC_typeid_LIST qbe_type_table = TC_typeid_LIST_new();
     SVList global_string_const_table = SVList_new();
 
-    mir_types_preregister(&nct, &qbe_type_table, identifier_map, qbe_out, &target_info);
+    mir_types_preregister(&nct, &qbe_type_table, identifier_map, qbe_in, &target_info);
 
     for (size_t n = 0; n < mir_funcs.len; n++) {
-        mir_fn_to_qbe(&mir_funcs.array[n], &nct, &qbe_type_table, identifier_map, qbe_out, &target_info, &global_string_const_table);
+        mir_fn_to_qbe(&mir_funcs.array[n], &nct, &qbe_type_table, identifier_map, qbe_in, &target_info, &global_string_const_table);
     }
 
     // mir_emit_type_table(&qbe_type_table, &nct, qbe_type_out, &target_info, identifier_map);
-    fprintf(qbe_out, "\n\n");
+    fprintf(qbe_in, "\n\n");
     for (size_t n = 0; n < global_string_const_table.len; n++) {
-        fprintf(qbe_out, "data $str%lu = { b ", n);
+        fprintf(qbe_in, "data $str%lu = { b ", n);
         for (size_t c = 0; c < global_string_const_table.array[n].len; c++) {
-            fprintf(qbe_out, "%u ", global_string_const_table.array[n].start[c]);
+            fprintf(qbe_in, "%u ", global_string_const_table.array[n].start[c]);
         }
-        fprintf(qbe_out, ", b 0 }\n");
+        fprintf(qbe_in, ", b 0 }\n");
     }
 
-    // fclose(qbe_type_out);
-    fclose(qbe_out);
+
+    // if (output_ssa_to_file) {
+    //     fclose(qbe_in);
+    // } else {
+    //     close_qbe_pipe(qbe_in);
+    // }
+    backend_close(qbe_in, compiler_args);
+    // printf("[WARN] closing pipe/file not implemented yet\n");
 
     printf("DONE\n");
 

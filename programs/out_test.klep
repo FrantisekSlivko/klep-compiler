@@ -34,9 +34,14 @@ Int main() {
     while i < 10 {
         i += 1;
     }
-    return i;
+    exit(cast<Uint8>(i));
+    return 0;
 }
 
 // extern void puts(char* str)
 //   into
-//   Void print_string(Ref<Slice<Char>> str );
+//   Void print_string(Slice<Char> str_start);
+
+extern void exit(uint8_t code)
+    into
+    Void exit(Uint8 code);

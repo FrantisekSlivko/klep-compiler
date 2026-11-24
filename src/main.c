@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "args.h"
 #include "compiler.h"
 #include "passes/mir_process.h"
 #include "passes/parser/parser.h"
@@ -11,123 +12,6 @@
 
 
 
-static uint32_t COMPILER_VERSIONING[3] = {0,1,0};
-
-typedef struct {
-    SV input_filename;
-    const char* raw_input_filename;
-    bool input_provided;
-    SV output_filename;
-    bool output_provided;
-} CompilerArgs;
-
-
-static void print_usage(const SV program_name) {
-    fprintf(stderr,
-        "Usage: " SV_format " [options] <input.klep>\n"
-        "\n"
-        "Options:\n"
-        "  -o <file>, --output=<file>  Set output file path (default: <input>.out)\n"
-        "  -h, --help                  Show this help message and exit\n"
-        "  -v, --version               Show compiler version and exit\n"
-        "\n"
-        "Arguments:\n"
-        "  <input.klep>                The Klep source file to compile (required)\n",
-        SV_v_args(program_name)
-    );
-}
-
-
-static void print_version(void) {
-    printf("Klep Compiler - version %u.%u.%u\n", COMPILER_VERSIONING[0], COMPILER_VERSIONING[1], COMPILER_VERSIONING[2]);
-}
-
-
-static CompilerArgs parse_args(const SVList* restrict args_list, const SV program_name) {
-    CompilerArgs args = (CompilerArgs){0};
-
-    if (args_list->len < 2) {
-        fprintf(stderr, "Error: No input file specified.\n\n");
-        print_usage(program_name);
-        exit(1);
-    }
-
-    for (size_t i = 1; i < args_list->len; i++) {
-        SV arg = args_list->array[i];
-
-        // --help / -h
-        if (SV_pv_cmp_eq(&arg, "--help", 6) || SV_pv_cmp_eq(&arg, "-h", 2)) {
-            print_usage(program_name);
-            exit(0);
-        }
-
-        // --version / -v
-        if (SV_pv_cmp_eq(&arg, "--version", 9) || SV_pv_cmp_eq(&arg, "-v", 2)) {
-            print_version();
-            exit(0);
-        }
-
-        // --output=<file>
-        if (arg.len > 9 && SV_pv_cmp_eq(&arg, "--output=", 9)) {
-            args.output_filename = SV_lrslice_from_SV(&arg, 9, arg.len - 9);
-            args.output_provided = true;
-            continue;
-        }
-
-        // -o <file>
-        if (SV_pv_cmp_eq(&arg, "-o", 2)) {
-            if (i + 1 >= args_list->len) {
-                fprintf(stderr, "Error: -o requires an argument.\n\n");
-                print_usage(program_name);
-                exit(1);
-            }
-            i++;
-            args.output_filename = args_list->array[i];
-            args.output_provided = true;
-            continue;
-        }
-
-        // if it starts with '-', it's an unknown flag
-        if (arg.len > 0 && arg.start[0] == '-') {
-            fprintf(stderr, "Error: Unknown option '" SV_format "'\n\n", SV_v_args(arg));
-            print_usage(program_name);
-            exit(1);
-        }
-
-        // positional argument (input file)
-        if (!args.input_provided) {
-            args.input_filename = arg;
-            args.raw_input_filename = arg.start;
-            args.input_provided = true;
-        } else {
-            fprintf(stderr, "Error: Multiple input files not supported.\n\n");
-            print_usage(program_name);
-            exit(1);
-        }
-    }
-
-    // check that input file was provided
-    if (!args.input_provided) {
-        fprintf(stderr, "Error: No input file specified.\n\n");
-        print_usage(program_name);
-        exit(1);
-    }
-
-    // default output filename to input.out if not provided
-    if (!args.output_provided) {
-        // alloc for input_filename + ".out"
-        // intentional memory leak, this name will be for the duration of the compilation
-        char* output_buf = malloc(args.input_filename.len + 5);
-        memcpy(output_buf, args.input_filename.start, args.input_filename.len);
-        memcpy(output_buf + args.input_filename.len, ".out", 4);
-        output_buf[args.input_filename.len + 4] = '\0';
-
-        args.output_filename = SV_from_str_len(output_buf, args.input_filename.len + 4);
-        args.output_provided = true;
-    }
-
-    return args;
-}
 
 
 
@@ -191,9 +75,9 @@ int main(const int argc, char* argv[]) {
         .source_filename = source_filename
     };
 
-    main_compile(target_info, source_info);
+
+    main_compile(target_info, source_info, &args);
 
     free(raw_source);
     return 0;
 }
-
