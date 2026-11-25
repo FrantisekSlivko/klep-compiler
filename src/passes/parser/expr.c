@@ -872,7 +872,8 @@ IR_temporal_with_span P_get_expr_val(Parser* p) {
 
         // Pass the decoded string to the identifier pool
         const SV raw_str = (SV){.start = unescaped, .len = out_len};
-        const Identifier str = P_to_identifier(p, &raw_str);
+        const Identifier str = SV_to_identifier(p->global_compiler_state->identifier_map, &p->global_compiler_state->identifier_map_cnt, &raw_str);
+        // const Identifier str = P_to_identifier(p, &raw_str);
 
         const IR_temporal dest = P_new_temporal(p);
         P_emit(p, (IR_instr){

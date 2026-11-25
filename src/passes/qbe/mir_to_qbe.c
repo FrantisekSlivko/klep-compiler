@@ -62,7 +62,7 @@ void write_type(const TC_typeid* restrict t, TC_typeid_LIST* restrict qbe_mat_ne
         return;
     }
 
-    if (t->ty == TC_TY_Ref || t->ty == TC_TY_Slice) {
+    if (t->ty == TC_TY_Ref || t->ty == TC_TY_Slice || t->ty == TC_TY_List) {
         const SV p = reg_size_to_letter(target_info->ptr_size);
         fprintf(qbe_out, SV_format" ", SV_v_args(p));
         return;
@@ -144,22 +144,43 @@ void mir_fn_to_qbe(const MIR_func* restrict fn, const TC_TypeTable* restrict nct
     fprintf(qbe_out, "}\n");
 }
 
-
+static bool is_aggregate(const size_t size, const TC_type_ty ty) {
+    return size > 8 ||
+                ty == TC_TY_Struct ||
+                ty == TC_TY_Enum ||
+                ty == TC_TY_Array ||
+                ty == TC_TY_Slice ||
+                ty == TC_TY_List
+            ;
+}
 
 
 void mir_instr_to_qbe(const MIR_instr* restrict instr, FILE* restrict qbe_out, const TC_TypeTable* restrict nct, const TargetInfo* restrict target_info, TC_typeid_LIST* restrict qbe_mat_needing_types, SVList* restrict string_const_data) {
     switch (instr->type) {
         case MIR_TY__INVALID: INTERNAL_ERROR("MIR_TY__INVALID")
-        case MIR_TY__ALLOC: {
-            const SizeAlign sa = calc_size_of(&instr->info.alloc.type, nct, target_info);
+        case MIR_TY__ALLOC_STACK: {
+            const SizeAlign sa = calc_size_of(&instr->info.alloc_stack.type, nct, target_info);
             const SV val_st_sz = reg_size_to_letter(target_info->ptr_size);
-            fprintf(qbe_out, "  %%v%lu ="SV_format" alloc%lu %lu\n", instr->info.alloc.dest, SV_v_args(val_st_sz), sa.align, sa.size);
+            fprintf(qbe_out, "  %%v%lu ="SV_format" alloc%lu %lu\n", instr->info.alloc_stack.dest, SV_v_args(val_st_sz), sa.align, sa.size);
+            break;
+        }
+        case MIR_TY__ALLOC_HEAP: {
+            const SizeAlign elem_sa = calc_size_of(&instr->info.alloc_heap.type, nct, target_info);
+            const SV ptr_reg = reg_size_to_letter(target_info->ptr_size);
+            if (instr->info.alloc_heap.use_size_temp) {
+                fprintf(qbe_out, "  %%v%lu ="SV_format" call $malloc("SV_format" %%v%lu)\n",
+                        instr->info.alloc_heap.dest, SV_v_args(ptr_reg), SV_v_args(ptr_reg), instr->info.alloc_heap.size);
+            } else {
+                fprintf(qbe_out, "  %%v%lu ="SV_format" call $malloc("SV_format" %lu)\n",
+                        instr->info.alloc_heap.dest, SV_v_args(ptr_reg), SV_v_args(ptr_reg), elem_sa.size);
+            }
             break;
         }
         case MIR_TY__CONST_INT: {
-            const SizeAlign sa = calc_size_of(&instr->info.const_int.type, nct, target_info);
-            const SV val_st_sz = reg_size_to_letter(sa.size);
-            fprintf(qbe_out, "  %%v%lu ="SV_format" copy %li\n", instr->info.const_int.dest, SV_v_args(val_st_sz), instr->info.const_int.val);
+            // const SizeAlign sa = calc_size_of(&instr->info.const_int.type, nct, target_info);
+            // const SV val_st_sz = reg_size_to_letter(sa.size);
+            const char val_ty = qbe_val_type(&instr->info.const_int.type, target_info);
+            fprintf(qbe_out, "  %%v%lu =%c copy %li\n", instr->info.const_int.dest, val_ty, instr->info.const_int.val);
             break;
         }
         case MIR_TY__CONST_FLOAT: {
@@ -173,10 +194,10 @@ void mir_instr_to_qbe(const MIR_instr* restrict instr, FILE* restrict qbe_out, c
             fprintf(qbe_out, "  %%v%lu ="SV_format" copy %lf\n", instr->info.const_float.dest, SV_v_args(val_st_sz), instr->info.const_float.val);
             break;
         }
-        case MIR_TY__CONST_STRING: {
+        case MIR_TY__LOAD_PTR_TO_CONST_STRING: {
             const SV ptr_size = reg_size_to_letter(target_info->ptr_size);
-            fprintf(qbe_out, "  %%v%lu ="SV_format" copy $str%lu\n", instr->info.const_string.dest, SV_v_args(ptr_size), string_const_data->len);
-            SVList_push(string_const_data, instr->info.const_string.str_val);
+            fprintf(qbe_out, "  %%v%lu ="SV_format" copy $str%lu\n", instr->info.load_ptr_const_string.dest, SV_v_args(ptr_size), string_const_data->len);
+            SVList_push(string_const_data, instr->info.load_ptr_const_string.str_val);
             break;
         }
         case MIR_TY__MOVE: {
@@ -191,12 +212,23 @@ void mir_instr_to_qbe(const MIR_instr* restrict instr, FILE* restrict qbe_out, c
             break;
         }
         case MIR_TY__LOAD: {
-            fprintf(qbe_out, "  # LOAD\n");
+            char ck[2];
+            qbe_fn_call_type(&instr->info.load.type, target_info, ck);
+            SV rs;
+            if (ck[0] == ' ') {
+                rs = (SV) {.start = &ck[1], .len = 1};
+            } else {
+                rs = (SV) {.start = ck, .len = 2};
+            }
+            const char val_ty = qbe_val_type(&instr->info.load.type, target_info);
+            fprintf(qbe_out, "  %%v%lu =%c load"SV_format" %%v%lu\n",
+                    instr->info.load.dest, val_ty, SV_v_args(rs), instr->info.load.slot);
             break;
         }
         case MIR_TY__STORE: {
             const SizeAlign sa = calc_size_of(&instr->info.store.val_type, nct, target_info);
-            if (instr->info.store.is_val_stack) {
+            const bool is_aggregate_v = is_aggregate(sa.size, instr->info.store.val_type.ty);
+            if (instr->info.store.is_val_stack && is_aggregate_v) { // instr->info.store.is_val_stack
                 fprintf(qbe_out, "  blit %%v%lu, %%v%lu, %lu\n", instr->info.store.val, instr->info.store.ptr, sa.size);
             } else {
                 const SV rs = reg_size_to_letter(sa.align);
@@ -207,12 +239,24 @@ void mir_instr_to_qbe(const MIR_instr* restrict instr, FILE* restrict qbe_out, c
         }
         case MIR_TY__READ_PTR: {
             // load or blit
-
             if (instr->info.read_ptr.read_size > 8) {
-                fprintf(qbe_out, "  blit %%v%lu, %%si%luoff%lu, %lu\n", instr->info.read_ptr.dest, instr->info.read_ptr.ptr, instr->info.read_ptr.dest, instr->info.read_ptr.read_size);
+                const SizeAlign sa = calc_size_of(&instr->info.read_ptr.value_type, nct, target_info);
+                fprintf(qbe_out, "  %%v%lu =l alloc%lu %lu\n",
+                        instr->info.read_ptr.dest, sa.align, sa.size);
+                fprintf(qbe_out, "  blit %%v%lu, %%v%lu, %lu\n",
+                        instr->info.read_ptr.ptr, instr->info.read_ptr.dest, instr->info.read_ptr.read_size);
             } else {
-                const SV rs = reg_size_to_letter(instr->info.read_ptr.read_size);
-                fprintf(qbe_out, "  %%v%lu =%c load"SV_format" %%v%lu\n", instr->info.read_ptr.dest, instr->info.read_ptr.read_size == 8 ? 'l' : 'w',  SV_v_args(rs), instr->info.read_ptr.ptr);
+                char ck[2];
+                qbe_fn_call_type(&instr->info.read_ptr.value_type, target_info, ck);
+                SV rs;
+                if (ck[0] == ' ') {
+                    rs = (SV) {.start = &ck[1], .len = 1};
+                } else {
+                    rs = (SV) {.start = ck, .len = 2};
+                }
+                const char val_ty = qbe_val_type(&instr->info.read_ptr.value_type, target_info);
+                fprintf(qbe_out, "  %%v%lu =%c load"SV_format" %%v%lu\n",
+                        instr->info.read_ptr.dest, val_ty, SV_v_args(rs), instr->info.read_ptr.ptr);
             }
             break;
         }
@@ -223,9 +267,14 @@ void mir_instr_to_qbe(const MIR_instr* restrict instr, FILE* restrict qbe_out, c
         }
         case MIR_TY__CALC_PTR: {
             if (instr->info.calc_ptr.has_index) {
-                fprintf(qbe_out, "  %%ccp%luc0 =l extsw %%v%lu\n", instr->info.calc_ptr.dest, instr->info.calc_ptr.index);
+                fprintf(qbe_out, "  %%ccp%luc0 =l extuw %%v%lu\n", instr->info.calc_ptr.dest, instr->info.calc_ptr.index);
                 fprintf(qbe_out, "  %%ccp%luc1 =l mul %%ccp%luc0, %lu\n", instr->info.calc_ptr.dest, instr->info.calc_ptr.dest, instr->info.calc_ptr.scale);
-                fprintf(qbe_out, "  %%v%lu =l add %%v%lu, %lu\n", instr->info.calc_ptr.dest, instr->info.calc_ptr.base, instr->info.calc_ptr.offset);
+                if (instr->info.calc_ptr.offset == 0) {
+                    fprintf(qbe_out, "  %%v%lu =l add %%v%lu, %%ccp%luc1\n", instr->info.calc_ptr.dest, instr->info.calc_ptr.base, instr->info.calc_ptr.dest);
+                } else {
+                    fprintf(qbe_out, "  %%ccp%luc2 =l add %%v%lu, %%ccp%luc1\n", instr->info.calc_ptr.dest, instr->info.calc_ptr.base, instr->info.calc_ptr.dest);
+                    fprintf(qbe_out, "  %%v%lu =l add %%ccp%luc2, %lu\n", instr->info.calc_ptr.dest, instr->info.calc_ptr.dest, instr->info.calc_ptr.offset);
+                }
             } else if (instr->info.calc_ptr.offset == 0) {
                 fprintf(qbe_out, "  %%v%lu =l copy %%v%lu\n", instr->info.calc_ptr.dest, instr->info.calc_ptr.base);
             } else {
@@ -257,19 +306,76 @@ void mir_instr_to_qbe(const MIR_instr* restrict instr, FILE* restrict qbe_out, c
 
             break;
         }
-        case MIR_TY__MAKE_ARRAY: {
-            /*
-            MIR_TY__MAKE_ARRAY:
-                stack-allocate (alloc) for TC_TY_Array, or
-                call $malloc + stack header { ptr, len, cap } for TC_TY_List (is_heap), then store/blit each
-item at i * item_sa.size.
-             */
-            UNIMPLEMENTED()
+         case MIR_TY__MAKE_ARRAY: {
+            const MIR_temporal_id dest = instr->info.make_array.dest;
+            const size_t count = instr->info.make_array.items.len;
+            const SizeAlign item_sa = calc_size_of(&instr->info.make_array.item_type, nct, target_info);
+            const size_t total_bytes = count * item_sa.size;
+            const SV ptr_reg = reg_size_to_letter(target_info->ptr_size);
+            const bool item_is_aggregate = is_aggregate(item_sa.size, instr->info.make_array.item_type.ty);
+            if (instr->info.make_array.is_heap) {
+                // allocate heap buffer for elements: %ma<dest>_buf =l call $malloc(l <bytes>)
+                fprintf(qbe_out, "  %%ma%lu_buf ="SV_format" call $malloc("SV_format" %lu)\n", dest, SV_v_args(ptr_reg), SV_v_args(ptr_reg), total_bytes);
+                // store or blit each item into %ma<dest>_buf + i * item_sa.size
+                for (size_t i = 0; i < count; i++) {
+                    const MIR_temporal_id item_temp = instr->info.make_array.items.array[i];
+                    const size_t byte_offset = i * item_sa.size;
+                    if (byte_offset == 0) {
+                        if (item_is_aggregate) {
+                            fprintf(qbe_out, "  blit %%v%lu, %%ma%lu_buf, %lu\n", item_temp, dest, item_sa.size);
+                        } else {
+                            const SV rs = reg_size_to_letter(item_sa.size);
+                            fprintf(qbe_out, "  store"SV_format" %%v%lu, %%ma%lu_buf\n", SV_v_args(rs), item_temp, dest);
+                        }
+                    } else {
+                        fprintf(qbe_out, "  %%ma%lu_el%lu ="SV_format" add %%ma%lu_buf, %lu\n", dest, i, SV_v_args(ptr_reg), dest, byte_offset);
+                        if (item_is_aggregate) {
+                            fprintf(qbe_out, "  blit %%v%lu, %%ma%lu_el%lu, %lu\n", item_temp, dest, i, item_sa.size);
+                        } else {
+                            const SV rs = reg_size_to_letter(item_sa.size);
+                            fprintf(qbe_out, "  store"SV_format" %%v%lu, %%ma%lu_el%lu\n", SV_v_args(rs), item_temp, dest, i);
+                        }
+                    }
+                }
+                // allocate stack header { ptr, len, cap } of size ptr_size + 4 + 4
+                const SizeAlign list_sa = calc_size_of(&instr->info.make_array.array_type, nct, target_info);
+                fprintf(qbe_out, "  %%v%lu ="SV_format" alloc%lu %lu\n", dest, SV_v_args(ptr_reg), list_sa.align, list_sa.size);
+                // store heap data ptr at offset 0
+                fprintf(qbe_out, "  store"SV_format" %%ma%lu_buf, %%v%lu\n", SV_v_args(ptr_reg), dest, dest);
+                // store len (Uint32) at offset ptr_size and cap (Uint32) at offset ptr_size + 4
+                fprintf(qbe_out, "  %%ma%lu_len_val =w copy %lu\n", dest, count);
+                fprintf(qbe_out, "  %%ma%lu_len_ptr ="SV_format" add %%v%lu, %u\n", dest, SV_v_args(ptr_reg), dest, target_info->ptr_size);
+                fprintf(qbe_out, "  storew %%ma%lu_len_val, %%ma%lu_len_ptr\n", dest, dest);
+                fprintf(qbe_out, "  %%ma%lu_cap_ptr ="SV_format" add %%v%lu, %u\n", dest, SV_v_args(ptr_reg), dest, target_info->ptr_size + 4);
+                fprintf(qbe_out, "  storew %%ma%lu_len_val, %%ma%lu_cap_ptr\n", dest, dest);
+            } else {
+                // stack array (TC_TY_Array)
+                const SizeAlign arr_sa = calc_size_of(&instr->info.make_array.array_type, nct, target_info);
+                fprintf(qbe_out, "  %%v%lu ="SV_format" alloc%lu %lu\n", dest, SV_v_args(ptr_reg), arr_sa.align, arr_sa.size);
+                for (size_t i = 0; i < count; i++) {
+                    const MIR_temporal_id item_temp = instr->info.make_array.items.array[i];
+                    const size_t byte_offset = i * item_sa.size;
+                    if (byte_offset == 0) {
+                        if (item_is_aggregate) {
+                            fprintf(qbe_out, "  blit %%v%lu, %%v%lu, %lu\n", item_temp, dest, item_sa.size);
+                        } else {
+                            const SV rs = reg_size_to_letter(item_sa.size);
+                            fprintf(qbe_out, "  store"SV_format" %%v%lu, %%v%lu\n", SV_v_args(rs), item_temp, dest);
+                        }
+                    } else {
+                        fprintf(qbe_out, "  %%ma%lu_el%lu ="SV_format" add %%v%lu, %lu\n", dest, i, SV_v_args(ptr_reg), dest, byte_offset);
+                        if (item_is_aggregate) {
+                            fprintf(qbe_out, "  blit %%v%lu, %%ma%lu_el%lu, %lu\n", item_temp, dest, i, item_sa.size);
+                        } else {
+                            const SV rs = reg_size_to_letter(item_sa.size);
+                            fprintf(qbe_out, "  store"SV_format" %%v%lu, %%ma%lu_el%lu\n", SV_v_args(rs), item_temp, dest, i);
+                        }
+                    }
+                }
+            }
+            break;
         }
         case MIR_TY__MAKE_ENUM: {
-            UNIMPLEMENTED()
-        }
-        case MIR_TY__MAKE_BOX: {
             UNIMPLEMENTED()
         }
         case MIR_TY__CAST: {
@@ -324,16 +430,28 @@ item at i * item_sa.size.
                     } else { // widening
 
                         const char size = to.primitive_byte_size == 8 ? 'l' : 'w';
-                        const char sign = to.is_signed_int_primitive ? 's' : 'u';
+                        const char sign = from.is_signed_int_primitive ? 's' : 'u';
                         char vsize;
-                        switch (to.primitive_byte_size) {
-                            case 1: vsize = 'b'; break;
-                            case 2: vsize = 'h'; break;
-                            case 4: vsize = 'w'; break;
-                            case 8: vsize = 'l'; break;
+                        switch (from.primitive_byte_size) {
+                            case 1: {
+                                vsize = 'b';
+                                break;
+                            }
+                            case 2: {
+                                vsize = 'h';
+                                break;
+                            }
+                            case 4: {
+                                vsize = 'w';
+                                break;
+                            }
+                            case 8: {
+                                vsize = 'l';
+                                break;
+                            }
                             default: INTERNAL_ERROR()
                         }
-                        fprintf(qbe_out, "%c ext%c%c", size, sign, vsize);
+                        fprintf(qbe_out, "%c ext%c%c", size, sign, vsize); // issues
                     }
 
 
@@ -539,9 +657,11 @@ item at i * item_sa.size.
         }
         case MIR_TY__CALL: {
             if (instr->info.call.has_dest) {
-                const SizeAlign sa = calc_size_of(&instr->info.call.ret_type, nct, target_info);
-                const SV val_st_sz = reg_size_to_letter(sa.align);
-                fprintf(qbe_out, "  %%v%lu ="SV_format" ", instr->info.call.dest, SV_v_args(val_st_sz));
+                // const SizeAlign sa = calc_size_of(&instr->info.call.ret_type, nct, target_info);
+                // const SV val_st_sz = reg_size_to_letter(sa.align);
+                // fprintf(qbe_out, "  %%v%lu ="SV_format" ", instr->info.call.dest, SV_v_args(val_st_sz));
+                const char val_ty = qbe_val_type(&instr->info.call.ret_type, target_info);
+                fprintf(qbe_out, "  %%v%lu =%c ", instr->info.call.dest, val_ty);
             } else {
                 fprintf(qbe_out, "  ");
             }
@@ -573,16 +693,39 @@ item at i * item_sa.size.
             fprintf(qbe_out, "  ret\n");
             break;
         }
+        // case MIR_TY__PHI: {
+        //     SV rg;
+        //     if (instr->info.phi.type.ty == TC_TY_Ref) {
+        //         rg = reg_size_to_letter(target_info->ptr_size);
+        //     } else if (instr->info.phi.type.ty == TC_TY_Primitive) {
+        //         const SizeAlign sa = calc_size_of(&instr->info.phi.type, nct, target_info);
+        //         rg = reg_size_to_letter(sa.size);
+        //     } else {
+        //         UNIMPLEMENTED()
+        //     }
+        //     fprintf(qbe_out, "  %%v%lu ="SV_format" phi ", instr->info.phi.dest, SV_v_args(rg));
+        //     for (size_t n = 0; n < instr->info.phi.args.len; n++) {
+        //         fprintf(qbe_out, "@block_%lu %%v%lu", instr->info.phi.args.array[n].block_id, instr->info.phi.args.array[n].temp);
+        //         if (n + 1 != instr->info.phi.args.len) {
+        //             fprintf(qbe_out, ", ");
+        //         }
+        //     }
+        //     fprintf(qbe_out, "\n");
+        //     break;
+        // }
         case MIR_TY__PHI: {
             SV rg;
-            if (instr->info.phi.type.ty == TC_TY_Ref) {
+            if (instr->info.phi.type.ty == TC_TY_Ref
+                || instr->info.phi.type.ty == TC_TY_List
+                || instr->info.phi.type.ty == TC_TY_Slice
+                || instr->info.phi.type.ty == TC_TY_Box) {
                 rg = reg_size_to_letter(target_info->ptr_size);
-            } else if (instr->info.phi.type.ty == TC_TY_Primitive) {
-                const SizeAlign sa = calc_size_of(&instr->info.phi.type, nct, target_info);
-                rg = reg_size_to_letter(sa.size);
-            } else {
-                UNIMPLEMENTED()
-            }
+                } else if (instr->info.phi.type.ty == TC_TY_Primitive) {
+                    const SizeAlign sa = calc_size_of(&instr->info.phi.type, nct, target_info);
+                    rg = reg_size_to_letter(sa.size >= 8 ? 8 : 4);
+                } else {
+                    UNIMPLEMENTED()
+                }
             fprintf(qbe_out, "  %%v%lu ="SV_format" phi ", instr->info.phi.dest, SV_v_args(rg));
             for (size_t n = 0; n < instr->info.phi.args.len; n++) {
                 fprintf(qbe_out, "@block_%lu %%v%lu", instr->info.phi.args.array[n].block_id, instr->info.phi.args.array[n].temp);

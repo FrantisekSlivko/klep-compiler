@@ -839,8 +839,6 @@ void print_dependency(
 
 SizeAlign calc_type_size(
     const TC_typeid* restrict type,
-    // const TC_structdef_LIST* restrict out_structs,
-    // const TC_enumdef_LIST* restrict out_enums,
     const TC_TypeTable* restrict nct,
 
    TC_layout_dependency_LIST* restrict in_progress,
@@ -862,7 +860,7 @@ SizeAlign calc_type_size(
             return (SizeAlign) { TC_Primitive_TY_size(type->info.primitive), TC_Primitive_TY_size(type->info.primitive)};
         }
         case TC_TY_Slice: {
-            return (SizeAlign) { target_info->ptr_size * 2, target_info->ptr_size }; // { ptr; len; }
+            return (SizeAlign) { target_info->ptr_size + 4, target_info->ptr_size }; // { ptr; len; }
         }
         case TC_TY_Array: {
             TC_layout_dependency_LIST_push(in_progress, (TC_layout_dependency) {
@@ -881,7 +879,7 @@ SizeAlign calc_type_size(
             };
         }
         case TC_TY_List: {
-            return (SizeAlign) {target_info->ptr_size * 3, target_info->ptr_size }; // { ptr; len; cap; }
+            return (SizeAlign) {target_info->ptr_size + 4 + 4, target_info->ptr_size }; // { ptr; len; cap; }
         }
         case TC_TY_Ref:
         case TC_TY_Box: {

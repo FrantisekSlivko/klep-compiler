@@ -1,0 +1,18 @@
+
+// the very first working Hello World program in Klep
+// first time successfully compiled and executed on 24.nov.2026 (22:04)
+
+Int main() {
+    Slice<Char> str = "Hello World!\n";
+    Uint c_index = 0;
+    while c_index < str.len {
+        putc(str[c_index]);
+        c_index += 1;
+    }
+    return 0;
+}
+
+extern void putchar(char c)
+    into
+    Void putc(Char c);
+

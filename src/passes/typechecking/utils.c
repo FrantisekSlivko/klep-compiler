@@ -137,7 +137,7 @@ SizeAlign calc_size_of(const TC_typeid* type, const TC_TypeTable* restrict nct,
             return (SizeAlign){TC_Primitive_TY_size(type->info.primitive), TC_Primitive_TY_size(type->info.primitive)};
         }
         case TC_TY_Slice: {
-            return (SizeAlign){target_info->ptr_size * 2, target_info->ptr_size}; // { ptr; len; }
+            return (SizeAlign){target_info->ptr_size + 4, target_info->ptr_size}; // { ptr; len; }
         }
         case TC_TY_Struct: {
             return (SizeAlign){
@@ -159,7 +159,7 @@ SizeAlign calc_size_of(const TC_typeid* type, const TC_TypeTable* restrict nct,
             };
         }
         case TC_TY_List: {
-            return (SizeAlign){target_info->ptr_size * 3, target_info->ptr_size}; // { ptr; len; cap; }
+            return (SizeAlign){target_info->ptr_size + 4 + 4, target_info->ptr_size}; // { ptr; len; cap; }
         }
         case TC_TY_External_Type: INTERNAL_ERROR("SIZEOF_ EXTERNAL_TYPE")
     }

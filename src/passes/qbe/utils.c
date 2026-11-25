@@ -6,7 +6,9 @@
 
 void qbe_fn_call_type(const TC_typeid* restrict t, const TargetInfo* restrict target_info, char* out) {
     switch (t->ty) {
-        case TC_TY_Void: INTERNAL_ERROR("void")
+        case TC_TY_Void: {
+            INTERNAL_ERROR("void")
+        }
         case TC_TY_Primitive: {
             const TC_primitive_classification tpc = tc_primitive_classification(t->info.primitive);
             const char sign = tpc.is_signed_int_primitive ? 's' : 'u';
@@ -24,6 +26,7 @@ void qbe_fn_call_type(const TC_typeid* restrict t, const TargetInfo* restrict ta
                 }
             }
             out[1] = rt;
+            return;
         }
         case TC_TY_Struct:
         case TC_TY_Enum:

@@ -205,6 +205,11 @@ will cause the function to exist in the resulting executable twice, each time co
 For use, with previously unused type parameters, the compiler performs checks, typechecking, inference, etc. again, 
 and could find issues with ownership and types, for example using function `add` from the example with type that does not support addition. 
 
+## expressions
+
+note: indexing accepts only Uint32 as index
+
+
 ## statements
 
 ### variable declaration
@@ -221,7 +226,7 @@ List<Int> l = [1,2,3];
 ### variable value change
 
 general syntax is `<variable name>[<accessor>] <op> <expr>;`
-where `<accesor>` is either index access `[<expr>]` or field access `.<field name>`,
+where `<accessor>` is either index access `[<expr>]` or field access `.<field name>`,
 and `<op>` is `=`, `+=`, `-=`, `*=`, or `/=`.
 
 examples:
@@ -276,7 +281,7 @@ TripleInt ti = new TripleInt { a=10, b=20, c=30 };
 
 ### enum construction
 
-general syntax is `new <enum name> ::<variant> [ ( [<value>, ] ) ]`
+general syntax is `new <enum name>::<variant> [ ( [<value>, ] ) ]`
 
 examples:
 ```text

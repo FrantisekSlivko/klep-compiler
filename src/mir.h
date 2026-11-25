@@ -17,10 +17,11 @@ init_prefixed_list_type(MIR_temporal_id)
 
 typedef enum {
     MIR_TY__INVALID = 0,
-    MIR_TY__ALLOC,
+    MIR_TY__ALLOC_STACK,
+    MIR_TY__ALLOC_HEAP,
     MIR_TY__CONST_INT,
     MIR_TY__CONST_FLOAT,
-    MIR_TY__CONST_STRING,
+    MIR_TY__LOAD_PTR_TO_CONST_STRING,
     MIR_TY__MOVE,
     MIR_TY__LOAD,
     MIR_TY__STORE,
@@ -30,7 +31,6 @@ typedef enum {
     MIR_TY__STRUCT_INIT,
     MIR_TY__MAKE_ARRAY,
     MIR_TY__MAKE_ENUM,
-    MIR_TY__MAKE_BOX,
     MIR_TY__CAST,
     MIR_TY__OP_BINOP,
     MIR_TY__OP_CMP,
@@ -102,8 +102,7 @@ typedef struct {
         struct {
             MIR_temporal_id dest;
             SV str_val;
-            TC_typeid type;
-        } const_string;
+        } load_ptr_const_string;
         struct {
             MIR_temporal_id dest;
             MIR_temporal_id src;
@@ -161,11 +160,6 @@ typedef struct {
             MIR_temporal_id_LIST args;
             SizeAlign sa;
         } make_enum;
-        struct {
-            MIR_temporal_id dest;
-            MIR_temporal_id src;
-            SizeAlign inner_sa;
-        } make_box;
         struct {
             MIR_temporal_id dest;
             MIR_temporal_id src;
@@ -228,8 +222,14 @@ typedef struct {
         struct {
             MIR_temporal_id dest;
             TC_typeid type;
-            bool is_stack;
-        } alloc;
+        } alloc_stack;
+        struct {
+            MIR_temporal_id dest;
+            TC_typeid type;
+            /// size temp is used as number of bytes
+            bool use_size_temp;
+            MIR_temporal_id size;
+        } alloc_heap;
     } info;
 } MIR_instr;
 

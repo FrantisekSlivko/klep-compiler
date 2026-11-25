@@ -105,7 +105,8 @@ IR_temporal_and_TC_type perf_auto_deref(
                 .dest = new_temporal,
                 .ptr = te,
                 .offset = 0,
-                .read_size = sa.size
+                .read_size = sa.size,
+                .value_type = TC_typeid_deep_copy(t.info.contained)
             }
         });
 
@@ -941,7 +942,8 @@ IR_temporal perf_autos(
                 .dest = new_temporal,
                 .ptr = current_temp,
                 .offset = 0,
-                .read_size = sa.size
+                .read_size = sa.size,
+                .value_type = TC_typeid_deep_copy(current_type.info.contained)
             }
         });
 

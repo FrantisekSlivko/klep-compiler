@@ -57,8 +57,13 @@ void variable_storage_promotion_pass(
                     break;
                 }
                 case IR_INST_TY__VAR_DECL: {
-                    const SizeAlign sz = calc_size_of(&temporals.array[instr.info.var_decl.dest.val].type, nct, target_info);
-                    if (sz.size > target_info->reg_size) {
+                    const TC_typeid dest_t = temporals.array[instr.info.var_decl.dest.val].type;
+                    const SizeAlign sz = calc_size_of(&dest_t, nct, target_info);
+                    if (sz.size > target_info->reg_size
+                        || dest_t.ty == TC_TY_Array
+                        || dest_t.ty == TC_TY_Struct
+                        || dest_t.ty == TC_TY_Enum
+                    ) {
                         IR_temporal_LIST_push(promote_to_stack_temps, instr.info.var_decl.dest);
                     }
                     break;

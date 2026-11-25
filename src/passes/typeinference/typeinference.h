@@ -15,8 +15,8 @@ void type_inference_pass_over_fn(
     TC_Entry_LIST* restrict temporals_map
 );
 
-static TC_structdef compiler_builtin__list_tc_structdef;
-static TC_structdef compiler_builtin__slice_tc_structdef;
+extern TC_structdef compiler_builtin__list_tc_structdef;
+extern TC_structdef compiler_builtin__slice_tc_structdef;
 
 void init__compiler_builtin__tc_types(khash_t(sv_u64_map)* restrict identifier_map, uint64_t* restrict identifier_map_cnt, const TargetInfo* restrict target_info);
 

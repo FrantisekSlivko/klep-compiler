@@ -1,47 +1,47 @@
-
-struct A {
-    Int v1;
-    Int v2;
-}
-
-
-Int add(Int a, Int b) {
-    return a + b;
-}
-
-Int add(Ref<A> a) {
-    return a.v1 + a.v2;
-}
-
-// Int add(A a, Int v) {
-//     return a.v1 + a.v2 + v;
-// }
-
 Int main() {
-    Int v1 = 5;
-    Int v2 = v1 + 3;
-    Int res = add(v1, v2);
-
-    A s1 = new A { v1=1, v2=2 };
-    Ref<A> s2 = s1;
-    Int res1 = add(s1);
-    // Int res2 = add(s2, 0);
-
     Slice<Char> str = "Hello World!\n";
-    // print_string(str);
-
-    Int i = 0;
-    while i < 10 {
-        i += 1;
-    }
-    exit(cast<Uint8>(i));
+    print(str);
+    puts(str[0]);
+    List<Char> str2 = "abc\n";
+    str2[2] = 'd';
+    print(str2);
+    print(124);
+    print("\n");
     return 0;
 }
 
-// extern void puts(char* str)
-//   into
-//   Void print_string(Slice<Char> str_start);
+Void print(Slice<Char> str) {
+    Uint c_index = 0;
+    while c_index < str.len {
+        putc(str[c_index]);
+        c_index += 1;
+    }
+}
 
-extern void exit(uint8_t code)
+Void print(List<Char> str) {
+    Uint c_index = 0;
+    while c_index < str.len {
+        putc(str[c_index]);
+        c_index += 1;
+    }
+}
+
+Void print(Int64 i) {
+    Array<Char, 4> c = "%li\0";
+    printf_int(c[0], i);
+}
+
+
+
+
+extern void printf(char* s, int64_t v)
     into
-    Void exit(Uint8 code);
+    Void printf_int(Ref<Char> s, Int64 v);
+
+extern void puts(char* c)
+    into
+    Void puts(Ref<Char> c);
+
+extern void putchar(char c)
+    into
+    Void putc(Char c);

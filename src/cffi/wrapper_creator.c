@@ -35,12 +35,15 @@ void translate_in_arg(const CFFI_c_fn_arg c_arg,
             INTERNAL_ERROR("unknown type")
         }
     }
+    bool found = false;
     for (size_t k = 0; k < args->len; k++) {
         const CFFI_arg k_arg = args->array[k];
         if (!k_arg.has_constructor && k_arg.name.identifier == c_arg.arg_name.identifier) {
             *out = k + 1;
+            found = true;
+            break;
         } else {
-            UNIMPLEMENTED()
+
         }
         // for (size_t m = 0; m < k_arg.constructor.len; m++) {
         //     if (k_arg.has_constructor && k_arg.constructor.array[m].identifier == c_arg.arg_name.identifier) {
@@ -58,6 +61,9 @@ void translate_in_arg(const CFFI_c_fn_arg c_arg,
         //         // , emit MIR_TY__CALC_PTR (offset 0 for m == 0, target_info->ptr_size for m == 1) and MIR_TY__READ_PTR into a fresh temporal and set *out to that temporal.)
         //     }
         // }
+    }
+    if (!found) {
+        UNIMPLEMENTED()
     }
 
 }

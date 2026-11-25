@@ -1,6 +1,6 @@
 # klep compiler
 
-**Klep** is a statically typed programming language and multi-stage SSA compiler written in C targeting the [QBE](https://c9x.me) compiler backend. *In Progress)*
+**Klep** is a statically typed programming language and multi-stage SSA compiler written in C targeting the [QBE](https://c9x.me) compiler backend. *(In Progress)*
 
 ## Architecture
 - Frontend & IR: Emits SSA HIR directly during parsing without building an AST or resolving types.

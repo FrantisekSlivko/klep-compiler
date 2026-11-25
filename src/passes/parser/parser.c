@@ -496,13 +496,13 @@ void P_get_var_dec_stmt(Parser* p) {
     const IR_temporal move_dest = P_new_temporal(p);
     const IR_temporal_with_span rs = (IR_temporal_with_span){move_dest, expr_rs.span};
 
-    P_emit(p, (IR_instr){
-               .ty = IR_INST_TY__MOVE,
-               .info.move = {
-                   .dest = move_dest,
-                   .src = expr_rs.temp
-               }
-           }, (IR_instr_error_info){.kind = IR_IEI_move, .info.move = {.value = rs.span}});
+    // P_emit(p, (IR_instr){
+    //            .ty = IR_INST_TY__MOVE,
+    //            .info.move = {
+    //                .dest = move_dest,
+    //                .src = expr_rs.temp
+    //            }
+    //        }, (IR_instr_error_info){.kind = IR_IEI_move, .info.move = {.value = rs.span}});
 
 
     IR_typeuse* ttype = malloc(sizeof(IR_typeuse));
@@ -525,6 +525,15 @@ void P_get_var_dec_stmt(Parser* p) {
                    .whole = whole
                }
            });
+
+    // moved from before IR_INST_TY__VAR_DECL
+    P_emit(p, (IR_instr){
+       .ty = IR_INST_TY__MOVE,
+       .info.move = {
+           .dest = move_dest,
+           .src = expr_rs.temp
+       }
+   }, (IR_instr_error_info){.kind = IR_IEI_move, .info.move = {.value = rs.span}});
 
     // // patch VAR_DECL.dest with RS
     // p->func_scope_blocks->array[var_decl_block].instructions.array[var_decl_nth].dest.val = rs.val;
@@ -1241,31 +1250,215 @@ void P_get_return_stmt(Parser* p) {
 }
 
 /// `a += 6;`
+// void P_get_assignment(Parser* p) {
+//     const Token origin_name = P_next_token(p);
+//     const Identifier name = P_to_identifier(p, origin_name);
+//     const TokenSpan name_span = (TokenSpan){*origin_name};
+//     const SpannedIdentifier name_spanned = (SpannedIdentifier){name, name_span};
+//
+//     const IR_temporal dest = P_variable_lookup(p, origin_name, name);
+//
+//     // bool out_requires_read_ptr = true;
+//     const IR_temporal_with_span wrapped_result = P_expr_accesors_wrapper(p, (IR_temporal_with_span){dest, name_span});
+//     // const bool is_dest_ptr = dest.val != wrapped_result.temp.val; // && out_requires_read_ptr;
+//
+//     P_require_having_next_token(p, TT_Equal);
+//     const Token assignment_type = P_next_token(p);
+//     const TokenSpan assignment_span = (TokenSpan){*assignment_type};
+//
+//     const IR_temporal_with_span expr = P_get_expr(p);
+//
+//     P_require_semicolon();
+//
+//     IR_temporal_with_span out_val = expr;
+//     IR_temporal old = {0};
+//
+//     if (Token_cmp(assignment_type, "+=")) {
+//         old = wrapped_result.temp;
+//         const IR_temporal rs = P_new_temporal(p);
+//         const TokenSpan whole = TS_merge(&name_span, &expr.span);
+//         P_emit(p, (IR_instr){
+//                    .ty = IR_INST_TY__OP_ADD,
+//                    .info.math_cmp_boolean_op = {
+//                        .dest = rs,
+//                        .src1 = wrapped_result.temp,
+//                        .src2 = expr.temp
+//                    }
+//                }, (IR_instr_error_info){
+//                    .kind = IR_IEI_math_operation,
+//                    .info.math_operation = {
+//                        .v1 = wrapped_result.span,
+//                        .v2 = expr.span,
+//                        .op = assignment_span,
+//                        .whole = whole
+//                    }
+//                });
+//         out_val = (IR_temporal_with_span){rs, expr.span};
+//     } else if (Token_cmp(assignment_type, "-=")) {
+//         old = wrapped_result.temp;
+//         const IR_temporal rs = P_new_temporal(p);
+//         const TokenSpan whole = TS_merge(&name_span, &expr.span);
+//         P_emit(p, (IR_instr){
+//                    .ty = IR_INST_TY__OP_SUB,
+//                    .info.math_cmp_boolean_op = {
+//                        .dest = rs,
+//                        .src1 = wrapped_result.temp,
+//                        .src2 = expr.temp
+//                    }
+//                }, (IR_instr_error_info){
+//                    .kind = IR_IEI_math_operation,
+//                    .info.math_operation = {
+//                        .v1 = wrapped_result.span,
+//                        .v2 = expr.span,
+//                        .op = assignment_span,
+//                        .whole = whole
+//                    }
+//                });
+//         out_val = (IR_temporal_with_span){rs, expr.span};
+//     } else if (Token_cmp(assignment_type, "*=")) {
+//         old = wrapped_result.temp;
+//         const IR_temporal rs = P_new_temporal(p);
+//         const TokenSpan whole = TS_merge(&name_span, &expr.span);
+//         P_emit(p, (IR_instr){
+//                    .ty = IR_INST_TY__OP_MUL,
+//                    .info.math_cmp_boolean_op = {
+//                        .dest = rs,
+//                        .src1 = wrapped_result.temp,
+//                        .src2 = expr.temp
+//                    }
+//                }, (IR_instr_error_info){
+//                    .kind = IR_IEI_math_operation,
+//                    .info.math_operation = {
+//                        .v1 = wrapped_result.span,
+//                        .v2 = expr.span,
+//                        .op = assignment_span,
+//                        .whole = whole
+//                    }
+//                });
+//         out_val = (IR_temporal_with_span){rs, expr.span};
+//     } else if (Token_cmp(assignment_type, "/=")) {
+//         old = wrapped_result.temp;
+//         const IR_temporal rs = P_new_temporal(p);
+//         const TokenSpan whole = TS_merge(&name_span, &expr.span);
+//         P_emit(p, (IR_instr){
+//                    .ty = IR_INST_TY__OP_DIV,
+//                    .info.math_cmp_boolean_op = {
+//                        .dest = rs,
+//                        .src1 = wrapped_result.temp,
+//                        .src2 = expr.temp
+//                    }
+//                }, (IR_instr_error_info){
+//                    .kind = IR_IEI_math_operation,
+//                    .info.math_operation = {
+//                        .v1 = wrapped_result.span,
+//                        .v2 = expr.span,
+//                        .op = assignment_span,
+//                        .whole = whole
+//                    }
+//                });
+//         out_val = (IR_temporal_with_span){rs, expr.span};
+//     } else if (Token_cmp(assignment_type, "=")) {
+//         old = dest;
+//     } else {
+//         P_syntax_error(p, assignment_type, SV_from_str("expected one of '=', '+=', '-=', '*=', or '/='"));
+//         exit(1);
+//     }
+//
+//     // if (!is_dest_ptr) {
+//     //     IR_SSA_binding_LIST* binds = P_get_current_block_bindings(p);
+//     //     bool found = false;
+//     //     for (size_t n = 0; n < binds->len; n++) {
+//     //         if (binds->array[n].variable.identifier == name) {
+//     //             found = true;
+//     //             break;
+//     //         }
+//     //     }
+//     //     if (found) {
+//     //         IR_typeuse* type = malloc(sizeof(IR_typeuse));
+//     //         *type = P_variable_type_lookup(p, origin_name, name);
+//     //         P_emit(p, (IR_instr){
+//     //                    .ty = IR_INST_TY__DROP,
+//     //                    .info.drop = {
+//     //                        .var_name = name_spanned,
+//     //                        .dest = dest,
+//     //                        .type = type,
+//     //                    }
+//     //                }, (IR_instr_error_info){.kind = IR_IEI_none});
+//     //     }
+//     // }
+//
+//
+//     // if (is_dest_ptr) {
+//     //     P_emit(p, (IR_instr){
+//     //                .ty = IR_INST_TY__STORE_PTR,
+//     //                .info.store_ptr = {
+//     //                    .ptr = wrapped_result.temp,
+//     //                    .value = out_val.temp
+//     //                }
+//     //            }, (IR_instr_error_info){
+//     //                .kind = IR_IEI_store_ptr,
+//     //                .info.store_ptr = {
+//     //                    .to = wrapped_result.span,
+//     //                    .ptr = out_val.span,
+//     //                    .expr = expr.span,
+//     //                }
+//     //            });
+//     // } else
+//         {
+//         const IR_temporal assign_dest = P_new_temporal(p);
+//
+//         // P_emit(p, (IR_instr){
+//         //            .ty = IR_INST_TY__MOVE,
+//         //            .info.move = {
+//         //                .dest = move_dest,
+//         //                .src = out_val.temp
+//         //            }
+//         //        }, (IR_instr_error_info){.kind = IR_IEI_move, .info.move = {.value = expr.span}});
+//         P_emit(p, (IR_instr) {
+//             .ty = IR_INST_TY__ASSIGN,
+//             .info.assign = {
+//                 .dest = assign_dest,
+//                 .old = old,
+//                 .new = out_val.temp
+//             }
+//         }, (IR_instr_error_info){});
+//
+//         const IR_temporal_with_span final_out = (IR_temporal_with_span){assign_dest, out_val.span};
+//
+//         IR_SSA_binding_LIST* binds = P_get_current_block_bindings(p);
+//         bool found = false;
+//         for (size_t n = 0; n < binds->len; n++) {
+//             if (binds->array[n].variable.identifier == name) {
+//                 found = true;
+//                 binds->array[n].bind = final_out.temp;
+//                 break;
+//             }
+//         }
+//         if (!found) {
+//             IR_SSA_binding_LIST_push(binds, (IR_SSA_binding){
+//                 .variable = {name, (TokenSpan){*origin_name}},
+//                 .bind = final_out.temp,
+//             });
+//         }
+//     }
+//
+// }
+
 void P_get_assignment(Parser* p) {
     const Token origin_name = P_next_token(p);
     const Identifier name = P_to_identifier(p, origin_name);
     const TokenSpan name_span = (TokenSpan){*origin_name};
-    const SpannedIdentifier name_spanned = (SpannedIdentifier){name, name_span};
-
     const IR_temporal dest = P_variable_lookup(p, origin_name, name);
-
-    // bool out_requires_read_ptr = true;
     const IR_temporal_with_span wrapped_result = P_expr_accesors_wrapper(p, (IR_temporal_with_span){dest, name_span});
-    // const bool is_dest_ptr = dest.val != wrapped_result.temp.val; // && out_requires_read_ptr;
-
+    const bool has_accessors = dest.val != wrapped_result.temp.val;
     P_require_having_next_token(p, TT_Equal);
     const Token assignment_type = P_next_token(p);
     const TokenSpan assignment_span = (TokenSpan){*assignment_type};
-
     const IR_temporal_with_span expr = P_get_expr(p);
-
     P_require_semicolon();
-
     IR_temporal_with_span out_val = expr;
-    IR_temporal old = {0};
-
+    const IR_temporal old = wrapped_result.temp;
     if (Token_cmp(assignment_type, "+=")) {
-        old = wrapped_result.temp;
         const IR_temporal rs = P_new_temporal(p);
         const TokenSpan whole = TS_merge(&name_span, &expr.span);
         P_emit(p, (IR_instr){
@@ -1286,7 +1479,6 @@ void P_get_assignment(Parser* p) {
                });
         out_val = (IR_temporal_with_span){rs, expr.span};
     } else if (Token_cmp(assignment_type, "-=")) {
-        old = wrapped_result.temp;
         const IR_temporal rs = P_new_temporal(p);
         const TokenSpan whole = TS_merge(&name_span, &expr.span);
         P_emit(p, (IR_instr){
@@ -1307,7 +1499,6 @@ void P_get_assignment(Parser* p) {
                });
         out_val = (IR_temporal_with_span){rs, expr.span};
     } else if (Token_cmp(assignment_type, "*=")) {
-        old = wrapped_result.temp;
         const IR_temporal rs = P_new_temporal(p);
         const TokenSpan whole = TS_merge(&name_span, &expr.span);
         P_emit(p, (IR_instr){
@@ -1328,7 +1519,6 @@ void P_get_assignment(Parser* p) {
                });
         out_val = (IR_temporal_with_span){rs, expr.span};
     } else if (Token_cmp(assignment_type, "/=")) {
-        old = wrapped_result.temp;
         const IR_temporal rs = P_new_temporal(p);
         const TokenSpan whole = TS_merge(&name_span, &expr.span);
         P_emit(p, (IR_instr){
@@ -1349,73 +1539,29 @@ void P_get_assignment(Parser* p) {
                });
         out_val = (IR_temporal_with_span){rs, expr.span};
     } else if (Token_cmp(assignment_type, "=")) {
-        old = dest;
+        // old is already wrapped_result.temp
     } else {
         P_syntax_error(p, assignment_type, SV_from_str("expected one of '=', '+=', '-=', '*=', or '/='"));
         exit(1);
     }
-
-    // if (!is_dest_ptr) {
-    //     IR_SSA_binding_LIST* binds = P_get_current_block_bindings(p);
-    //     bool found = false;
-    //     for (size_t n = 0; n < binds->len; n++) {
-    //         if (binds->array[n].variable.identifier == name) {
-    //             found = true;
-    //             break;
-    //         }
-    //     }
-    //     if (found) {
-    //         IR_typeuse* type = malloc(sizeof(IR_typeuse));
-    //         *type = P_variable_type_lookup(p, origin_name, name);
-    //         P_emit(p, (IR_instr){
-    //                    .ty = IR_INST_TY__DROP,
-    //                    .info.drop = {
-    //                        .var_name = name_spanned,
-    //                        .dest = dest,
-    //                        .type = type,
-    //                    }
-    //                }, (IR_instr_error_info){.kind = IR_IEI_none});
-    //     }
-    // }
-
-
-    // if (is_dest_ptr) {
-    //     P_emit(p, (IR_instr){
-    //                .ty = IR_INST_TY__STORE_PTR,
-    //                .info.store_ptr = {
-    //                    .ptr = wrapped_result.temp,
-    //                    .value = out_val.temp
-    //                }
-    //            }, (IR_instr_error_info){
-    //                .kind = IR_IEI_store_ptr,
-    //                .info.store_ptr = {
-    //                    .to = wrapped_result.span,
-    //                    .ptr = out_val.span,
-    //                    .expr = expr.span,
-    //                }
-    //            });
-    // } else
-        {
-        const IR_temporal assign_dest = P_new_temporal(p);
-
-        // P_emit(p, (IR_instr){
-        //            .ty = IR_INST_TY__MOVE,
-        //            .info.move = {
-        //                .dest = move_dest,
-        //                .src = out_val.temp
-        //            }
-        //        }, (IR_instr_error_info){.kind = IR_IEI_move, .info.move = {.value = expr.span}});
-        P_emit(p, (IR_instr) {
-            .ty = IR_INST_TY__ASSIGN,
-            .info.assign = {
-                .dest = assign_dest,
-                .old = old,
-                .new = out_val.temp
-            }
-        }, (IR_instr_error_info){});
-
+    const IR_temporal assign_dest = P_new_temporal(p);
+    P_emit(p, (IR_instr) {
+        .ty = IR_INST_TY__ASSIGN,
+        .info.assign = {
+            .dest = assign_dest,
+            .old = old,
+            .new = out_val.temp
+        }
+    }, (IR_instr_error_info){
+        .kind = IR_IEI_store_ptr,
+        .info.store_ptr = {
+            .to = wrapped_result.span,
+            .ptr = out_val.span,
+            .expr = expr.span,
+        }
+    });
+    if (!has_accessors) {
         const IR_temporal_with_span final_out = (IR_temporal_with_span){assign_dest, out_val.span};
-
         IR_SSA_binding_LIST* binds = P_get_current_block_bindings(p);
         bool found = false;
         for (size_t n = 0; n < binds->len; n++) {
@@ -1432,7 +1578,6 @@ void P_get_assignment(Parser* p) {
             });
         }
     }
-
 }
 
 

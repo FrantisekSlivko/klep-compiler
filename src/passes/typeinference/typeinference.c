@@ -87,8 +87,8 @@ void type_inference_over_match_meta(const Pattern p, TC_Entry_LIST* restrict tem
     }
 }
 
-static TC_structdef compiler_builtin__list_tc_structdef;
-static TC_structdef compiler_builtin__slice_tc_structdef;
+TC_structdef compiler_builtin__list_tc_structdef;
+TC_structdef compiler_builtin__slice_tc_structdef;
 
 
 void init__compiler_builtin__tc_types(khash_t(sv_u64_map)* restrict identifier_map,
@@ -96,7 +96,7 @@ void init__compiler_builtin__tc_types(khash_t(sv_u64_map)* restrict identifier_m
     {
         const SV list_name = SV_from_str_len("List", 4);
         const SV list_len = SV_from_str_len("len", 3);
-        const SV sv_uint32 = SV_from_str_len("Uint32", 6);
+        // const SV sv_uint32 = SV_from_str_len("Uint32", 6);
 
         TC_field_LIST list_fields = TC_field_LIST_new_with_capacity(1);
         TC_field_LIST_push(&list_fields, (TC_field){
@@ -123,7 +123,7 @@ void init__compiler_builtin__tc_types(khash_t(sv_u64_map)* restrict identifier_m
             },
             list_fields,
             (TC_struct_layout){
-                .size = target_info->ptr_size * 3,
+                .size = target_info->ptr_size + 4 + 4,
                 .align = target_info->ptr_size,
                 .field_offsets = list_field_offsets
             },
@@ -136,7 +136,7 @@ void init__compiler_builtin__tc_types(khash_t(sv_u64_map)* restrict identifier_m
     {
         const SV slice_name = SV_from_str_len("Slice", 5);
         const SV slice_len = SV_from_str_len("len", 3);
-        const SV sv_uint32 = SV_from_str_len("Uint32", 6);
+        // const SV sv_uint32 = SV_from_str_len("Uint32", 6);
 
         TC_field_LIST slice_fields = TC_field_LIST_new_with_capacity(1);
         TC_field_LIST_push(&slice_fields, (TC_field){
@@ -163,7 +163,7 @@ void init__compiler_builtin__tc_types(khash_t(sv_u64_map)* restrict identifier_m
             },
             .fields = slice_fields,
             .layout = (TC_struct_layout){
-                .size = target_info->ptr_size * 2,
+                .size = target_info->ptr_size + 4,
                 .align = target_info->ptr_size,
                 .field_offsets = list_field_offsets
             }
@@ -270,29 +270,68 @@ void type_inference_pass_over_fn(
                 case IR_INST_TY__JUMP: break;
                 case IR_INST_TY__RETURN_VOID: break;
 
+                // case IR_INST_TY__ASSIGN: {
+                //     if (!temporals_map->array[instr.info.assign.dest.val].known_temporal) break;
+                //
+                //     const TC_typeid dest_t = temporals_map->array[instr.info.assign.dest.val].type;
+                //
+                //     if(!temporals_map->array[instr.info.assign.old.val].known_temporal) {
+                //         temporals_map->array[instr.info.assign.old.val] = (TC_Entry){
+                //             .known_temporal = true,
+                //             .type = TC_typeid_deep_copy(&dest_t),
+                //             .is_addressable = false,
+                //             .is_value_known = false,
+                //         };
+                //     }
+                //
+                //     const TC_typeid new_t = dest_t.ty == TC_TY_Ref ? *dest_t.info.contained : dest_t;
+                //
+                //     if(!temporals_map->array[instr.info.assign.new.val].known_temporal) {
+                //         temporals_map->array[instr.info.assign.new.val] = (TC_Entry){
+                //             .known_temporal = true,
+                //             .type = TC_typeid_deep_copy(&new_t),
+                //             .is_addressable = false,
+                //             .is_value_known = false,
+                //         };
+                //     }
+                //     break;
+                // }
                 case IR_INST_TY__ASSIGN: {
-                    if (!temporals_map->array[instr.info.assign.dest.val].known_temporal) break;
-
-                    const TC_typeid dest_t = temporals_map->array[instr.info.assign.dest.val].type;
-
-                    if(!temporals_map->array[instr.info.assign.old.val].known_temporal) {
+                    const bool dest_known = temporals_map->array[instr.info.assign.dest.val].known_temporal;
+                    const bool old_known = temporals_map->array[instr.info.assign.old.val].known_temporal;
+                    if (!dest_known && !old_known) break;
+                    if (dest_known && !old_known) {
+                        const TC_typeid dest_t = temporals_map->array[instr.info.assign.dest.val].type;
                         temporals_map->array[instr.info.assign.old.val] = (TC_Entry){
                             .known_temporal = true,
                             .type = TC_typeid_deep_copy(&dest_t),
                             .is_addressable = false,
                             .is_value_known = false,
                         };
+                        block_id = (ptrdiff_t) fn.blocks.len;
+                        perf_jump = true;
+                    } else if (old_known && !dest_known) {
+                        const TC_typeid old_t = temporals_map->array[instr.info.assign.old.val].type;
+                        temporals_map->array[instr.info.assign.dest.val] = (TC_Entry){
+                            .known_temporal = true,
+                            .type = TC_typeid_deep_copy(&old_t),
+                            .is_addressable = false,
+                            .is_value_known = false,
+                        };
+                        block_id = (ptrdiff_t) fn.blocks.len;
+                        perf_jump = true;
                     }
-
-                    const TC_typeid new_t = dest_t.ty == TC_TY_Ref ? *dest_t.info.contained : dest_t;
-
-                    if(!temporals_map->array[instr.info.assign.new.val].known_temporal) {
+                    const TC_typeid target_t = temporals_map->array[instr.info.assign.old.val].type;
+                    const TC_typeid new_t = target_t.ty == TC_TY_Ref ? *target_t.info.contained : target_t;
+                    if (!temporals_map->array[instr.info.assign.new.val].known_temporal) {
                         temporals_map->array[instr.info.assign.new.val] = (TC_Entry){
                             .known_temporal = true,
                             .type = TC_typeid_deep_copy(&new_t),
                             .is_addressable = false,
                             .is_value_known = false,
                         };
+                        block_id = (ptrdiff_t) fn.blocks.len;
+                        perf_jump = true;
                     }
                     break;
                 }
@@ -1097,11 +1136,12 @@ void type_inference_pass_over_fn(
                                 .type = (TC_typeid){
                                     .ty = TC_TY_Ref,
                                     .info.contained = TC_typeid_new_copy(inner_type),
-                                    // .full_typeuse_span = (TokenSpan){.sv = (SV){.start = t_sv, .len = t_len}}
                                 },
                                 .is_value_known = false,
                                 .is_addressable = false
                             };
+                            block_id = (ptrdiff_t) fn.blocks.len;
+                            perf_jump = true;
                         }
                     }
                     if (!temporals_map->array[instr.info.index_ptr.index_val.val].known_temporal) {
@@ -1110,11 +1150,12 @@ void type_inference_pass_over_fn(
                             .type = (TC_typeid){
                                 .ty = TC_TY_Primitive,
                                 .info.primitive = TC_Primitive__Uint32,
-                                // .full_typeuse_span = (TokenSpan){.sv = SV_from_str_len("Uint32", 6)}
                             },
                             .is_value_known = false,
                             .is_addressable = false
                         };
+                        block_id = (ptrdiff_t) fn.blocks.len;
+                        perf_jump = true;
                     }
                     break;
                 }

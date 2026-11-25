@@ -12,6 +12,17 @@
 
 #include "overloading/resolve.h"
 
+bool is_type_on_stack(const TC_typeid* t, const TC_TypeTable* nct, const TargetInfo* target_info) {
+    const SizeAlign sa = calc_size_of(t, nct, target_info);
+    return sa.size > target_info->reg_size ||
+        t->ty == TC_TY_Array ||
+        t->ty == TC_TY_Struct ||
+        t->ty == TC_TY_Enum ||
+        t->ty == TC_TY_Slice ||
+        t->ty == TC_TY_List;
+}
+
+
 IR_temporal resolve(IR_temporal in, const IR_rewrite_LIST* restrict rewrite_map) {
     IR_temporal tmp = in;
     uint32_t cnt = 0;
@@ -276,70 +287,33 @@ MIR_func lowering_and_emission_pass_over_fn(
                 }
 
                 case IR_INST_TY__ASSIGN: {
-                    bool is_value = true;
-                    // if(
-                    //     temporals_map->array[instr.info.assign.old.val].type.ty == TC_TY_Ref &&
-                    //     temporals_map->array[instr.info.assign.new.val].type.ty != TC_TY_Ref
-                    // ) {
-                    //     // should be DROP of the Ref<T>, drop T
-                    //     mir_emit(&mir_instrs, (MIR_instr) {
-                    //         .type = MIR_TY__DROP,
-                    //         .info.drop = {
-                    //             .dest = instr.info.assign.old.val,
-                    //             .type = TC_typeid_deep_copy(&temporals_map->array[instr.info.assign.old.val].type),
-                    //             .drop_inside = true
-                    //         }
-                    //     });
-                    //     mir_emit(&mir_instrs, (MIR_instr) {
-                    //         .type = MIR_TY__STORE,
-                    //         .info.store = {
-                    //             .ptr = instr.info.assign.old.val,
-                    //             .val = instr.info.assign.new.val,
-                    //             .is_val_stack = true,
-                    //             .val_type =
-                    //         }
-                    //     });
-                    //     // printf("   DROP %%%lu (ASSIGN) {drop value in}\n", instr.info.assign.old.val);
-                    //     // printf("   STORE INTO %%%lu VALUE %%%lu (ASSIGN)\n", instr.info.assign.old.val, instr.info.assign.new.val);
-                    //     rewrite_map.array[instr.info.assign.dest.val].has_rewrite = true;
-                    //     rewrite_map.array[instr.info.assign.dest.val].rewrite = instr.info.assign.old;
-                    //     break;
-                    // }
-                    for(size_t n = 0; n < promote_to_stack_temps.len; n++) {
-                        if(
-                            promote_to_stack_temps.array[n].val == instr.info.assign.old.val ||
-                            promote_to_stack_temps.array[n].val == instr.info.assign.dest.val
-                        ) {
-                            is_value = false;
-                            break;
-                        }
-                    }
-
-                    if (is_value) {
-                        mir_emit(&mir_instrs, (MIR_instr) {
-                            .type = MIR_TY__MOVE,
-                            .info.move = {
-                                .dest = instr.info.assign.dest.val,
-                                .src = instr.info.assign.new.val,
-                                .type = TC_typeid_deep_copy(&temporals_map->array[instr.info.assign.old.val].type)
-                            }
-                        });
+                    const TC_typeid old_ty = temporals_map->array[instr.info.assign.old.val].type;
+                    const TC_typeid value_ty = TC_typeid_deep_copy(&temporals_map->array[instr.info.assign.new.val].type);
+                    const SV expr_sv = fn.error_info_list.array[instr.error_info_index].kind == IR_IEI_store_ptr
+                                           ? fn.error_info_list.array[instr.error_info_index].info.store_ptr.expr.sv
+                                           : (SV){0};
+                    if (old_ty.ty == TC_TY_Ref) {
+                        const TC_typeid expected_ty = TC_typeid_deep_copy(old_ty.info.contained);
+                        const IR_temporal coerced_val = perf_autos(
+                            &instr.info.assign.new,
+                            &value_ty,
+                            &expected_ty,
+                            &highest_temporal,
+                            identifier_map,
+                            nct,
+                            temporals_map,
+                            source_info,
+                            &expr_sv,
+                            &temporals_map_values,
+                            &promote_to_stack_temps,
+                            target_info,
+                            &mir_instrs
+                        );
                         mir_emit(&mir_instrs, (MIR_instr) {
                             .type = MIR_TY__DROP,
                             .info.drop = {
                                 .dest = instr.info.assign.old.val,
-                                .type = TC_typeid_deep_copy(&temporals_map->array[instr.info.assign.old.val].type),
-                                .drop_inside = true
-                            }
-                        });
-                        // printf("   %%%lu = MOVE %%%lu (ASSIGN)\n", instr.info.assign.dest.val, instr.info.assign.new.val);
-                        // printf("   DROP %%%lu (ASSIGN)\n", instr.info.assign.old.val);
-                    } else {
-                        mir_emit(&mir_instrs, (MIR_instr) {
-                            .type = MIR_TY__DROP,
-                            .info.drop = {
-                                .dest = instr.info.assign.old.val,
-                                .type = TC_typeid_deep_copy(&temporals_map->array[instr.info.assign.old.val].type),
+                                .type = TC_typeid_deep_copy(&old_ty),
                                 .drop_inside = true
                             }
                         });
@@ -347,19 +321,167 @@ MIR_func lowering_and_emission_pass_over_fn(
                             .type = MIR_TY__STORE,
                             .info.store = {
                                 .ptr = instr.info.assign.old.val,
-                                .val = instr.info.assign.new.val,
-                                .is_val_stack = true,
-                                .val_type = TC_typeid_deep_copy(&temporals_map->array[instr.info.assign.new.val].type)
+                                .val = coerced_val.val,
+                                .is_val_stack =is_type_on_stack(&expected_ty, nct, target_info),  //coerced_val.val != instr.info.assign.new.val,
+                                .val_type = TC_typeid_deep_copy(&expected_ty)
                             }
                         });
-                        // printf("   DROP %%%lu (ASSIGN) {drop value in}\n", instr.info.assign.old.val);
-                        // printf("   STORE INTO %%%lu VALUE %%%lu (ASSIGN)\n", instr.info.assign.old.val, instr.info.assign.new.val);
-
+                        rewrite_map.array[instr.info.assign.dest.val].has_rewrite = true;
+                        rewrite_map.array[instr.info.assign.dest.val].rewrite = instr.info.assign.old;
+                        break;
+                    }
+                    const TC_typeid expected_ty = TC_typeid_deep_copy(&old_ty);
+                    const IR_temporal coerced_val = perf_autos(
+                        &instr.info.assign.new,
+                        &value_ty,
+                        &expected_ty,
+                        &highest_temporal,
+                        identifier_map,
+                        nct,
+                        temporals_map,
+                        source_info,
+                        &expr_sv,
+                        &temporals_map_values,
+                        &promote_to_stack_temps,
+                        target_info,
+                        &mir_instrs
+                    );
+                    bool is_value = true;
+                    for (size_t n = 0; n < promote_to_stack_temps.len; n++) {
+                        if (
+                            promote_to_stack_temps.array[n].val == instr.info.assign.old.val ||
+                            promote_to_stack_temps.array[n].val == instr.info.assign.dest.val
+                        ) {
+                            is_value = false;
+                            break;
+                        }
+                    }
+                    if (is_value) {
+                        mir_emit(&mir_instrs, (MIR_instr) {
+                            .type = MIR_TY__MOVE,
+                            .info.move = {
+                                .dest = instr.info.assign.dest.val,
+                                .src = coerced_val.val,
+                                .type = TC_typeid_deep_copy(&expected_ty)
+                            }
+                        });
+                        mir_emit(&mir_instrs, (MIR_instr) {
+                            .type = MIR_TY__DROP,
+                            .info.drop = {
+                                .dest = instr.info.assign.old.val,
+                                .type = TC_typeid_deep_copy(&expected_ty),
+                                .drop_inside = true
+                            }
+                        });
+                    } else {
+                        mir_emit(&mir_instrs, (MIR_instr) {
+                            .type = MIR_TY__DROP,
+                            .info.drop = {
+                                .dest = instr.info.assign.old.val,
+                                .type = TC_typeid_deep_copy(&expected_ty),
+                                .drop_inside = true
+                            }
+                        });
+                        mir_emit(&mir_instrs, (MIR_instr) {
+                            .type = MIR_TY__STORE,
+                            .info.store = {
+                                .ptr = instr.info.assign.old.val,
+                                .val = coerced_val.val,
+                                .is_val_stack = true,
+                                .val_type = TC_typeid_deep_copy(&expected_ty)
+                            }
+                        });
                         rewrite_map.array[instr.info.assign.dest.val].has_rewrite = true;
                         rewrite_map.array[instr.info.assign.dest.val].rewrite = instr.info.assign.old;
                     }
                     break;
                 }
+
+                // case IR_INST_TY__ASSIGN: {
+                //     bool is_value = true;
+                //     // if(
+                //     //     temporals_map->array[instr.info.assign.old.val].type.ty == TC_TY_Ref &&
+                //     //     temporals_map->array[instr.info.assign.new.val].type.ty != TC_TY_Ref
+                //     // ) {
+                //     //     // should be DROP of the Ref<T>, drop T
+                //     //     mir_emit(&mir_instrs, (MIR_instr) {
+                //     //         .type = MIR_TY__DROP,
+                //     //         .info.drop = {
+                //     //             .dest = instr.info.assign.old.val,
+                //     //             .type = TC_typeid_deep_copy(&temporals_map->array[instr.info.assign.old.val].type),
+                //     //             .drop_inside = true
+                //     //         }
+                //     //     });
+                //     //     mir_emit(&mir_instrs, (MIR_instr) {
+                //     //         .type = MIR_TY__STORE,
+                //     //         .info.store = {
+                //     //             .ptr = instr.info.assign.old.val,
+                //     //             .val = instr.info.assign.new.val,
+                //     //             .is_val_stack = true,
+                //     //             .val_type =
+                //     //         }
+                //     //     });
+                //     //     // printf("   DROP %%%lu (ASSIGN) {drop value in}\n", instr.info.assign.old.val);
+                //     //     // printf("   STORE INTO %%%lu VALUE %%%lu (ASSIGN)\n", instr.info.assign.old.val, instr.info.assign.new.val);
+                //     //     rewrite_map.array[instr.info.assign.dest.val].has_rewrite = true;
+                //     //     rewrite_map.array[instr.info.assign.dest.val].rewrite = instr.info.assign.old;
+                //     //     break;
+                //     // }
+                //     for(size_t n = 0; n < promote_to_stack_temps.len; n++) {
+                //         if(
+                //             promote_to_stack_temps.array[n].val == instr.info.assign.old.val ||
+                //             promote_to_stack_temps.array[n].val == instr.info.assign.dest.val
+                //         ) {
+                //             is_value = false;
+                //             break;
+                //         }
+                //     }
+                //
+                //     if (is_value) {
+                //         mir_emit(&mir_instrs, (MIR_instr) {
+                //             .type = MIR_TY__MOVE,
+                //             .info.move = {
+                //                 .dest = instr.info.assign.dest.val,
+                //                 .src = instr.info.assign.new.val,
+                //                 .type = TC_typeid_deep_copy(&temporals_map->array[instr.info.assign.old.val].type)
+                //             }
+                //         });
+                //         mir_emit(&mir_instrs, (MIR_instr) {
+                //             .type = MIR_TY__DROP,
+                //             .info.drop = {
+                //                 .dest = instr.info.assign.old.val,
+                //                 .type = TC_typeid_deep_copy(&temporals_map->array[instr.info.assign.old.val].type),
+                //                 .drop_inside = true
+                //             }
+                //         });
+                //         // printf("   %%%lu = MOVE %%%lu (ASSIGN)\n", instr.info.assign.dest.val, instr.info.assign.new.val);
+                //         // printf("   DROP %%%lu (ASSIGN)\n", instr.info.assign.old.val);
+                //     } else {
+                //         mir_emit(&mir_instrs, (MIR_instr) {
+                //             .type = MIR_TY__DROP,
+                //             .info.drop = {
+                //                 .dest = instr.info.assign.old.val,
+                //                 .type = TC_typeid_deep_copy(&temporals_map->array[instr.info.assign.old.val].type),
+                //                 .drop_inside = true
+                //             }
+                //         });
+                //         mir_emit(&mir_instrs, (MIR_instr) {
+                //             .type = MIR_TY__STORE,
+                //             .info.store = {
+                //                 .ptr = instr.info.assign.old.val,
+                //                 .val = instr.info.assign.new.val,
+                //                 .is_val_stack = true,
+                //                 .val_type = TC_typeid_deep_copy(&temporals_map->array[instr.info.assign.new.val].type)
+                //             }
+                //         });
+                //         // printf("   DROP %%%lu (ASSIGN) {drop value in}\n", instr.info.assign.old.val);
+                //         // printf("   STORE INTO %%%lu VALUE %%%lu (ASSIGN)\n", instr.info.assign.old.val, instr.info.assign.new.val);
+                //
+                //         rewrite_map.array[instr.info.assign.dest.val].has_rewrite = true;
+                //         rewrite_map.array[instr.info.assign.dest.val].rewrite = instr.info.assign.old;
+                //     }
+                //     break;
+                // }
 
                 case IR_INST_TY__PHI: {
                     // Typecheck: Ensure all incoming PHI branches are the exact same type
@@ -517,14 +639,43 @@ MIR_func lowering_and_emission_pass_over_fn(
                         &mir_instrs
                     );
                     // printf("   %%%lu = MOVE %%%lu\n", instr.info.move.dest.val, out.val);
-                    mir_emit(&mir_instrs, (MIR_instr) {
-                        .type = MIR_TY__MOVE,
-                        .info.move = {
-                            .dest = instr.info.move.dest.val,
-                            .src = out.val,
-                            .type = TC_typeid_deep_copy(&dest_t)
+
+                    // do check, and emit move only if ref value, and if stack slot -> STORE
+                    bool is_reg_val = true;
+                    for (size_t n = 0; n < promote_to_stack_temps.len; n++) {
+                        if (instr.info.move.dest.val == promote_to_stack_temps.array[n].val) {
+                            is_reg_val = false;
+                            break;
                         }
-                    });
+                    }
+
+                    if (is_reg_val) {
+                        mir_emit(&mir_instrs, (MIR_instr) {
+                            .type = MIR_TY__MOVE,
+                            .info.move = {
+                                .dest = instr.info.move.dest.val,
+                                .src = out.val,
+                                .type = TC_typeid_deep_copy(&dest_t)
+                            }
+                        });
+                    } else {
+                        const SizeAlign dest_sa = calc_size_of(&dest_t, nct, target_info);
+                        const bool val_on_stack = dest_sa.size > target_info->reg_size
+                            || dest_t.ty == TC_TY_Array
+                            || dest_t.ty == TC_TY_Struct
+                            || dest_t.ty == TC_TY_Enum;
+                        mir_emit(&mir_instrs, (MIR_instr) {
+                            .type = MIR_TY__STORE,
+                            .info.store = {
+                                .ptr = instr.info.move.dest.val,
+                                .val = out.val,
+                                .is_val_stack = val_on_stack,
+                                .val_type = TC_typeid_deep_copy(&dest_t)
+                            }
+                        });
+                    }
+
+
 
                     break;
                 }
@@ -589,31 +740,80 @@ MIR_func lowering_and_emission_pass_over_fn(
                     // const SV t_sv = format_TC_typeid(&t, identifier_map, nct);
                     // char* value_vs_stack = "value";
                     bool value = true;
-                    for(size_t n = 0; n < promote_to_stack_temps.len; n++) {
-                        if(promote_to_stack_temps.array[n].val == instr.info.var_decl.dest.val) {
+                    for (size_t n = 0; n < promote_to_stack_temps.len; n++) {
+                        if (promote_to_stack_temps.array[n].val == instr.info.var_decl.dest.val) {
                             // value_vs_stack = "stack";
                             value = false;
                             break;
                         }
                     }
-
                     if (!value) {
-                        mir_emit(&mir_instrs, (MIR_instr) {
-                            .type = MIR_TY__ALLOC,
-                            .info.alloc = {
-                                .dest = instr.info.var_decl.dest.val,
-                                .type = TC_typeid_deep_copy(&temporals_map->array[instr.info.var_decl.dest.val].type),
-                                .is_stack = true
+                        const bool is_fn_arg =
+                            instr.info.var_decl.dest.val >= 1 &&
+                            instr.info.var_decl.dest.val <= fn.args.len;
+                        const SizeAlign sa = calc_size_of(&t, nct, target_info);
+                        const bool is_aggregate_or_fat_ptr =
+                            sa.size > target_info->reg_size
+                            || t.ty == TC_TY_Array
+                            || t.ty == TC_TY_Struct
+                            || t.ty == TC_TY_Enum
+                            || t.ty == TC_TY_Slice
+                            || t.ty == TC_TY_List;
+                        if (is_fn_arg && is_aggregate_or_fat_ptr) {
+                            // Incoming function argument %v(1..fn.args.len) is already a pointer
+                            // to the caller-provided stack buffer / aggregate; do not overwrite it
+                            // with an uninitialized MIR_TY__ALLOC_STACK.
+                        } else if (is_fn_arg && !is_aggregate_or_fat_ptr) {
+                            // Scalar parameter promoted to stack (e.g. its reference was taken):
+                            // save the incoming register value, allocate the stack slot, and store it.
+                            const uint64_t incoming_val = highest_temporal++;
+                            TC_Entry entry_copy = temporals_map->array[instr.info.var_decl.dest.val];
+                            entry_copy.type = TC_typeid_deep_copy(&t);
+                            entry_copy.is_addressable = false;
+                            while (temporals_map->len <= incoming_val) {
+                                TC_Entry_LIST_push(temporals_map, (TC_Entry){
+                                    .known_temporal = false
+                                });
                             }
-                        });
+                            temporals_map->array[incoming_val] = entry_copy;
+                            mir_emit(&mir_instrs, (MIR_instr) {
+                                .type = MIR_TY__MOVE,
+                                .info.move = {
+                                    .dest = incoming_val,
+                                    .src = instr.info.var_decl.dest.val,
+                                    .type = TC_typeid_deep_copy(&t)
+                                }
+                            });
+                            mir_emit(&mir_instrs, (MIR_instr) {
+                                .type = MIR_TY__ALLOC_STACK,
+                                .info.alloc_stack = {
+                                    .dest = instr.info.var_decl.dest.val,
+                                    .type = TC_typeid_deep_copy(&t),
+                                }
+                            });
+                            mir_emit(&mir_instrs, (MIR_instr) {
+                                .type = MIR_TY__STORE,
+                                .info.store = {
+                                    .ptr = instr.info.var_decl.dest.val,
+                                    .val = incoming_val,
+                                    .is_val_stack = false,
+                                    .val_type = TC_typeid_deep_copy(&t)
+                                }
+                            });
+                        } else {
+                            mir_emit(&mir_instrs, (MIR_instr) {
+                                .type = MIR_TY__ALLOC_STACK,
+                                .info.alloc_stack = {
+                                    .dest = instr.info.var_decl.dest.val,
+                                    .type = TC_typeid_deep_copy(&temporals_map->array[instr.info.var_decl.dest.val].type),
+                                }
+                            });
+                        }
                     }
-
                     // printf("   VAR_DECL %%%lu {on %s} <"SV_format">\n", instr.info.var_decl.dest.val, value_vs_stack, SV_v_args(t_sv));
                     break;
                 }
                 case IR_INST_TY__STORE_PTR: {
-                    // todo: ADD autos perf -> ???
-                    // printf("   STORE_PTR %%%lu VALUE %%%lu (not finished)\n", instr.info.store_ptr.ptr.val, instr.info.store_ptr.value.val);
                     // 1. The forward pass already processed INDEX_PTR, so the type is known!
                     TC_typeid ptr_ty = temporals_map->array[instr.info.store_ptr.ptr.val].type;
 
@@ -648,7 +848,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                         .info.store = {
                             .ptr = instr.info.store_ptr.ptr.val,
                             .val = coerced_val.val,
-                            .is_val_stack = coerced_val.val != instr.info.store_ptr.value.val,
+                            .is_val_stack = is_type_on_stack(&expected_ty, nct, target_info), // coerced_val.val != instr.info.store_ptr.value.val,
                             .val_type = TC_typeid_deep_copy(&expected_ty)
                         }
                     });
@@ -846,8 +1046,7 @@ MIR_func lowering_and_emission_pass_over_fn(
                 }
                 case IR_INST_TY__CONST_STRING: {
                     const TC_typeid dest_t = temporals_map->array[instr.info.const_string.dest.val].type;
-                    const SV t_sv = format_TC_typeid(&dest_t,
-                                                     identifier_map, nct);
+                    const SV t_sv = format_TC_typeid(&dest_t, identifier_map, nct);
 
                     bool valid_t = false;
                     if (dest_t.ty == TC_TY_Slice || dest_t.ty == TC_TY_List) {
@@ -878,14 +1077,223 @@ MIR_func lowering_and_emission_pass_over_fn(
 
                     const SV val = SV_from_identifiermap_lookup(identifier_map, instr.info.const_string.string);
 
-                    mir_emit(&mir_instrs, (MIR_instr) {
-                        .type = MIR_TY__CONST_STRING,
-                        .info.const_string = {
-                            .dest = instr.info.const_string.dest.val,
-                            .str_val = val,
-                            .type = TC_typeid_deep_copy(&temporals_map->array[instr.info.const_string.dest.val].type)
+                    switch (dest_t.ty) {
+                        case TC_TY_Slice: {
+                            const uint64_t dest = instr.info.const_string.dest.val;
+                            const uint64_t len_val = highest_temporal++;
+                            mir_emit(&mir_instrs, (MIR_instr) {
+                                .type = MIR_TY__CONST_INT,
+                                .info.const_int = {
+                                    .dest = len_val,
+                                    .val = (int64_t)val.len,
+                                    .type = (TC_typeid){ .ty = TC_TY_Primitive, .info.primitive = TC_Primitive__Uint32 }
+                                }
+                            });
+                            const uint64_t raw_ptr_temp = highest_temporal++;
+                            mir_emit(&mir_instrs, (MIR_instr) {
+                                .type = MIR_TY__LOAD_PTR_TO_CONST_STRING,
+                                .info.load_ptr_const_string = {
+                                    .dest = raw_ptr_temp,
+                                    .str_val = val,
+                                }
+                            });
+                            // alloc Slice<Char> stack slot
+                            mir_emit(&mir_instrs, (MIR_instr) {
+                                .type = MIR_TY__ALLOC_STACK,
+                                .info.alloc_stack = {
+                                    .dest = dest,
+                                    .type = TC_typeid_deep_copy(&dest_t),
+                                }
+                            });
+                            // Store ptr (Ref<Char>) at offset 0
+                            TC_typeid char_ty = (TC_typeid){ .ty = TC_TY_Primitive, .info.primitive = TC_Primitive__Char };
+                            TC_typeid char_ptr_ty = (TC_typeid){ .ty = TC_TY_Ref, .info.contained = TC_typeid_new_copy(&char_ty) };
+                            mir_emit(&mir_instrs, (MIR_instr) {
+                                .type = MIR_TY__STORE,
+                                .info.store = {
+                                    .ptr = dest,
+                                    .val = raw_ptr_temp,
+                                    .is_val_stack = false,
+                                    .val_type = char_ptr_ty
+                                }
+                            });
+                            // Calculate pointer to .len field at offset ptr_size (8)
+                            const uint64_t len_ptr_temp = highest_temporal++;
+                            mir_emit(&mir_instrs, (MIR_instr) {
+                                .type = MIR_TY__CALC_PTR,
+                                .info.calc_ptr = {
+                                    .dest = len_ptr_temp,
+                                    .base = dest,
+                                    .offset = target_info->ptr_size,
+                                    .scale = 4,
+                                    .index = 0,
+                                    .has_index = false
+                                }
+                            });
+                            // store len (Uint32) at offset ptr_size
+                            mir_emit(&mir_instrs, (MIR_instr) {
+                                .type = MIR_TY__STORE,
+                                .info.store = {
+                                    .ptr = len_ptr_temp,
+                                    .val = len_val,
+                                    .is_val_stack = false,
+                                    .val_type = (TC_typeid){ .ty = TC_TY_Primitive, .info.primitive = TC_Primitive__Uint32 }
+                                }
+                            });
+                            break;
                         }
-                    });
+                        case TC_TY_Array: {
+                            const uint64_t dest = instr.info.const_string.dest.val;
+                            const uint64_t raw_ptr_temp = highest_temporal++;
+                            mir_emit(&mir_instrs, (MIR_instr) {
+                                .type = MIR_TY__LOAD_PTR_TO_CONST_STRING,
+                                .info.load_ptr_const_string = {
+                                    .dest = raw_ptr_temp,
+                                    .str_val = val,
+                                }
+                            });
+                            mir_emit(&mir_instrs, (MIR_instr) {
+                                .type = MIR_TY__ALLOC_STACK,
+                                .info.alloc_stack = {
+                                    .dest = dest,
+                                    .type = TC_typeid_deep_copy(&dest_t),
+                                }
+                            });
+                            // blit N bytes from $strN (raw_ptr_temp) into dest stack buffer
+                            mir_emit(&mir_instrs, (MIR_instr) {
+                                .type = MIR_TY__STORE,
+                                .info.store = {
+                                    .ptr = dest,
+                                    .val = raw_ptr_temp,
+                                    .is_val_stack = true,
+                                    .val_type = TC_typeid_deep_copy(&dest_t)
+                                }
+                            });
+                            break;
+                        }
+                        case TC_TY_List: {
+                            const uint64_t dest = instr.info.const_string.dest.val;
+                            const TC_typeid char_ty = (TC_typeid){ .ty = TC_TY_Primitive, .info.primitive = TC_Primitive__Char };
+                            const TC_typeid u32_ty = (TC_typeid){ .ty = TC_TY_Primitive, .info.primitive = TC_Primitive__Uint32 };
+                            // len_val = val.len (Uint32)
+                            const uint64_t len_val = highest_temporal++;
+                            mir_emit(&mir_instrs, (MIR_instr) {
+                                .type = MIR_TY__CONST_INT,
+                                .info.const_int = {
+                                    .dest = len_val,
+                                    .val = (int64_t)val.len,
+                                    .type = u32_ty
+                                }
+                            });
+                            // raw_ptr_temp = $strN
+                            const uint64_t raw_ptr_temp = highest_temporal++;
+                            mir_emit(&mir_instrs, (MIR_instr) {
+                                .type = MIR_TY__LOAD_PTR_TO_CONST_STRING,
+                                .info.load_ptr_const_string = {
+                                    .dest = raw_ptr_temp,
+                                    .str_val = val,
+                                }
+                            });
+                            // alloc heap buffer for List<Char> and copy $strN bytes into it
+                            const uint64_t heap_ptr_temp = highest_temporal++;
+                            TC_typeid arr_ty = (TC_typeid){
+                                .ty = TC_TY_Array,
+                                .info.t_array = {
+                                    .contained = TC_typeid_new_copy(&char_ty),
+                                    .array_size = (uint32_t)val.len
+                                }
+                            };
+                            mir_emit(&mir_instrs, (MIR_instr) {
+                                .type = MIR_TY__ALLOC_HEAP,
+                                .info.alloc_heap = {
+                                    .dest = heap_ptr_temp,
+                                    .type = TC_typeid_deep_copy(&arr_ty),
+                                    .use_size_temp = false,
+                                    .size = 0
+                                }
+                            });
+                            mir_emit(&mir_instrs, (MIR_instr) {
+                                .type = MIR_TY__STORE,
+                                .info.store = {
+                                    .ptr = heap_ptr_temp,
+                                    .val = raw_ptr_temp,
+                                    .is_val_stack = true,
+                                    .val_type = arr_ty
+                                }
+                            });
+                            // alloc List<Char> struct ({ ptr; len; cap; }) on stack
+                            mir_emit(&mir_instrs, (MIR_instr) {
+                                .type = MIR_TY__ALLOC_STACK,
+                                .info.alloc_stack = {
+                                    .dest = dest,
+                                    .type = TC_typeid_deep_copy(&dest_t)
+                                }
+                            });
+                            // store heap_ptr_temp at offset 0 (ptr)
+                            TC_typeid char_ptr_ty = (TC_typeid){ .ty = TC_TY_Ref, .info.contained = TC_typeid_new_copy(&char_ty) };
+                            mir_emit(&mir_instrs, (MIR_instr) {
+                                .type = MIR_TY__STORE,
+                                .info.store = {
+                                    .ptr = dest,
+                                    .val = heap_ptr_temp,
+                                    .is_val_stack = false,
+                                    .val_type = char_ptr_ty
+                                }
+                            });
+                            // store len_val at offset ptr_size (len)
+                            const uint64_t len_ptr_temp = highest_temporal++;
+                            mir_emit(&mir_instrs, (MIR_instr) {
+                                .type = MIR_TY__CALC_PTR,
+                                .info.calc_ptr = {
+                                    .dest = len_ptr_temp,
+                                    .base = dest,
+                                    .offset = target_info->ptr_size,
+                                    .scale = 4,
+                                    .index = 0,
+                                    .has_index = false
+                                }
+                            });
+                            mir_emit(&mir_instrs, (MIR_instr) {
+                                .type = MIR_TY__STORE,
+                                .info.store = {
+                                    .ptr = len_ptr_temp,
+                                    .val = len_val,
+                                    .is_val_stack = false,
+                                    .val_type = u32_ty
+                                }
+                            });
+                            // store len_val at offset ptr_size + 4 (cap)
+                            const uint64_t cap_ptr_temp = highest_temporal++;
+                            mir_emit(&mir_instrs, (MIR_instr) {
+                                .type = MIR_TY__CALC_PTR,
+                                .info.calc_ptr = {
+                                    .dest = cap_ptr_temp,
+                                    .base = dest,
+                                    .offset = target_info->ptr_size + 4, //* 2,
+                                    .scale = 4,
+                                    .index = 0,
+                                    .has_index = false
+                                }
+                            });
+                            mir_emit(&mir_instrs, (MIR_instr) {
+                                .type = MIR_TY__STORE,
+                                .info.store = {
+                                    .ptr = cap_ptr_temp,
+                                    .val = len_val,
+                                    .is_val_stack = false,
+                                    .val_type = u32_ty
+                                }
+                            });
+                            break;
+                        }
+                        default: {
+                            UNREACHABLE("should be rejected in typechecking")
+                        }
+
+                    }
+
+
+
 
                     // printf("   %%%lu = CONST_STRING <"SV_format"> (\"", instr.info.const_string.dest.val,
                     //        SV_v_args(t_sv));
@@ -1471,34 +1879,121 @@ MIR_func lowering_and_emission_pass_over_fn(
                     }
                     break;
                 }
+                // case IR_INST_TY__INDEX_PTR: {
+                //     // 1. What are we indexing into? (e.g., %11 which is List<Char>)
+                //     const TC_typeid source_list_ty = temporals_map->array[instr.info.index_ptr.array_ptr.val].type;
+                //
+                //
+                //     // const IR_temporal_and_TC_type list = perf_auto_deref(&source_list_ty, &instr.info.index_ptr.array_ptr, &highest_temporal, temporals_map);
+                //     // if (source_list_ty.ty != TC_TY_Ref) {
+                //     //     // type error
+                //     //     const SV source_list_ty_sv = format_TC_typeid(&source_list_ty, identifier_map, nct);
+                //     //     char r_msg[1024] = {0};
+                //     //     int len = snprintf(r_msg, sizeof(r_msg), "type "C_BOLD""SV_format""C_RESET" cannot be indexed",
+                //     //                        SV_v_args(source_list_ty_sv));
+                //     //     const SV msg = SV_from_str_len(r_msg, len);
+                //     //     type_error(&source_info->source, &source_info->source_filename,
+                //     //                &fn.error_info_list.array[instr.error_info_index].info.index_array.index_expr.sv,
+                //     //                &msg);
+                //     //     exit(1);
+                //     // }
+                //     const IR_temporal_and_TC_type list = perf_auto_deref(&source_list_ty, &instr.info.index_ptr.array_ptr, &highest_temporal, temporals_map, &promote_to_stack_temps, nct, target_info, &mir_instrs);
+                //     const SV list_ty_sv = format_TC_typeid(&list.type, identifier_map, nct);
+                //
+                //     // const IR_temporal_and_TC_type list = (IR_temporal_and_TC_type) {
+                //     //     .temporal = instr.info.index_ptr.array_ptr,
+                //     //     .type = *source_list_ty.info.contained
+                //     // };
+                //     // const SV list_ty_sv = format_TC_typeid(&list.type, identifier_map, nct);
+                //
+                //     // 2. Extract the inner element type ('Char')
+                //     // TODO: assert array/list size check
+                //     TC_typeid* element_ty;
+                //     switch (list.type.ty) {
+                //         case TC_TY_Void: INTERNAL_ERROR()
+                //         case TC_TY_Primitive:
+                //         case TC_TY_Struct:
+                //         case TC_TY_Box:
+                //         case TC_TY_Ref:
+                //         case TC_TY_External_Type:
+                //         case TC_TY_Enum: {
+                //             // type error
+                //             char r_msg[1024] = {0};
+                //             int len = snprintf(r_msg, sizeof(r_msg), "type "C_BOLD""SV_format""C_RESET" cannot be indexed",
+                //                                SV_v_args(list_ty_sv));
+                //             const SV msg = SV_from_str_len(r_msg, len);
+                //             type_error(&source_info->source, &source_info->source_filename,
+                //                        &fn.error_info_list.array[instr.error_info_index].info.index_array.index_expr.sv,
+                //                        &msg);
+                //             exit(1);
+                //         }
+                //         case TC_TY_List:
+                //         case TC_TY_Slice: {
+                //             element_ty = list.type.info.contained;
+                //             break;
+                //         }
+                //         case TC_TY_Array: {
+                //             element_ty = list.type.info.t_array.contained;
+                //             break;
+                //         }
+                //     }
+                //     // = source_list_ty.info.contained; // get_list_inner_type(source_list_ty);
+                //     const SV ele_sv = format_TC_typeid(element_ty, identifier_map, nct);
+                //     // 3. Wrap it in a Reference! ('Ref<Char>')
+                //     // TC_typeid ref_ty = wrap_in_ref(element_ty);
+                //
+                //     // const size_t MAX_SIZE = 256;
+                //     // char* rs = malloc(sizeof(char) * MAX_SIZE);
+                //     // int len = snprintf(rs, MAX_SIZE, "Ref<"SV_format">", SV_v_args(ele_sv));
+                //     // rs = realloc(rs, len);
+                //     // const SV ref_span = SV_from_str_len(rs, len);
+                //
+                //     const TC_typeid ref_ty = (TC_typeid){
+                //         .ty = TC_TY_Ref,
+                //         .info.contained = TC_typeid_new_copy(element_ty), // (TC_typeid *) element_ty,
+                //         // .full_typeuse_span = (TokenSpan){.sv = ref_span}
+                //     };
+                //
+                //     // 4. Assign this type to the destination temporal (%13)
+                //     temporals_map->array[instr.info.index_ptr.dest.val].type = ref_ty;
+                //
+                //     // 5. Emit the instruction
+                //     // printf("   %%%lu = INDEX_PTR %%%lu [ %%%lu ]\n",
+                //     //        instr.info.index_ptr.dest.val,
+                //     //        //instr.info.index_ptr.array_ptr.val,
+                //     //        list.temporal.val,
+                //     //        instr.info.index_ptr.index_val.val);
+                //     SizeAlign sz = calc_size_of(element_ty, nct, target_info);
+                //     mir_emit(&mir_instrs, (MIR_instr) {
+                //         .type = MIR_TY__CALC_PTR,
+                //         .info.calc_ptr = {
+                //             .dest = instr.info.index_ptr.dest.val,
+                //             .base = list.temporal.val,
+                //             .offset = 0,
+                //             .scale = sz.size,
+                //             .index = instr.info.index_ptr.index_val.val,
+                //             .has_index = true
+                //         }
+                //     });
+                //
+                //
+                //     break;
+                // }
                 case IR_INST_TY__INDEX_PTR: {
-                    // 1. What are we indexing into? (e.g., %11 which is List<Char>)
+                    // 1. Auto-deref the container being indexed (List<T>, Slice<T>, or Array<T, N>)
                     const TC_typeid source_list_ty = temporals_map->array[instr.info.index_ptr.array_ptr.val].type;
-
-
-                    // const IR_temporal_and_TC_type list = perf_auto_deref(&source_list_ty, &instr.info.index_ptr.array_ptr, &highest_temporal, temporals_map);
-                    // if (source_list_ty.ty != TC_TY_Ref) {
-                    //     // type error
-                    //     const SV source_list_ty_sv = format_TC_typeid(&source_list_ty, identifier_map, nct);
-                    //     char r_msg[1024] = {0};
-                    //     int len = snprintf(r_msg, sizeof(r_msg), "type "C_BOLD""SV_format""C_RESET" cannot be indexed",
-                    //                        SV_v_args(source_list_ty_sv));
-                    //     const SV msg = SV_from_str_len(r_msg, len);
-                    //     type_error(&source_info->source, &source_info->source_filename,
-                    //                &fn.error_info_list.array[instr.error_info_index].info.index_array.index_expr.sv,
-                    //                &msg);
-                    //     exit(1);
-                    // }
-                    const IR_temporal_and_TC_type list = perf_auto_deref(&source_list_ty, &instr.info.index_ptr.array_ptr, &highest_temporal, temporals_map, &promote_to_stack_temps, nct, target_info, &mir_instrs);
+                    const IR_temporal_and_TC_type list = perf_auto_deref(
+                        &source_list_ty,
+                        &instr.info.index_ptr.array_ptr,
+                        &highest_temporal,
+                        temporals_map,
+                        &promote_to_stack_temps,
+                        nct,
+                        target_info,
+                        &mir_instrs
+                    );
                     const SV list_ty_sv = format_TC_typeid(&list.type, identifier_map, nct);
-
-                    // const IR_temporal_and_TC_type list = (IR_temporal_and_TC_type) {
-                    //     .temporal = instr.info.index_ptr.array_ptr,
-                    //     .type = *source_list_ty.info.contained
-                    // };
-                    // const SV list_ty_sv = format_TC_typeid(&list.type, identifier_map, nct);
-
-                    // 2. Extract the inner element type ('Char')
+                    // 2. Extract the inner element type
                     // TODO: assert array/list size check
                     TC_typeid* element_ty;
                     switch (list.type.ty) {
@@ -1509,7 +2004,6 @@ MIR_func lowering_and_emission_pass_over_fn(
                         case TC_TY_Ref:
                         case TC_TY_External_Type:
                         case TC_TY_Enum: {
-                            // type error
                             char r_msg[1024] = {0};
                             int len = snprintf(r_msg, sizeof(r_msg), "type "C_BOLD""SV_format""C_RESET" cannot be indexed",
                                                SV_v_args(list_ty_sv));
@@ -1529,46 +2023,81 @@ MIR_func lowering_and_emission_pass_over_fn(
                             break;
                         }
                     }
-                    // = source_list_ty.info.contained; // get_list_inner_type(source_list_ty);
-                    const SV ele_sv = format_TC_typeid(element_ty, identifier_map, nct);
-                    // 3. Wrap it in a Reference! ('Ref<Char>')
-                    // TC_typeid ref_ty = wrap_in_ref(element_ty);
-
-                    // const size_t MAX_SIZE = 256;
-                    // char* rs = malloc(sizeof(char) * MAX_SIZE);
-                    // int len = snprintf(rs, MAX_SIZE, "Ref<"SV_format">", SV_v_args(ele_sv));
-                    // rs = realloc(rs, len);
-                    // const SV ref_span = SV_from_str_len(rs, len);
-
+                    // 3. Coerce index operand to Uint32
+                    const TC_typeid index_val_ty = TC_typeid_deep_copy(&temporals_map->array[instr.info.index_ptr.index_val.val].type);
+                    const TC_typeid uint32_ty = (TC_typeid){
+                        .ty = TC_TY_Primitive,
+                        .info.primitive = TC_Primitive__Uint32
+                    };
+                    const IR_temporal index_temp = perf_autos(
+                        &instr.info.index_ptr.index_val,
+                        &index_val_ty,
+                        &uint32_ty,
+                        &highest_temporal,
+                        identifier_map,
+                        nct,
+                        temporals_map,
+                        source_info,
+                        &fn.error_info_list.array[instr.error_info_index].info.index_array.index_expr.sv,
+                        &temporals_map_values,
+                        &promote_to_stack_temps,
+                        target_info,
+                        &mir_instrs
+                    );
+                    // 4. Wrap element type in Ref<T> and register destination temporal
                     const TC_typeid ref_ty = (TC_typeid){
                         .ty = TC_TY_Ref,
-                        .info.contained = TC_typeid_new_copy(element_ty), // (TC_typeid *) element_ty,
-                        // .full_typeuse_span = (TokenSpan){.sv = ref_span}
+                        .info.contained = TC_typeid_new_copy(element_ty),
                     };
-
-                    // 4. Assign this type to the destination temporal (%13)
-                    temporals_map->array[instr.info.index_ptr.dest.val].type = ref_ty;
-
-                    // 5. Emit the instruction
-                    // printf("   %%%lu = INDEX_PTR %%%lu [ %%%lu ]\n",
-                    //        instr.info.index_ptr.dest.val,
-                    //        //instr.info.index_ptr.array_ptr.val,
-                    //        list.temporal.val,
-                    //        instr.info.index_ptr.index_val.val);
-                    SizeAlign sz = calc_size_of(&temporals_map->array[list.temporal.val].type, nct, target_info);
-                    mir_emit(&mir_instrs, (MIR_instr) {
+                    temporals_map->array[instr.info.index_ptr.dest.val] = (TC_Entry){
+                        .known_temporal = true,
+                        .type = ref_ty,
+                        .is_value_known = false,
+                        .is_addressable = false
+                    };
+                    // 5. Resolve base data pointer:
+                    //    - TC_TY_Array: stack slot address is directly the contiguous element buffer
+                    //    - TC_TY_Slice / TC_TY_List: stack slot is header struct { ptr, len [, cap] }; load data ptr at offset 0
+                    uint64_t base_ptr_temp = list.temporal.val;
+                    if (list.type.ty == TC_TY_Slice || list.type.ty == TC_TY_List) {
+                        const uint64_t data_ptr_temp = highest_temporal++;
+                        if (temporals_map->cap < data_ptr_temp + 1) {
+                            TC_Entry_LIST_inflate(temporals_map, data_ptr_temp + 5);
+                        }
+                        while (temporals_map->len <= data_ptr_temp) {
+                            TC_Entry_LIST_push(temporals_map, (TC_Entry){.known_temporal = false});
+                        }
+                        temporals_map->array[data_ptr_temp] = (TC_Entry){
+                            .known_temporal = true,
+                            .type = TC_typeid_deep_copy(&ref_ty),
+                            .is_value_known = false,
+                            .is_addressable = false
+                        };
+                        mir_emit(&mir_instrs, (MIR_instr){
+                            .type = MIR_TY__READ_PTR,
+                            .info.read_ptr = {
+                                .dest = data_ptr_temp,
+                                .ptr = list.temporal.val,
+                                .offset = 0,
+                                .read_size = target_info->ptr_size,
+                                .value_type = TC_typeid_deep_copy(&ref_ty)
+                            }
+                        });
+                        base_ptr_temp = data_ptr_temp;
+                    }
+                    // 6. Emit MIR_TY__CALC_PTR scaled by element size
+                    const SizeAlign sz = calc_size_of(element_ty, nct, target_info);
+                    mir_emit(&mir_instrs, (MIR_instr){
                         .type = MIR_TY__CALC_PTR,
                         .info.calc_ptr = {
                             .dest = instr.info.index_ptr.dest.val,
-                            .base = list.temporal.val,
+                            .base = base_ptr_temp,
                             .offset = 0,
                             .scale = sz.size,
-                            .index = instr.info.index_ptr.index_val.val,
+                            .index = index_temp.val,
                             .has_index = true
                         }
                     });
-
-
                     break;
                 }
                 case IR_INST_TY__READ_PTR: {
@@ -2677,14 +3206,15 @@ MIR_func lowering_and_emission_pass_over_fn(
                     //        out.val,
                     //        sz.size,
                     //        sz.align);
-                    mir_emit(&mir_instrs, (MIR_instr) {
-                        .type = MIR_TY__MAKE_BOX,
-                        .info.make_box = {
-                            .dest = instr.info.make_box.dest.val,
-                            .src = out.val,
-                            .inner_sa = sz
-                        }
-                    });
+                    // mir_emit(&mir_instrs, (MIR_instr) {
+                    //     .type = MIR_TY__MAKE_BOX,
+                    //     .info.make_box = {
+                    //         .dest = instr.info.make_box.dest.val,
+                    //         .src = out.val,
+                    //         .inner_sa = sz
+                    //     }
+                    // });
+                    UNIMPLEMENTED("use ALLOC_HEAP+STORE")
 
                     break;
                 }
