@@ -62,7 +62,7 @@ void write_type(const TC_typeid* restrict t, TC_typeid_LIST* restrict qbe_mat_ne
         return;
     }
 
-    if (t->ty == TC_TY_Ref || t->ty == TC_TY_Slice || t->ty == TC_TY_List) {
+    if (t->ty == TC_TY_Ref || t->ty == TC_TY_Slice || t->ty == TC_TY_List || t->ty == TC_TY_Array) {
         const SV p = reg_size_to_letter(target_info->ptr_size);
         fprintf(qbe_out, SV_format" ", SV_v_args(p));
         return;

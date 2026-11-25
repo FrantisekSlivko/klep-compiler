@@ -34,19 +34,20 @@ Arguments:
 <input.klep>                The Klep source file to compile (required)
 ```
 
-example of cross-platform compilation
+example of cross-platform compilation:
 ```shell
 klep programs/out_test.klep --cc-bin="x86_64-w64-mingw32-cc" --qbe-target="amd64_win" -o out.exe
 ```
 
 ## example program that compiles
-```
+> Prints 'Hello World!' and
+> returns with exit number 26.
 
+```
 struct A {
     Int v1;
     Int v2;
 }
-
 
 Int add(Int a, Int b) {
     return a + b;
@@ -55,7 +56,6 @@ Int add(Int a, Int b) {
 Int add(Ref<A> a) {
     return a.v1 + a.v2;
 }
-
 
 Int main() {
     Int v1 = 5;
@@ -67,17 +67,30 @@ Int main() {
     Int res1 = add(s1);
 
     Slice<Char> str = "Hello World!\n";
+    print_str(str);
 
     Int i = 0;
     while i < 10 {
         i += 1;
     }
-    return i;
+    return i + res + res1;
 }
 
+generic Void print_str<T>(T str) {
+    Uint c_index = 0;
+    while c_index < str.len {
+        putc(str[c_index]);
+        c_index += 1;
+    }
+}
+
+
+extern void putchar(char c)
+    into
+    Void putc(Char c);
+
 ```
-Returns with exit number 10.
- 
+
 --- 
 
 See `LANG.md` for language specification.

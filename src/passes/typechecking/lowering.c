@@ -330,6 +330,11 @@ MIR_func lowering_and_emission_pass_over_fn(
                         rewrite_map.array[instr.info.assign.dest.val].rewrite = instr.info.assign.old;
                         break;
                     }
+                    // if (!temporals_map->array[instr.info.assign.old.val].is_addressable) {
+                    //     const SV msg = SV_from_str("cannot assign to non-assignable value");
+                    //     type_error(&source_info->source, &source_info->source_filename, &expr_sv, &msg);
+                    //     exit(1);
+                    // }
                     const TC_typeid expected_ty = TC_typeid_deep_copy(&old_ty);
                     const IR_temporal coerced_val = perf_autos(
                         &instr.info.assign.new,
@@ -2536,43 +2541,86 @@ MIR_func lowering_and_emission_pass_over_fn(
                             sdef = compiler_builtin__slice_tc_structdef;
                             break;
                         }
+                        // case TC_TY_Array: {
+                        //     // coerce info.t_array.len->temporla
+                        //     // UNIMPLEMENTED("ARRAY.len")
+                        //
+                        //     if (!SV_pv_cmp_eq(&instr.info.get_struct_field_ptr.field_name.span.sv, "len", 3)) {
+                        //         const size_t MAX_SIZE = 512;
+                        //         char* r_msg = malloc(sizeof(char) * MAX_SIZE);
+                        //         int len = snprintf(r_msg, MAX_SIZE,
+                        //                            "struct "C_BOLD"Array"C_RESET" does not have field '"SV_format"",
+                        //                            SV_v_args(instr.info.get_struct_field_ptr.field_name.span.sv));
+                        //         const SV msg = SV_from_str_len(r_msg, len);
+                        //         syntax_error(&source_info->source, &source_info->source_filename,
+                        //                      &instr.info.get_struct_field_ptr.field_name.span.sv, &msg);
+                        //         exit(1);
+                        //     }
+                        //
+                        //     // reuse Uint32 type from len of list
+                        //     const TC_typeid field_t = compiler_builtin__list_tc_structdef.fields.array[0].type;
+                        //     if (!is_type_eq(&field_t, &dest_t)) {
+                        //         const SV dest_t_sv = format_TC_typeid(&dest_t, identifier_map, nct);
+                        //         const SV field_t_sv = format_TC_typeid(&field_t, identifier_map, nct);
+                        //
+                        //         const size_t MAX_SIZE = 512;
+                        //         char* r_msg = malloc(sizeof(char) * MAX_SIZE);
+                        //         int len = snprintf(r_msg, MAX_SIZE,
+                        //                            "expected value of type "C_BOLD""SV_format""C_RESET" but got "C_BOLD
+                        //                            ""SV_format""C_RESET"", SV_v_args(dest_t_sv), SV_v_args(field_t_sv));
+                        //         const SV msg = SV_from_str_len(r_msg, len);
+                        //
+                        //         type_error(&source_info->source, &source_info->source_filename,
+                        //                    &fn.error_info_list.array[instr.error_info_index].info.get_struct_field.whole
+                        //                    .sv, &msg);
+                        //         exit(1);
+                        //     }
+                        //
+                        //
+                        //     // printf("   %%%lu = CONST_INT <Uint32> (%u)\n", instr.info.get_struct_field_ptr.dest.val, struct_t.info.t_array.array_size);
+                        //     mir_emit(&mir_instrs, (MIR_instr) {
+                        //         .type = MIR_TY__CONST_INT,
+                        //         .info.const_int = {
+                        //             .dest = instr.info.get_struct_field_ptr.dest.val,
+                        //             .val = struct_t.info.t_array.array_size,
+                        //             .type = (TC_typeid) {
+                        //                 .ty = TC_TY_Primitive,
+                        //                 .info.primitive = TC_Primitive__Uint32
+                        //             }
+                        //         }
+                        //     });
+                        //
+                        //     break_out = true;
+                        //     break;
+                        // }
                         case TC_TY_Array: {
-                            // coerce info.t_array.len->temporla
-                            // UNIMPLEMENTED("ARRAY.len")
-
                             if (!SV_pv_cmp_eq(&instr.info.get_struct_field_ptr.field_name.span.sv, "len", 3)) {
                                 const size_t MAX_SIZE = 512;
                                 char* r_msg = malloc(sizeof(char) * MAX_SIZE);
                                 int len = snprintf(r_msg, MAX_SIZE,
-                                                   "struct "C_BOLD"Array"C_RESET" does not have field '"SV_format"",
+                                                   "struct "C_BOLD"Array"C_RESET" does not have field '"SV_format"'",
                                                    SV_v_args(instr.info.get_struct_field_ptr.field_name.span.sv));
                                 const SV msg = SV_from_str_len(r_msg, len);
                                 syntax_error(&source_info->source, &source_info->source_filename,
                                              &instr.info.get_struct_field_ptr.field_name.span.sv, &msg);
                                 exit(1);
                             }
-
                             // reuse Uint32 type from len of list
                             const TC_typeid field_t = compiler_builtin__list_tc_structdef.fields.array[0].type;
                             if (!is_type_eq(&field_t, &dest_t)) {
                                 const SV dest_t_sv = format_TC_typeid(&dest_t, identifier_map, nct);
                                 const SV field_t_sv = format_TC_typeid(&field_t, identifier_map, nct);
-
                                 const size_t MAX_SIZE = 512;
                                 char* r_msg = malloc(sizeof(char) * MAX_SIZE);
                                 int len = snprintf(r_msg, MAX_SIZE,
                                                    "expected value of type "C_BOLD""SV_format""C_RESET" but got "C_BOLD
                                                    ""SV_format""C_RESET"", SV_v_args(dest_t_sv), SV_v_args(field_t_sv));
                                 const SV msg = SV_from_str_len(r_msg, len);
-
                                 type_error(&source_info->source, &source_info->source_filename,
                                            &fn.error_info_list.array[instr.error_info_index].info.get_struct_field.whole
                                            .sv, &msg);
                                 exit(1);
                             }
-
-
-                            // printf("   %%%lu = CONST_INT <Uint32> (%u)\n", instr.info.get_struct_field_ptr.dest.val, struct_t.info.t_array.array_size);
                             mir_emit(&mir_instrs, (MIR_instr) {
                                 .type = MIR_TY__CONST_INT,
                                 .info.const_int = {
@@ -2584,7 +2632,14 @@ MIR_func lowering_and_emission_pass_over_fn(
                                     }
                                 }
                             });
-
+                            if (instr.info.get_struct_field_ptr.dest.val + 1 > temporals_map_values.cap) {
+                                TC_Value_LIST_inflate(&temporals_map_values, instr.info.get_struct_field_ptr.dest.val + 1);
+                            }
+                            temporals_map_values.array[instr.info.get_struct_field_ptr.dest.val] = (TC_Value){
+                                .kind = TC_VK_Int,
+                                .Int = struct_t.info.t_array.array_size
+                            };
+                            temporals_map->array[instr.info.get_struct_field_ptr.dest.val].is_value_known = true;
                             break_out = true;
                             break;
                         }

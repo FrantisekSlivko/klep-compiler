@@ -87,9 +87,9 @@ SVList p_tokenize(const SV text) {
             continue;
         }
 
-        if (c == '"') {
+        if (c == '"' || c == '\'') {
             const size_t start = i++;
-            while (i < text.len && text.start[i] != '"' &&
+            while (i < text.len && text.start[i] != c &&
                    text.start[i] != '\n' && text.start[i] != '\0') {
                 if (text.start[i] == '\\') i++;
                 i++;

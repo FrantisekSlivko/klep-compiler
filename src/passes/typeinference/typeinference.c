@@ -749,6 +749,7 @@ void type_inference_pass_over_fn(
                             .is_addressable = false
                         };
                     }
+                    break;
                 }
                 case IR_INST_TY__GET_STRUCT_FIELD_PTR: {
                     if (temporals_map->array[instr.info.get_struct_field_ptr.struct_ptr.val].known_temporal &&
@@ -847,42 +848,55 @@ void type_inference_pass_over_fn(
                                 perf_jump = true;
                             }
                         } else if (inner_src.ty == TC_TY_Array) {
-                            // return const_int from type as LEN
-                            // inner_src.info.t_array.array_size;
-                            if (instr_nth + 1 < block.instructions.len && block.instructions.array[instr_nth + 1].ty == IR_INST_TY__READ_PTR && block.instructions.array[instr_nth + 1].info.read_ptr.ptr.val == instr.info.get_struct_field_ptr.dest.val) {
-                                const IR_instr_error_info ei = fn.error_info_list.array[instr.error_info_index];
-                                block.instructions.array[instr_nth] = (IR_instr) {
-                                    .ty = IR_INST_TY__CONST_INT,
-                                    .info.const_int = {
-                                        .dest = instr.info.get_struct_field_ptr.dest,
-                                        .val = inner_src.info.t_array.array_size
-                                    },
-                                    .error_info_index = instr.error_info_index
-                                };
-                                fn.error_info_list.array[instr.error_info_index] = (IR_instr_error_info) {
-                                    .kind = IR_IEI_literal,
-                                    .info.literal = ei.info.get_struct_field.whole
-                                };
-                                // ----------
-                                const IR_instr nx = block.instructions.array[instr_nth+1];
 
-                                block.instructions.array[instr_nth+1] = (IR_instr) {
-                                    .ty = IR_INST_TY__MOVE,
-                                    .info.move = {
-                                        .dest = nx.info.read_ptr.dest,
-                                        .src = nx.info.read_ptr.ptr
-                                    },
-                                    .error_info_index = nx.error_info_index
-                                };
-                                fn.error_info_list.array[nx.error_info_index] = (IR_instr_error_info) {
-                                    .kind = IR_IEI_move,
-                                    .info.move = {.value = ei.info.get_struct_field.whole }
+                            const SV len = SV_from_str_len("len", 3);
+                            if (instr.info.get_struct_field_ptr.field_name.identifier == SV_to_identifier(identifier_map, NULL, &len)) {
+                                temporals_map->array[instr.info.get_struct_field_ptr.dest.val] = (TC_Entry){
+                                    .known_temporal = true,
+                                    .type = compiler_builtin__list_tc_structdef.fields.array[0].type,
+                                    .is_value_known = false,
+                                    .is_addressable = false
                                 };
                                 block_id = (ptrdiff_t) fn.blocks.len;
                                 perf_jump = true;
-                            } else if (instr_nth + 1 < block.instructions.len && block.instructions.array[instr_nth + 1].ty == IR_INST_TY__STORE_PTR && block.instructions.array[instr_nth + 1].info.store_ptr.ptr.val == instr.info.get_struct_field_ptr.dest.val) {
-                                INTERNAL_ERROR("type error here"); // cannot overrwrite array size
                             }
+
+                            // return const_int from type as LEN
+                            // inner_src.info.t_array.array_size;
+                            // if (instr_nth + 1 < block.instructions.len && block.instructions.array[instr_nth + 1].ty == IR_INST_TY__READ_PTR && block.instructions.array[instr_nth + 1].info.read_ptr.ptr.val == instr.info.get_struct_field_ptr.dest.val) {
+                            //     const IR_instr_error_info ei = fn.error_info_list.array[instr.error_info_index];
+                            //     block.instructions.array[instr_nth] = (IR_instr) {
+                            //         .ty = IR_INST_TY__CONST_INT,
+                            //         .info.const_int = {
+                            //             .dest = instr.info.get_struct_field_ptr.dest,
+                            //             .val = inner_src.info.t_array.array_size
+                            //         },
+                            //         .error_info_index = instr.error_info_index
+                            //     };
+                            //     fn.error_info_list.array[instr.error_info_index] = (IR_instr_error_info) {
+                            //         .kind = IR_IEI_literal,
+                            //         .info.literal = ei.info.get_struct_field.whole
+                            //     };
+                            //     // ----------
+                            //     const IR_instr nx = block.instructions.array[instr_nth+1];
+                            //
+                            //     block.instructions.array[instr_nth+1] = (IR_instr) {
+                            //         .ty = IR_INST_TY__MOVE,
+                            //         .info.move = {
+                            //             .dest = nx.info.read_ptr.dest,
+                            //             .src = nx.info.read_ptr.ptr
+                            //         },
+                            //         .error_info_index = nx.error_info_index
+                            //     };
+                            //     fn.error_info_list.array[nx.error_info_index] = (IR_instr_error_info) {
+                            //         .kind = IR_IEI_move,
+                            //         .info.move = {.value = ei.info.get_struct_field.whole }
+                            //     };
+                            //     block_id = (ptrdiff_t) fn.blocks.len;
+                            //     perf_jump = true;
+                            // } else if (instr_nth + 1 < block.instructions.len && block.instructions.array[instr_nth + 1].ty == IR_INST_TY__STORE_PTR && block.instructions.array[instr_nth + 1].info.store_ptr.ptr.val == instr.info.get_struct_field_ptr.dest.val) {
+                            //     INTERNAL_ERROR("type error here"); // cannot overrwrite array size
+                            // }
                         }
                     }
                     break;

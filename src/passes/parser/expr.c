@@ -295,7 +295,7 @@ void P_parse_char_literal(const Parser* p, const Token t, int64_t* out_val) {
         if (i >= t->len) {
             is_valid = false;
         } else {
-            char c = t->start[i];
+            const char c = t->start[i];
             switch (c) {
                 case 'n': result_val = '\n';
                     i++;
@@ -395,7 +395,8 @@ void P_parse_char_literal(const Parser* p, const Token t, int64_t* out_val) {
     if (is_valid) {
         *out_val = result_val;
     } else {
-        P_syntax_error(p, t, SV_from_str_len("invalid char literal", 20));
+        // P_syntax_error(p, t, SV_from_str_len("invalid char literal", 20));
+        P_syntax_error(p, &(SV){.start=&t->start[1], .len=t->len-2}, SV_from_str_len("invalid char literal", 20));
         exit(1);
     }
 }

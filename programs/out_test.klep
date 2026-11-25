@@ -7,18 +7,15 @@ Int main() {
     print(str2);
     print(124);
     print("\n");
+
+    Array<Char, 10> msg = ['W', 'e', 'l', 'c', 'o', 'm', 'e', '!', '\n', '\0'];
+    Uint32 ml = msg.len;
+    print(msg);
+
     return 0;
 }
 
-Void print(Slice<Char> str) {
-    Uint c_index = 0;
-    while c_index < str.len {
-        putc(str[c_index]);
-        c_index += 1;
-    }
-}
-
-Void print(List<Char> str) {
+generic Void print<T>(T str) {
     Uint c_index = 0;
     while c_index < str.len {
         putc(str[c_index]);
@@ -32,8 +29,6 @@ Void print(Int64 i) {
 }
 
 
-
-
 extern void printf(char* s, int64_t v)
     into
     Void printf_int(Ref<Char> s, Int64 v);
@@ -45,3 +40,4 @@ extern void puts(char* c)
 extern void putchar(char c)
     into
     Void putc(Char c);
+
